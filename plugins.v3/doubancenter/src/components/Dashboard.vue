@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { getPluginApi, postPluginApi, toPosterThumbnail, openNativeSubscription } from './api'
 import { sourceDescriptor, doubanDispatchUrl } from './source'
 import { useRankMediaActions } from './useRankMediaActions'
+import { useRequestScope } from './useRequestScope'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -37,6 +38,22 @@ watch(showDialog, open => {
   }
 }, { flush: 'sync' })
 const timelineImageFailed = ref({})
+let loadEpoch = 0
+let refreshEpoch = 0
+let subscribeEpoch = 0
+const requestScope = useRequestScope(() => dashboardPluginId.value, () => {
+  loadEpoch += 1
+  refreshEpoch += 1
+  subscribeEpoch += 1
+  dialogResolveToken.value += 1
+  loading.value = false
+  folioLoading.value = false
+  refreshing.value = false
+  dialogResolving.value = false
+  showDialog.value = false
+  subscribeResult.value = ''
+  refreshResult.value = ''
+})
 
 const builtinRankDefs = {
   coming: { name: '即将上映' },
@@ -94,15 +111,20 @@ async function requestFolioData(timeoutMs) {
 }
 
 async function loadFolioData() {
+  const owner = requestScope.capture()
+  const epoch = loadEpoch
+  const current = () => owner() && epoch === loadEpoch
   let lastError = null
   for (let attempt = 0; attempt <= TIMELINE_RETRY_DELAYS_MS.length; attempt += 1) {
+    if (!current()) return null
     if (attempt > 0) {
-      await new Promise(resolve => setTimeout(resolve, TIMELINE_RETRY_DELAYS_MS[attempt - 1]))
+      if (!await requestScope.wait(TIMELINE_RETRY_DELAYS_MS[attempt - 1]) || !current()) return null
     }
     try {
       const timeoutMs = attempt === 0 ? INITIAL_LOAD_TIMEOUT_MS : TIMELINE_RETRY_TIMEOUT_MS
       return await requestFolioData(timeoutMs)
     } catch (error) {
+      if (!current()) return null
       lastError = error
       if (error?.code === 'PLUGIN_API_TIMEOUT' && attempt > 0) break
     }
@@ -111,6 +133,10 @@ async function loadFolioData() {
 }
 
 async function load() {
+  if (!requestScope.isActive()) return
+  const owner = requestScope.capture()
+  const epoch = ++loadEpoch
+  const current = () => owner() && epoch === loadEpoch
   loading.value = true
   folioLoading.value = true
   loadError.value = ''
@@ -121,6 +147,7 @@ async function load() {
     { label: '榜单快照', run: getPluginApi(props.api, dashboardPluginId.value, 'rank_history', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS }) },
   ]
   const coreResults = await Promise.allSettled(coreRequests.map(item => item.run))
+  if (!current()) return
 
   coreResults.forEach((result, index) => {
     if (result.status === 'fulfilled') {
@@ -139,6 +166,7 @@ async function load() {
   loading.value = false
 
   const [folioResult] = await folioRequest
+  if (!current()) return
   if (folioResult.status === 'fulfilled') {
     if (folioResult.value?.success === false) {
       errors.push('追影时间线')
@@ -155,11 +183,17 @@ async function load() {
 }
 
 async function refreshDashboard() {
+  if (refreshing.value || !requestScope.isActive()) return
+  const owner = requestScope.capture()
+  const epoch = ++refreshEpoch
+  const current = () => owner() && epoch === refreshEpoch
   refreshing.value = true
   refreshResult.value = ''
   await load()
+  if (!current()) return
   try {
     const res = await postPluginApi(props.api, dashboardPluginId.value, 'refresh_rss', {})
+    if (!current()) return
     if (res.success) {
       if (res.data) rankHistory.value = res.data
       refreshResult.value = 'RSS 已刷新'
@@ -167,13 +201,16 @@ async function refreshDashboard() {
       refreshResult.value = res.message || 'RSS 刷新失败'
     }
   } catch (e) {
+    if (!current()) return
     refreshResult.value = `刷新失败: ${e}`
   }
   refreshing.value = false
-  setTimeout(() => { refreshResult.value = '' }, 3000)
+  requestScope.later(() => { if (current()) refreshResult.value = '' }, 3000)
 }
 
 async function showActionDialog(rk, item) {
+  if (!requestScope.isActive()) return
+  const current = requestScope.capture()
   const token = ++dialogResolveToken.value
   dialogItem.value = { rk, item: { ...(item || {}) } }
   dialogResolveError.value = ''
@@ -183,15 +220,15 @@ async function showActionDialog(rk, item) {
   dialogResolving.value = true
   try {
     const media = await resolveRankMedia(rk, item)
-    if (token !== dialogResolveToken.value) return
+    if (!current() || token !== dialogResolveToken.value) return
     dialogItem.value = { rk, item: media }
     if (!tmdbIdOf(media)) dialogResolveError.value = '未找到对应的 TMDB 条目'
   } catch (error) {
-    if (token === dialogResolveToken.value) {
+    if (current() && token === dialogResolveToken.value) {
       dialogResolveError.value = error?.message || 'TMDB 识别失败'
     }
   } finally {
-    if (token === dialogResolveToken.value) dialogResolving.value = false
+    if (current() && token === dialogResolveToken.value) dialogResolving.value = false
   }
 }
 
@@ -204,30 +241,39 @@ function dialogPoster() {
   return toPosterThumbnail(item.poster || item.poster_path || item.cover)
 }
 
-async function subscribeViaNativeDialog(rk, item) {
+async function subscribeViaNativeDialog(rk, item, current) {
+  const open = props.nativeSubscribe
   const media = await resolveRankMedia(rk, item)
-  await openNativeSubscription(props.nativeSubscribe, media)
+  if (!current()) return
+  await openNativeSubscription(open, media)
+  if (!current()) return
   subscribeResult.value = '已打开 MP 原生订阅窗口'
 }
 
-async function subscribeRankItem(rk, item) {
+async function subscribeRankItem(rk, item, current) {
   const res = await requestRankSubscription(rk, item)
+  if (!current()) return
   if (!res?.success) throw new Error(res?.message || '订阅失败')
   subscribeResult.value = res?.message || `${item.title || ''} 已添加订阅`
 }
 
 async function doSubscribe() {
   if (!dialogItem.value || dialogResolving.value) return
+  if (!requestScope.isActive()) return
+  const owner = requestScope.capture()
+  const epoch = ++subscribeEpoch
+  const current = () => owner() && epoch === subscribeEpoch
   const { rk, item } = dialogItem.value
   showDialog.value = false
   subscribeResult.value = ''
   try {
-    if (props.nativeSubscribe) await subscribeViaNativeDialog(rk, item)
-    else await subscribeRankItem(rk, item)
+    if (props.nativeSubscribe) await subscribeViaNativeDialog(rk, item, current)
+    else await subscribeRankItem(rk, item, current)
   } catch (e) {
+    if (!current()) return
     subscribeResult.value = `订阅失败: ${e?.message || e}`
   }
-  setTimeout(() => { subscribeResult.value = '' }, 3000)
+  if (current()) requestScope.later(() => { if (current()) subscribeResult.value = '' }, 3000)
 }
 
 function sourceButtonColor() {

@@ -1,7 +1,8 @@
-import { reactive, ref, onScopeDispose, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { getPluginApi, postPluginApi, toPosterThumbnail, openNativeSubscription } from '../api'
 import { sourceDescriptor } from '../source'
 import { useRankMediaActions } from '../useRankMediaActions'
+import { useRequestScope } from '../useRequestScope'
 
 const INITIAL_LOAD_TIMEOUT_MS = 8000
 
@@ -50,17 +51,18 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   const dialogResolveToken = ref(0)
 
   let requestEpoch = 0
-  let active = true
   function invalidateRequests() {
     requestEpoch += 1
     dialogResolveToken.value += 1
     loading.value = false
   }
-  onScopeDispose(() => {
-    active = false
+  const requestScope = useRequestScope(pluginId, () => {
     invalidateRequests()
+    actionKey.value = ''
+    actionMessage.value = ''
+    showDialog.value = false
+    dialogResolving.value = false
   })
-  watch(pluginId, invalidateRequests, { flush: 'sync' })
   watch(showDialog, open => {
     if (!open) {
       dialogResolveToken.value += 1
@@ -70,8 +72,8 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
 
   function beginRequest() {
     const epoch = ++requestEpoch
-    const owner = pluginId()
-    return () => active && epoch === requestEpoch && owner === pluginId()
+    const current = requestScope.capture()
+    return () => current() && epoch === requestEpoch
   }
 
   function rankColorOf(key) {
@@ -165,7 +167,7 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   } = useRankMediaActions({ api, pluginId, rankNameOf })
 
   async function loadAll() {
-    if (!active) return
+    if (!requestScope.isActive()) return
     const isCurrent = beginRequest()
     loading.value = true
     loadError.value = ''
@@ -210,7 +212,7 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   }
 
   async function loadArchive() {
-    if (!active) return
+    if (!requestScope.isActive()) return
     const isCurrent = beginRequest()
     loading.value = true
     loadError.value = ''
@@ -257,22 +259,25 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   }
 
   async function runDelete(path, body, key, successText) {
-    if (actionKey.value) return
+    if (actionKey.value || !requestScope.isActive()) return
+    const current = requestScope.capture()
     actionKey.value = key
     actionMessage.value = ''
     actionOk.value = true
     try {
       const qs = queryString(body)
       const response = await postPluginApi(api(), pluginId(), qs ? `${path}?${qs}` : path, {})
+      if (!current()) return
       actionOk.value = !!response?.success
       actionMessage.value = response?.message || (actionOk.value ? successText : '操作失败')
       if (archivePage.value) await loadArchive()
       else await loadAll()
     } catch (error) {
+      if (!current()) return
       actionOk.value = false
       actionMessage.value = error?.message || '操作失败'
     } finally {
-      actionKey.value = ''
+      if (current()) actionKey.value = ''
     }
   }
 
@@ -303,6 +308,8 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   }
 
   async function showActionDialog(rk, item) {
+    if (!requestScope.isActive()) return
+    const current = requestScope.capture()
     const token = ++dialogResolveToken.value
     dialogItem.value = { rk, item: { ...(item || {}) } }
     dialogResolveError.value = ''
@@ -312,13 +319,13 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
     dialogResolving.value = true
     try {
       const media = await resolveRankMedia(rk, item)
-      if (token !== dialogResolveToken.value) return
+      if (!current() || token !== dialogResolveToken.value) return
       dialogItem.value = { rk, item: media }
       if (!tmdbIdOf(media)) dialogResolveError.value = '未找到对应的 TMDB 条目'
     } catch (error) {
-      if (token === dialogResolveToken.value) dialogResolveError.value = error?.message || 'TMDB 识别失败'
+      if (current() && token === dialogResolveToken.value) dialogResolveError.value = error?.message || 'TMDB 识别失败'
     } finally {
-      if (token === dialogResolveToken.value) dialogResolving.value = false
+      if (current() && token === dialogResolveToken.value) dialogResolving.value = false
     }
   }
 
@@ -328,16 +335,20 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   }
 
   async function subscribeViaNativeDialog(rk, item) {
-    const owner = pluginId()
+    const current = requestScope.capture()
+    const open = nativeSubscribe()
     const media = await resolveRankMedia(rk, item)
-    if (!active || owner !== pluginId()) return
-    await openNativeSubscription(nativeSubscribe(), media)
+    if (!current()) return
+    await openNativeSubscription(open, media)
+    if (!current()) return
     actionOk.value = true
     actionMessage.value = '已打开 MP 原生订阅窗口'
   }
 
   async function subscribeRankItem(rk, item) {
+    const current = requestScope.capture()
     const response = await requestRankSubscription(rk, item)
+    if (!current()) return
     if (!response?.success) throw new Error(response?.message || '订阅失败')
     actionOk.value = true
     actionMessage.value = response?.message || `${item.title || ''} 已添加订阅`
@@ -346,6 +357,8 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
 
   async function doSubscribe() {
     if (!dialogItem.value || dialogResolving.value) return
+    if (!requestScope.isActive()) return
+    const current = requestScope.capture()
     const { rk, item } = dialogItem.value
     showDialog.value = false
     actionMessage.value = ''
@@ -354,6 +367,7 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
       if (nativeSubscribe()) await subscribeViaNativeDialog(rk, item)
       else await subscribeRankItem(rk, item)
     } catch (error) {
+      if (!current()) return
       actionOk.value = false
       actionMessage.value = `订阅失败: ${error?.message || error}`
     }

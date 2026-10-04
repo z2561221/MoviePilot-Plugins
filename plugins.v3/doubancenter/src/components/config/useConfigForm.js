@@ -1,5 +1,6 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { getPluginApi } from '../api'
+import { useRequestScope } from '../useRequestScope'
 
 const defaults = {
   enabled: false,
@@ -105,6 +106,7 @@ function validCustomRoute(route) {
 }
 
 export function useConfigForm({ api, pluginId, initialConfig, emit }) {
+  let overviewEpoch = 0
   const form = reactive({})
   const activeMain = ref('overview')
   const activeSub = ref('overview')
@@ -300,18 +302,29 @@ export function useConfigForm({ api, pluginId, initialConfig, emit }) {
   }
 
   async function loadOverview() {
+    if (!requestScope.isActive()) return
+    const owner = requestScope.capture()
+    const epoch = ++overviewEpoch
+    const current = () => owner() && epoch === overviewEpoch
     loadingOverview.value = true
     try {
       const response = await getPluginApi(api(), pluginId(), 'overview')
+      if (!current()) return
       if (response?.success === false) throw new Error(response.message || '总览加载失败')
       const data = response?.data ?? response
       if (data?.code === 0 || data?.cards) overview.value = data
     } catch (error) {
+      if (!current()) return
       console.error('加载豆瓣中心总览失败:', error)
     } finally {
-      loadingOverview.value = false
+      if (current()) loadingOverview.value = false
     }
   }
+
+  const requestScope = useRequestScope(pluginId, () => {
+    overviewEpoch += 1
+    loadingOverview.value = false
+  })
 
   watch(initialConfig, value => {
     Object.keys(form).forEach(key => delete form[key])
