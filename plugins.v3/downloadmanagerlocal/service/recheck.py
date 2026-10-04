@@ -262,6 +262,9 @@ def process_seed_recheck_once(plugin, queue, stop_event=None):
                 continue
             if seed_is_error(state, downloader_type):
                 item["attempts"] = item.get("attempts", 0) + 1
+                item["last_check"] = time.time()
+                item["updated_at"] = time.time()
+                changed = True
                 if item["attempts"] >= 5:
                     queue.pop(queue_key, None)
                     changed = True
