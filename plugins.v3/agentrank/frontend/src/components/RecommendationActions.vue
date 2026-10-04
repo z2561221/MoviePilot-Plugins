@@ -11,6 +11,7 @@ const emit = defineEmits(['subscribe', 'archive', 'like', 'dislike', 'native-sub
 
 const injectedNativeSubscribe = inject('moviepilot:nativeSubscribe', null)
 const nativeSubscribePending = ref(false)
+const nativeSubscribeError = ref('')
 
 function firstId(...values) {
   for (const value of values) {
@@ -109,9 +110,10 @@ function openTmdb() {
   openExternal(`https://www.themoviedb.org/${mediaPath}/${encodeURIComponent(tmdbId.value)}`)
 }
 
-/** 先调用宿主原生订阅，无效媒体才回退插件安全链。 */
+/** 宿主拒绝或取消时停止；仅在未提供原生入口时使用插件安全链。 */
 async function handleSubscribe() {
   if (nativeSubscribePending.value) return
+  nativeSubscribeError.value = ''
   const callback = nativeSubscribe.value
   if (typeof callback !== 'function') {
     emit('subscribe', props.item?.candidate_id)
@@ -125,9 +127,11 @@ async function handleSubscribe() {
       return
     }
     if (result?.code === 'PERMISSION_DENIED') return
-    emit('subscribe', props.item?.candidate_id)
-  } catch (_) {
-    emit('subscribe', props.item?.candidate_id)
+    nativeSubscribeError.value = result?.message || '原生订阅未受理，请检查媒体信息后重试'
+  } catch (error) {
+    const cancelled = error?.__CANCEL__ || error?.code === 'ERR_CANCELED'
+      || ['AbortError', 'CanceledError'].includes(error?.name)
+    if (!cancelled) nativeSubscribeError.value = error?.message || '原生订阅暂时不可用，请重试'
   } finally {
     nativeSubscribePending.value = false
   }
@@ -185,12 +189,14 @@ async function handleSubscribe() {
         ><span class="ar-actions__label">点踩</span></VBtn>
       </template>
     </VTooltip>
+    <span v-if="nativeSubscribeError" class="ar-actions__error text-error" role="alert">{{ nativeSubscribeError }}</span>
   </div>
 </template>
 
 <style scoped>
 .ar-actions { width: max-content; max-width: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 5px; }
 .ar-actions__button { flex: 0 0 auto; min-width: 68px; min-height: 40px; padding-inline: 8px; }
+.ar-actions__error { flex-basis: 100%; font-size: 12px; overflow-wrap: anywhere; }
 .ar-actions__button--tmdb {
   color: #0288d1 !important;
   color: color-mix(in srgb, #0288d1 78%, rgb(var(--v-theme-on-surface)) 22%) !important;
