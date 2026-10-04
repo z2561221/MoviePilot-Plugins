@@ -154,3 +154,25 @@ def test_successful_empty_poll_removes_expired_item():
 
     assert changed is True
     assert queue == {}
+
+
+def test_start_failure_keeps_persistent_queue_until_retry_succeeds():
+    """布尔失败不移出持久队列，下一轮成功才确认完成。"""
+    import time
+    result = {"success": False}
+    data = {"seed_recheck_queue": {"QB::a": {
+        "hash": "a", "downloader": "QB", "created_at": time.time(), "updated_at": time.time(),
+    }}}
+    plugin = _plugin(data, _seed_autostart=True,
+        service_info=lambda name: SimpleNamespace(type="qbittorrent", instance=SimpleNamespace(
+            get_torrents=lambda **kw: ([{"hash": "a", "state": "pausedUP"}], None),
+            start_torrents=lambda **kw: result["success"],
+        )), get_hash=lambda task, kind: task["hash"])
+    before = recheck.load_seed_recheck_queue(plugin)
+    after = deepcopy(before)
+    assert recheck.process_seed_recheck_once(plugin, after) is False
+    assert after == before
+    result["success"] = True
+    assert recheck.process_seed_recheck_once(plugin, after) is True
+    recheck._merge_processed_queue(plugin, before, after)
+    assert recheck.load_seed_recheck_queue(plugin) == {}
