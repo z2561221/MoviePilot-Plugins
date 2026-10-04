@@ -77,7 +77,7 @@ def test_transfer_prior_days_total_rolls_forward_without_recount(monkeypatch):
 def test_overlapping_iyuu_run_does_not_reset_active_counters(monkeypatch):
     """重叠触发直接跳过，活动批次和后续独立批次各结算一次。"""
     entered, finish = threading.Event(), threading.Event()
-    plugin = SimpleNamespace(_event=threading.Event())
+    plugin = SimpleNamespace(_event=threading.Event(), get_data=lambda key: None)
     calls, totals = [], []
 
     def run(p, generation):
