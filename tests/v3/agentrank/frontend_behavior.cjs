@@ -93,5 +93,37 @@ async function dashboardLifecycle() {
   assert.equal(dataRequests, 0)
 }
 
-const cases = {native: nativeSubscribe, dashboard: dashboardLifecycle}
+async function configDraft() {
+  const request = deferred()
+  const props = vue.reactive({api: {get() {}}, initialConfig: {cron: 'server-old'}, pluginId: 'AgentRank'})
+  const app = component('Config.vue', props, 'form, loadRuntime, applyConfig', {
+    getPluginApi: () => request.promise, postPluginApi() {},
+  })
+  const loading = app.loadRuntime()
+  app.form.cron = 'unsaved-draft'
+  app.form.emby_library_ids = {home: ['user-selection']}
+  request.resolve({config: {cron: 'server-old', history_limit: 33}, emby_identities: []})
+  await loading
+  assert.equal(app.form.cron, 'unsaved-draft')
+  assert.equal(app.form.emby_library_ids.home[0], 'user-selection')
+  assert.equal(app.form.history_limit, 33, 'untouched fields should refresh')
+  app.applyConfig({cron: 'unsaved-draft', history_limit: 33, emby_library_ids: {home: ['user-selection']}})
+  app.applyConfig({cron: 'new-server-value', history_limit: 35, emby_library_ids: {home: ['user-selection']}})
+  assert.equal(app.form.cron, 'new-server-value', 'saved drafts should become refreshable')
+  app.unmount()
+
+  const late = deferred()
+  const otherProps = vue.reactive({api: {get() {}}, initialConfig: {cron: 'before-save'}})
+  const other = component('Config.vue', otherProps, 'form, loadRuntime, loading', {getPluginApi: () => late.promise})
+  const oldLoad = other.loadRuntime()
+  otherProps.initialConfig = {cron: 'confirmed-save'}
+  await vue.nextTick()
+  late.resolve({config: {cron: 'outdated'}})
+  await oldLoad
+  assert.equal(other.form.cron, 'confirmed-save', 'old requests must not replace newer props')
+  assert.equal(other.loading.value, false)
+  other.unmount()
+}
+
+const cases = {native: nativeSubscribe, dashboard: dashboardLifecycle, config: configDraft}
 cases[process.argv[2]]().catch(error => { console.error(error); process.exitCode = 1 })

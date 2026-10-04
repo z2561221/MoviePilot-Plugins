@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 
-@pytest.mark.parametrize("case", ["native", "dashboard"])
+@pytest.mark.parametrize("case", ["native", "dashboard", "config"])
 def test_frontend_async_boundaries(case):
     """宿主拒绝、取消和成功返回应保持各自的副作用边界。"""
     node = shutil.which("node")
