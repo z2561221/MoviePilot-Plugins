@@ -248,7 +248,10 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
     subscriber = subscribe
     if subscriber is None:
         from . import subscription as subscription_service
-        subscriber = subscription_service.add_subscription
+
+        def subscriber(*args, **kwargs):
+            """读取明确订阅回执，不再用历史条数猜测本次结果。"""
+            return subscription_service.add_subscription(*args, **kwargs, with_result=True)
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     remaining = []
@@ -275,7 +278,6 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
         failed = _clear_wish_failed(failed, subject_id, reason="recognize_failed")
         subscribe_failed = False
         subscribe_reason = ""
-        before_failed_records = _failed_subscribe_record_count(self, mediainfo)
         try:
             result = subscriber(self, mediainfo, rank_key=WISH_RANK_KEY, rank_name=WISH_RANK_NAME, source_link=link)
         except Exception as err:
@@ -283,12 +285,14 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
             subscribe_failed = True
             subscribe_reason = str(err) or "subscribe_failed"
             logger.warning(f"豆瓣想看订阅失败：{title} {err}")
-        if _subscribe_result_is_failed(result) or _failed_subscribe_record_count(self, mediainfo) > before_failed_records:
+        if not subscribe_failed and _subscribe_result_is_failed(result):
             subscribe_failed = True
             subscribe_reason = _subscribe_failure_reason(result)
         if subscribe_failed:
-            _record_wish_failed(failed, item, "subscribe_failed", now, subscribe_reason)
+            retry = _record_wish_failed(failed, item, "subscribe_failed", now, subscribe_reason)
+            remaining.append(_wish_queue_record(item, now, retry=retry))
             continue
+        failed = _clear_wish_failed(failed, subject_id, reason="subscribe_failed")
         processed.append({"subject_id": subject_id, "title": title, "processed_at": now})
 
     storage.save_folio_wish_queue(self, remaining)
@@ -351,31 +355,29 @@ def _clear_wish_failed(failed, subject_id, reason=""):
 
 
 def _subscribe_result_is_failed(result) -> bool:
-    """判断订阅调用返回值是否明确表示失败。"""
-    if not isinstance(result, dict):
-        return False
-    status = str(result.get("status") or result.get("result") or "").lower()
-    return status in {"failed", "failure", "error"} or (result.get("ok") is False and not result.get("existing"))
+    """仅明确成功或已存在可出队；空回执和布尔失败均保留重试。"""
+    from .subscription import SubscriptionResult
+
+    if isinstance(result, SubscriptionResult):
+        return result.status not in {"success", "existing"}
+    if isinstance(result, dict):
+        status = str(result.get("status") or result.get("result") or "").lower()
+        if status in {"failed", "failure", "error", "cancelled"}:
+            return True
+        return not (result.get("existing") is True or status in {"success", "existing"}
+                    or result.get("ok") is True or result.get("success") is True)
+    return result is not True
 
 
 def _subscribe_failure_reason(result) -> str:
     """从订阅调用结果中提取失败原因。"""
+    from .subscription import SubscriptionResult
+
+    if isinstance(result, SubscriptionResult):
+        return result.reason or "subscribe_failed"
     if not isinstance(result, dict):
         return "subscribe_failed"
     return str(result.get("reason") or result.get("message") or "subscribe_failed")
-
-
-def _failed_subscribe_record_count(plugin, mediainfo) -> int:
-    """统计当前媒体对应的失败订阅历史记录数量。"""
-    count = 0
-    for record in storage.read_subscribe_records(plugin):
-        if not isinstance(record, dict) or record.get("status") != "failed":
-            continue
-        if record.get("rank_key") != WISH_RANK_KEY:
-            continue
-        if str(record.get("tmdbid") or "") == str(getattr(mediainfo, "tmdb_id", "") or ""):
-            count += 1
-    return count
 
 
 def _wish_seen_record(item, now):
