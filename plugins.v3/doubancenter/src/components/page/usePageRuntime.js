@@ -61,6 +61,12 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
     invalidateRequests()
   })
   watch(pluginId, invalidateRequests, { flush: 'sync' })
+  watch(showDialog, open => {
+    if (!open) {
+      dialogResolveToken.value += 1
+      dialogResolving.value = false
+    }
+  }, { flush: 'sync' })
 
   function beginRequest() {
     const epoch = ++requestEpoch
@@ -300,6 +306,7 @@ export function usePageRuntime({ api, pluginId, nativeSubscribe }) {
     const token = ++dialogResolveToken.value
     dialogItem.value = { rk, item: { ...(item || {}) } }
     dialogResolveError.value = ''
+    dialogResolving.value = false
     showDialog.value = true
     if (tmdbIdOf(item)) return
     dialogResolving.value = true

@@ -46,6 +46,21 @@ async function fixture() {
   return { page, scope, id, pending, tick, settle }
 }
 
+test('关闭识别中的条目后打开已识别条目，不遗留加载锁', async () => {
+  const f = await fixture()
+  try {
+    const first = f.page.showActionDialog('bangumi', { title: 'A' })
+    await f.tick()
+    assert.equal(f.page.dialogResolving, true)
+    f.page.showDialog = false
+    await f.page.showActionDialog('tv_global', { title: 'B', tmdbid: 222 })
+    f.pending[0].resolve({ success: true, message: '', data: { title: 'A', tmdbid: 111 } })
+    await first
+    assert.equal(f.page.dialogItem.item.title, 'B')
+    assert.equal(f.page.dialogResolving, false)
+  } finally { f.scope.stop() }
+})
+
 test('旧历史响应不能覆盖后发请求，也不能清除新请求 loading', async () => {
   const f = await fixture()
   try {

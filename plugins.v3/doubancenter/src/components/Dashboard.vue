@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { getPluginApi, postPluginApi, toPosterThumbnail, openNativeSubscription } from './api'
 import { sourceDescriptor, doubanDispatchUrl } from './source'
 import { useRankMediaActions } from './useRankMediaActions'
@@ -30,6 +30,12 @@ const showDialog = ref(false)
 const dialogResolving = ref(false)
 const dialogResolveError = ref('')
 const dialogResolveToken = ref(0)
+watch(showDialog, open => {
+  if (!open) {
+    dialogResolveToken.value += 1
+    dialogResolving.value = false
+  }
+}, { flush: 'sync' })
 const timelineImageFailed = ref({})
 
 const builtinRankDefs = {
@@ -171,6 +177,7 @@ async function showActionDialog(rk, item) {
   const token = ++dialogResolveToken.value
   dialogItem.value = { rk, item: { ...(item || {}) } }
   dialogResolveError.value = ''
+  dialogResolving.value = false
   showDialog.value = true
   if (tmdbIdOf(item)) return
   dialogResolving.value = true
