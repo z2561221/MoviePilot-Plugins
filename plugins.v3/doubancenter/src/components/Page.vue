@@ -58,11 +58,11 @@ onMounted(page.loadAll)
 </template>
 
 <style scoped>
-.dc-page { width: 100%; border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
+.dc-page { background: transparent; width: 100%; border-radius: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); overflow: hidden; }
 .dc-page--app { min-height: calc(100dvh - 104px); border-radius: 14px; }
 .dc-page--archive { height: clamp(640px, calc(100dvh - 48px), 860px); max-height: calc(100dvh - 16px); display: flex; flex-direction: column; }
 .dc-page--app.dc-page--archive { height: calc(100dvh - 104px); max-height: none; min-height: 0; }
-.dc-page-toolbar { background: rgb(var(--v-theme-surface)); padding-right: 8px; }
+.dc-page-toolbar { background: transparent; padding-right: 8px; }
 .dc-page-heading { min-width: 0; }
 .dc-page-toolbar-actions { display: flex; align-items: center; flex: 0 0 auto; gap: 2px; }
 .dc-toolbar-icon { flex: 0 0 auto; }

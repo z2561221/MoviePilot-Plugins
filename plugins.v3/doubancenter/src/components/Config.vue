@@ -63,8 +63,8 @@ onMounted(config.loadOverview)
 
 <style scoped>
 .dc-config { width: min(1120px, calc(100vw - 48px)); max-width: 100%; padding: 8px; }
-.dc-card { width: 100%; height: clamp(760px, calc(100dvh - 48px), 860px); display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
-.dc-header { padding: 14px 18px; }
+.dc-card { width: 100%; height: min(860px, calc(100dvh - 48px)); display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.dc-header { flex: 0 0 auto; padding: 14px 18px; }
 .dc-header-subtitle { max-width: min(560px, 52vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-body { flex: 1 1 auto; min-height: 0; display: flex; }
 .dc-nav { width: 160px; flex: 0 0 160px; border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); background: rgba(var(--v-theme-on-surface), .02); }
@@ -76,7 +76,7 @@ onMounted(config.loadOverview)
 .dc-subtab--active { background: rgba(var(--v-theme-primary), .14); color: rgb(var(--v-theme-primary)); font-weight: 600; }
 .dc-window { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .dc-window--overview { overflow-y: hidden; }
-.dc-actions { padding: 10px 18px; }
+.dc-actions { flex: 0 0 auto; padding: 10px 18px; }
 @media (max-width: 760px) {
   .dc-config { width: min(100%, calc(100vw - 16px)); padding: 4px; }
   .dc-card { height: min(860px, calc(100dvh - 16px)); }
@@ -94,7 +94,7 @@ onMounted(config.loadOverview)
   .dc-action-btn { min-height: 32px; font-size: 13px; }
   .dc-window--overview { overflow-y: auto; }
 }
-@media (max-height: 760px) {
+@media (max-height: 808px) {
   .dc-window--overview { overflow-y: auto; }
 }
 </style>
