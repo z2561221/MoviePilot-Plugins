@@ -8,7 +8,7 @@ from app.sdk.logging import logger
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from ..adapter.moviepilot import get_downloader_config, list_builtin_sites
+from ..adapter.moviepilot import get_downloader_service, list_builtin_sites
 from ..model.api import (
     ApiBusinessModel,
     DiagnosticsResult,
@@ -549,14 +549,14 @@ def api_recovery_torrent(plugin, hash: str = ""):
 
     # 在目标下载器中查找并恢复
     try:
-        to_config = get_downloader_config(plugin._todownloader)
-        if not to_config:
+        to_service = get_downloader_service(plugin._todownloader)
+        if not to_service or not to_service.instance:
             return _operation_response(
                 {"code": 1, "msg": f"下载器 {plugin._todownloader} 不存在", "hash": hash},
                 HashActionResult,
             )
-        dl = to_config.instance
-        dl_type = to_config.type
+        dl = to_service.instance
+        dl_type = to_service.type
 
         if dl_type == "qbittorrent":
             dl.qbc.torrents_rename(torrent_hash=hash, new_torrent_name=original_name)
