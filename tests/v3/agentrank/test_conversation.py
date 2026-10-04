@@ -770,6 +770,58 @@ def test_same_profile_is_serial_and_two_profiles_can_run_concurrently():
         service.stop()
 
 
+@pytest.mark.parametrize("old_failure", [False, True])
+def test_stopped_generation_cannot_overwrite_restarted_message(old_failure):
+    """上游忽略取消后迟到成功或失败，都不能覆盖重新领取的消息。"""
+    class LateAgent:
+        """模拟取消未能及时终止的旧请求和仍在执行的新请求。"""
+
+        def __init__(self):
+            self.calls = 0
+            self.started = [threading.Event(), threading.Event()]
+            self.release = [threading.Event(), threading.Event()]
+            self.finished = [threading.Event(), threading.Event()]
+
+        async def run_conversation(self, _prompt, _context):
+            index = self.calls
+            self.calls += 1
+            self.started[index].set()
+            try:
+                while not self.release[index].is_set():
+                    try:
+                        await asyncio.sleep(0.005)
+                    except asyncio.CancelledError:
+                        continue
+                if index == 0 and old_failure:
+                    raise RuntimeError("late old failure")
+                return FakeResult(json.dumps(_agent_output(reply=f"generation-{index}")))
+            finally:
+                self.finished[index].set()
+
+    repository = AgentRankRepository(FakePlugin())
+    agent = LateAgent()
+    service = ConversationService(repository, agent, profile_ids=[PROFILE_ID], poll_seconds=0.01)
+    try:
+        asyncio.run(service.send(profile_id=PROFILE_ID, content="测试", idempotency_key="reload-race", actor_id="user"))
+        assert agent.started[0].wait(2)
+        service.stop()
+        service.start()
+        assert agent.started[1].wait(2)
+        agent.release[0].set()
+        assert agent.finished[0].wait(2)
+        _wait_until(lambda: len(service._running_tasks) == 1)
+        snapshot = service.snapshot(PROFILE_ID)
+        assert _user_message(snapshot)["status"] == "processing"
+        assert not [item for item in snapshot["messages"] if item["role"] == "assistant"]
+        agent.release[1].set()
+        snapshot = _wait_snapshot(service, lambda value: _user_message(value)["status"] == "completed")
+        assert [item["content"] for item in snapshot["messages"] if item["role"] == "assistant"] == ["generation-1"]
+    finally:
+        for event in agent.release:
+            event.set()
+        service.stop()
+
+
 def test_reload_recovers_processing_message_without_duplicate_reply():
     """reload 将 processing 恢复入队，并只生成一条稳定回复。"""
     _plugin, repository = _seed()

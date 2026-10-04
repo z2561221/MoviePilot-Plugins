@@ -291,6 +291,8 @@ class ConversationService:
         self._executor: Optional[ThreadPoolExecutor] = None
         self._active_profiles: set[str] = set()
         self._started = False
+        self._generation = 0
+        self._running_tasks: set[asyncio.Task] = set()
 
     @property
     def started(self) -> bool:
@@ -313,6 +315,7 @@ class ConversationService:
         with self._state_lock:
             if self._started:
                 return
+            self._generation += 1
             self._stop_event.clear()
             self._active_profiles.clear()
             profiles = tuple(self._profiles)
@@ -325,6 +328,7 @@ class ConversationService:
             self._started = True
             self._dispatcher = threading.Thread(
                 target=self._dispatch_loop,
+                args=(self._generation,),
                 name="agentrank-conversation-dispatcher",
                 daemon=True,
             )
@@ -337,10 +341,20 @@ class ConversationService:
             if not self._started:
                 return
             self._stop_event.set()
+            self._generation += 1
+            running_tasks = tuple(self._running_tasks)
             dispatcher = self._dispatcher
             executor = self._executor
             profiles = tuple(self._profiles)
             self._wake.set()
+        for task in running_tasks:
+            loop = task.get_loop()
+            if not task.done() and not loop.is_closed():
+                try:
+                    loop.call_soon_threadsafe(task.cancel)
+                except RuntimeError:
+                    if not loop.is_closed():
+                        raise
         if dispatcher is not None and dispatcher is not threading.current_thread():
             dispatcher.join(timeout=max(1.0, self._poll_seconds * 4))
         for profile_id in profiles:
@@ -419,16 +433,16 @@ class ConversationService:
             )
             return claimed.message_id
 
-    def _dispatch_loop(self) -> None:
+    def _dispatch_loop(self, generation: int) -> None:
         """按 profile 串行、跨 profile 有界并发地分发 queued 消息。"""
-        while not self._stop_event.is_set():
+        while self._current_generation(generation):
             dispatched = False
             with self._state_lock:
                 available = self._max_workers - len(self._active_profiles)
                 profiles = sorted(self._profiles)
             if available > 0:
                 for profile_id in profiles:
-                    if self._stop_event.is_set() or available <= 0:
+                    if not self._current_generation(generation) or available <= 0:
                         break
                     with self._state_lock:
                         if profile_id in self._active_profiles:
@@ -447,17 +461,38 @@ class ConversationService:
                         continue
                     with self._state_lock:
                         self._active_profiles.add(profile_id)
-                    executor.submit(self._process_message, profile_id, message_id)
+                    executor.submit(self._process_message, profile_id, message_id, generation)
                     available -= 1
                     dispatched = True
             if not dispatched:
                 self._wake.wait(timeout=self._poll_seconds)
                 self._wake.clear()
 
-    def _process_message(self, profile_id: str, message_id: str) -> None:
+    def _current_generation(self, generation: int) -> bool:
+        """停止或重新启动后，旧代次不能再提交业务结果。"""
+        return generation == self._generation and not self._stop_event.is_set()
+
+    def _process_message(self, profile_id: str, message_id: str, generation: int) -> None:
         """在独立 worker 中执行一条消息，并确保下一条同 profile 消息再开始。"""
+        async def execute() -> None:
+            """在所属事件循环登记任务，以便 stop 线程安全取消。"""
+            task = asyncio.current_task()
+            with self._state_lock:
+                if not self._current_generation(generation):
+                    return
+                self._running_tasks.add(task)
+            try:
+                await self._run_message(
+                    profile_id, message_id, created=False, generation=generation
+                )
+            finally:
+                with self._state_lock:
+                    self._running_tasks.discard(task)
+
         try:
-            asyncio.run(self._run_message(profile_id, message_id, created=False))
+            asyncio.run(execute())
+        except asyncio.CancelledError:
+            pass
         except ConversationError:
             logger.info(
                 "AgentRank 对话消息已落为可重试失败 profile_id=%s message_id=%s",
@@ -472,7 +507,8 @@ class ConversationService:
             )
         finally:
             with self._state_lock:
-                self._active_profiles.discard(profile_id)
+                if generation == self._generation:
+                    self._active_profiles.discard(profile_id)
             self._wake.set()
 
     def set_pending_handler(
@@ -1124,7 +1160,7 @@ class ConversationService:
                 await asyncio.sleep(delay)
 
     async def _run_message(
-        self, profile_id: str, message_id: str, *, created: bool
+        self, profile_id: str, message_id: str, *, created: bool, generation: int
     ) -> Dict[str, Any]:
         """调用受限 Agent，并把成功或失败状态原子写回草稿。"""
         thread = self._repository.load_conversation_thread(profile_id)
@@ -1164,7 +1200,12 @@ class ConversationService:
                     (item for item in current_messages if item.message_id == message_id),
                     None,
                 )
-                if current_thread is not None and current is not None and current.status == "processing":
+                if (
+                    self._current_generation(generation)
+                    and current_thread is not None
+                    and current is not None
+                    and current.status == "processing"
+                ):
                     provenance = getattr(error, "agentrank_provenance", None)
                     safe = dict(provenance) if isinstance(provenance, Mapping) else {}
                     failed = replace(
@@ -1207,7 +1248,8 @@ class ConversationService:
                 profile_id, strict=True
             )
             source = next((item for item in messages if item.message_id == message_id), None)
-            if thread is None or source is None or source.status != "processing":
+            if (not self._current_generation(generation)
+                    or thread is None or source is None or source.status != "processing"):
                 raise ConversationError("message_superseded", "消息已被其他请求更新", 409)
             try:
                 commands, created_commands = self._materialize_commands(
@@ -1306,7 +1348,8 @@ class ConversationService:
             snapshot = self._snapshot_data(
                 thread, messages, commands, created=created
             )
-        self._emit_pending(created_commands)
+        if self._current_generation(generation):
+            self._emit_pending(created_commands)
         return snapshot
 
     def _execute_command(
