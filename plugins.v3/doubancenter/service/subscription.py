@@ -13,7 +13,7 @@ from .. import utils
 from ..adapter import subscription_query
 from ..model.identity import identity_from_media, identity_payload, legacy_identity
 from ..storage import records as storage
-from . import observation
+from . import observation, lifecycle
 
 
 _SUBSCRIBE_LOCK = threading.Lock()
@@ -291,6 +291,7 @@ def write_subscribe_record(
     storage.save_subscribe_records(plugin, kept)
 
 
+@lifecycle.scoped
 def add_subscription(
     plugin,
     mediainfo,
@@ -314,7 +315,8 @@ def add_subscription(
     if meta is not None:
         meta.begin_season = utils.resolve_media_season(meta, titles=(record_title,))
     # 订阅链本身是先查后建，锁住整个区段以防并发榜单任务重复创建同一媒体。
-    with _SUBSCRIBE_LOCK:
+    with lifecycle.serialized(plugin, _SUBSCRIBE_LOCK):
+        lifecycle.checkpoint(plugin)
         existing_state = is_existing_media(
             mediainfo,
             meta,
@@ -353,6 +355,7 @@ def add_subscription(
                 prefer_title=bool(record_title),
             )
             return receipt("failed", "缺少有效媒体身份")
+        lifecycle.checkpoint(plugin)
         sid, msg = subscribe_chain.add(
             title=mediainfo.title,
             year=mediainfo.year or "",

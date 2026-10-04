@@ -5,8 +5,9 @@ from typing import Callable
 
 from app.sdk.events import Event
 
-from . import folio
+from . import folio, lifecycle
 
+@lifecycle.managed
 def handle_sync_log(plugin, event: Event, played: bool = False) -> None:
     """处理媒体播放事件并同步到豆瓣时间。"""
     if not plugin._enabled or not plugin._folio_enabled:
@@ -14,8 +15,12 @@ def handle_sync_log(plugin, event: Event, played: bool = False) -> None:
     if not hasattr(plugin, "_sync_lock"):
         plugin._sync_lock = threading.Lock()
     # 不同媒体的已看事件不能当作重复请求丢弃；等待当前实例完成后逐条处理。
-    with plugin._sync_lock:
+    with lifecycle.serialized(plugin, plugin._sync_lock):
+        lifecycle.checkpoint(plugin)
+        if not plugin._enabled or not plugin._folio_enabled:
+            return
         folio.check_cookie_periodically(plugin)
+        lifecycle.checkpoint(plugin)
         folio.sync_log_handler(plugin, event.event_data, played=played)
 
 

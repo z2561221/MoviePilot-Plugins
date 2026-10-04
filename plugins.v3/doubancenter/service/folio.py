@@ -25,7 +25,7 @@ from ..model.identity import (
     recognize_media,
 )
 from ..storage import records as storage
-from . import folio_retry, folio_watch
+from . import folio_retry, folio_watch, lifecycle
 
 WISH_NOTIFY_THROTTLE_SECONDS = 6 * 60 * 60
 WISH_RECOGNIZE_MAX_RETRIES = 3
@@ -95,6 +95,7 @@ def check_cookie_periodically(self) -> None:
         self._last_cookie_check_time = now
 
 
+@lifecycle.managed
 def run_wish_scheduled(self) -> None:
     """执行豆瓣想看同步定时入口。"""
     run_wish_sync(self)
@@ -235,6 +236,7 @@ def _default_wish_recognize(self):
     return recognize
 
 
+@lifecycle.managed
 def process_wish_queue(self, recognize=None, subscribe=None) -> None:
     """处理想看待订阅队列，识别后通过现有订阅链创建订阅。"""
     queue = storage.read_folio_wish_queue(self)
@@ -256,6 +258,7 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
 
     remaining = []
     for item in queue:
+        lifecycle.checkpoint(self)
         subject_id = str(item.get("subject_id") or "")
         title = item.get("title") or ""
         year = item.get("year") or ""
@@ -275,6 +278,7 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
             if retry < WISH_RECOGNIZE_MAX_RETRIES:
                 remaining.append(_wish_queue_record(item, now, retry=retry))
             continue
+        lifecycle.checkpoint(self)
         failed = _clear_wish_failed(failed, subject_id, reason="recognize_failed")
         subscribe_failed = False
         subscribe_reason = ""
@@ -1133,7 +1137,9 @@ def _sync_to_douban(
         )
     if sid:
         logger.info(f"查询：{title} => 匹配豆瓣：{name}")
+        lifecycle.checkpoint(self)
         if dh.set_watching_status(subject_id=sid, status=status, private=self._folio_private):
+            lifecycle.checkpoint(self)
             record = {
                 **previous,
                 "subject_id": sid, "subject_name": name or title,

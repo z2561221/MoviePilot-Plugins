@@ -25,6 +25,7 @@ from .model.config import (
 )
 from .service import dashboard as dash
 from .service import folio
+from .service import lifecycle
 from .service import rank_pipeline as feed
 from .service import scheduler as scheduler_service
 from .service import webhook as webhook_service
@@ -86,10 +87,12 @@ class DoubanCenter(_PluginBase):
         self._wait_process: Optional[Dict[str, Any]] = None
         self._sync_lock = threading.Lock()
         self._folio_repair_plans: dict[str, Any] = {}
+        lifecycle.start(self)
 
     def init_plugin(self, config: dict = None):
         """根据插件配置初始化运行状态并触发一次性任务。"""
         self.stop_service()
+        lifecycle.start(self)
         config = config or {}
         self._enabled = config.get("enabled", False)
         self._cron = config.get("cron") or DEFAULT_CRON
@@ -395,6 +398,7 @@ class DoubanCenter(_PluginBase):
 
     def stop_service(self):
         """停止插件后台定时服务。"""
+        lifecycle.stop(self)
         scheduler_service.stop_scheduler(self)
 
     @eventmanager.register(EventType.WebhookMessage)
