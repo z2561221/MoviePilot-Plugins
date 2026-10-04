@@ -217,6 +217,8 @@ let uploadStatusRefreshPending = false;
 let uploadSiteRulesSaveTail = Promise.resolve();
 let uploadSiteRulesRevision = 0;
 let uploadSiteScanTail = Promise.resolve();
+let configDraftRevision = 0;
+let configDisposed = false;
 
 async function refreshOverview() {
   const response = await getApi('overview');
@@ -487,6 +489,8 @@ const runtimeFlows = [
 ];
 
 watch(() => props.initialConfig, v => {
+  configDraftRevision++;
+  uploadSiteRulesRevision++;
   Object.keys(form).forEach(k => delete form[k]);
   Object.assign(form, defaults, v || {});
   form.speed_monitor_downloaders = [...(v?.speed_monitor_downloaders || [])];
@@ -496,6 +500,10 @@ watch(() => props.initialConfig, v => {
   form.upload_limit_downloader_limits_kib = { ...(v?.upload_limit_downloader_limits_kib || {}) };
   form.upload_limit_site_rules = Object.fromEntries(Object.entries(v?.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]));
 }, { immediate: true, deep: true });
+watch(() => props.pluginId, () => {
+  configDraftRevision++;
+  uploadSiteRulesRevision++;
+});
 
 function saveConfig() {
   emit('save', {
@@ -563,8 +571,14 @@ function cloneUploadSiteRules(rules = form.upload_limit_site_rules) {
 function queueUploadSiteRulesSave(rules) {
   const snapshot = cloneUploadSiteRules(rules);
   const revision = ++uploadSiteRulesRevision;
+  const draftRevision = configDraftRevision;
+  const pluginId = props.pluginId;
+  const api = props.api;
+  const ownsDraft = () => !configDisposed && draftRevision === configDraftRevision && pluginId === props.pluginId;
   uploadSiteRulesSaveTail = uploadSiteRulesSaveTail.catch(() => undefined).then(async () => {
-    const response = await postJsonApi('upload_limit_site_rules_update', { rules: snapshot });
+    if (!ownsDraft()) return null
+    const response = await postPluginJsonApi(api, pluginId, 'upload_limit_site_rules_update', { rules: snapshot });
+    if (!ownsDraft()) return null
     if (response?.code !== 0) throw new Error(response?.msg || '站点策略保存失败')
     if (revision === uploadSiteRulesRevision) {
       form.upload_limit_site_rules = cloneUploadSiteRules(response?.rules || snapshot);
@@ -573,6 +587,7 @@ function queueUploadSiteRulesSave(rules) {
     }
     return response
   }).catch(error => {
+    if (!ownsDraft()) return null
     if (revision === uploadSiteRulesRevision) {
       uploadMessageStatus.value = 'error';
       uploadMessage.value = error?.message || '站点策略保存失败';
@@ -688,6 +703,8 @@ onMounted(() => {
 
 onBeforeUnmount(stopUploadStatusAutoRefresh);
 onBeforeUnmount(() => {
+  configDisposed = true;
+  configDraftRevision++;
   document.removeEventListener('visibilitychange', syncUploadStatusAutoRefresh);
 });
 
@@ -3382,6 +3399,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a412632c"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-29f6e6a3"]]);
 
 export { Config as default };

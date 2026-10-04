@@ -36,7 +36,7 @@ def _prepare_imports() -> None:
     )
 
     adapter = types.ModuleType("downloadmanagerlocal.adapter.moviepilot")
-    adapter.get_downloader_config = lambda *_args, **_kwargs: None
+    adapter.get_downloader_service = lambda *_args, **_kwargs: None
     adapter.list_builtin_sites = lambda *_args, **_kwargs: []
     sys.modules[adapter.__name__] = adapter
 

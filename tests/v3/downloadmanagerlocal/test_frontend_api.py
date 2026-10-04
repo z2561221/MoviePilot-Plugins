@@ -130,7 +130,7 @@ def test_frontend_api_forwards_silent_feedback_without_double_unwrap() -> None:
 
 def test_config_save_respects_draft_instance_and_unmount() -> None:
     """执行实际组件，旧成功、旧错误、排队请求不能影响新草稿或实例。"""
-    script = r''' 
+    script = r'''
       import assert from 'node:assert/strict';
       import { readFileSync } from 'node:fs';
       const source = readFileSync('plugins.v3/downloadmanagerlocal/frontend/src/components/Config.vue', 'utf8')
