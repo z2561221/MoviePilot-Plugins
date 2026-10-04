@@ -486,6 +486,39 @@ def test_full_reset_requires_bound_token_and_never_touches_host_state():
     assert plugin.external_library == ["tmdb:movie:901"]
 
 
+def test_full_reset_token_is_consumed_once_across_concurrent_requests(monkeypatch):
+    """并发请求不能在清空锁外同时验证同一令牌。"""
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+
+    plugin = FakePlugin()
+    repository = AgentRankRepository(plugin)
+    service = DataLifecycleService(repository)
+    token = service.prepare_full_reset(PROFILE_ID, "mp-user:7")["confirmation_token"]
+    start = threading.Barrier(2)
+    original = repository.load_reset_confirmation
+    lock_owned = []
+
+    def read_confirmation(profile_id):
+        lock_owned.append(repository._feedback_lock(profile_id)._is_owned())
+        return original(profile_id)
+
+    monkeypatch.setattr(repository, "load_reset_confirmation", read_confirmation)
+
+    def request():
+        start.wait(timeout=3)
+        try:
+            service.reset_full(PROFILE_ID, "mp-user:7", token)
+            return "success"
+        except DataLifecycleError as error:
+            return error.code
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: request(), range(2)))
+    assert sorted(results) == ["confirmation_missing", "success"]
+    assert lock_owned == [True, True]
+
+
 def test_full_reset_delete_failure_restores_profile_and_confirmation():
     plugin = FakePlugin()
     repository = AgentRankRepository(plugin)
