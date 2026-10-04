@@ -54,5 +54,44 @@ async function nativeSubscribe() {
   }
 }
 
-const cases = {native: nativeSubscribe}
+function deferred() {
+  let resolve, reject
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no })
+  return {promise, resolve, reject}
+}
+
+async function dashboardLifecycle() {
+  for (const fail of [false, true]) {
+    const request = deferred(), timers = new Map()
+    let nextId = 0, dataRequests = 0
+    const state = {
+      selectedProfileId: vue.ref('profile-A'), runProgress: vue.ref({active: true}),
+      board: vue.ref(null), identities: vue.ref([]), isRunning: vue.ref(true),
+      loadRunProgress: () => request.promise,
+      loadProfileData: async () => { dataRequests += 1 },
+    }
+    const app = component('Dashboard.vue', {pluginId: 'AgentRank', config: {}}, 'pollRunProgress', {
+      useAgentRankState: () => state,
+      window: {setTimeout: fn => {timers.set(++nextId, fn); return nextId}, clearTimeout: id => timers.delete(id)},
+    })
+    const polling = app.pollRunProgress()
+    app.unmount()
+    if (fail) request.reject(new Error('offline'))
+    else request.resolve({active: false})
+    await polling
+    assert.equal(timers.size, 0, 'unmount must prevent late responses restarting polling')
+    assert.equal(dataRequests, 0, 'unmount must prevent follow-up requests')
+  }
+  const options = deferred()
+  let dataRequests = 0
+  const app = component('Dashboard.vue', {config: {}}, 'initialize', {
+    useAgentRankState: () => ({loadOptions: () => options.promise, loadProfileData: () => {dataRequests += 1}}),
+    window: {clearTimeout() {}},
+  })
+  const initialized = app.initialize()
+  app.unmount(); options.resolve(); await initialized
+  assert.equal(dataRequests, 0)
+}
+
+const cases = {native: nativeSubscribe, dashboard: dashboardLifecycle}
 cases[process.argv[2]]().catch(error => { console.error(error); process.exitCode = 1 })
