@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, t as toPosterThumbnail, a as getPluginApi, p as postPluginApi } from './api-ilAfCmvf.js';
-import { d as doubanDispatchUrl, u as useRankMediaActions, s as sourceDescriptor } from './useRankMediaActions-JayhEIdr.js';
+import { _ as _export_sfc, u as useRequestScope, t as toPosterThumbnail, a as getPluginApi, p as postPluginApi, o as openNativeSubscription } from './useRequestScope-Dkqwm-Un.js';
+import { d as doubanDispatchUrl, u as useRankMediaActions, s as sourceDescriptor } from './useRankMediaActions-BgIPihDT.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,unref:_unref,normalizeStyle:_normalizeStyle} = await importShared('vue');
 
@@ -48,7 +48,7 @@ const _hoisted_21 = {
   class: "text-center text-medium-emphasis py-4 text-caption"
 };
 
-const {ref,computed,onMounted} = await importShared('vue');
+const {ref,computed,onMounted,watch} = await importShared('vue');
 
 const TIMELINE_MONTH_LIMIT = 3;
 const TIMELINE_ITEM_LIMIT = 50;
@@ -87,7 +87,29 @@ const showDialog = ref(false);
 const dialogResolving = ref(false);
 const dialogResolveError = ref('');
 const dialogResolveToken = ref(0);
+watch(showDialog, open => {
+  if (!open) {
+    dialogResolveToken.value += 1;
+    dialogResolving.value = false;
+  }
+}, { flush: 'sync' });
 const timelineImageFailed = ref({});
+let loadEpoch = 0;
+let refreshEpoch = 0;
+let subscribeEpoch = 0;
+const requestScope = useRequestScope(() => dashboardPluginId.value, () => {
+  loadEpoch += 1;
+  refreshEpoch += 1;
+  subscribeEpoch += 1;
+  dialogResolveToken.value += 1;
+  loading.value = false;
+  folioLoading.value = false;
+  refreshing.value = false;
+  dialogResolving.value = false;
+  showDialog.value = false;
+  subscribeResult.value = '';
+  refreshResult.value = '';
+});
 
 const builtinRankDefs = {
   coming: { name: '即将上映' },
@@ -140,15 +162,20 @@ async function requestFolioData(timeoutMs) {
 }
 
 async function loadFolioData() {
+  const owner = requestScope.capture();
+  const epoch = loadEpoch;
+  const current = () => owner() && epoch === loadEpoch;
   let lastError = null;
   for (let attempt = 0; attempt <= TIMELINE_RETRY_DELAYS_MS.length; attempt += 1) {
+    if (!current()) return null
     if (attempt > 0) {
-      await new Promise(resolve => setTimeout(resolve, TIMELINE_RETRY_DELAYS_MS[attempt - 1]));
+      if (!await requestScope.wait(TIMELINE_RETRY_DELAYS_MS[attempt - 1]) || !current()) return null
     }
     try {
       const timeoutMs = attempt === 0 ? INITIAL_LOAD_TIMEOUT_MS : TIMELINE_RETRY_TIMEOUT_MS;
       return await requestFolioData(timeoutMs)
     } catch (error) {
+      if (!current()) return null
       lastError = error;
       if (error?.code === 'PLUGIN_API_TIMEOUT' && attempt > 0) break
     }
@@ -157,6 +184,10 @@ async function loadFolioData() {
 }
 
 async function load() {
+  if (!requestScope.isActive()) return
+  const owner = requestScope.capture();
+  const epoch = ++loadEpoch;
+  const current = () => owner() && epoch === loadEpoch;
   loading.value = true;
   folioLoading.value = true;
   loadError.value = '';
@@ -167,6 +198,7 @@ async function load() {
     { label: '榜单快照', run: getPluginApi(props.api, dashboardPluginId.value, 'rank_history', { timeoutMs: INITIAL_LOAD_TIMEOUT_MS }) },
   ];
   const coreResults = await Promise.allSettled(coreRequests.map(item => item.run));
+  if (!current()) return
 
   coreResults.forEach((result, index) => {
     if (result.status === 'fulfilled') {
@@ -185,6 +217,7 @@ async function load() {
   loading.value = false;
 
   const [folioResult] = await folioRequest;
+  if (!current()) return
   if (folioResult.status === 'fulfilled') {
     if (folioResult.value?.success === false) {
       errors.push('追影时间线');
@@ -201,11 +234,17 @@ async function load() {
 }
 
 async function refreshDashboard() {
+  if (refreshing.value || !requestScope.isActive()) return
+  const owner = requestScope.capture();
+  const epoch = ++refreshEpoch;
+  const current = () => owner() && epoch === refreshEpoch;
   refreshing.value = true;
   refreshResult.value = '';
   await load();
+  if (!current()) return
   try {
     const res = await postPluginApi(props.api, dashboardPluginId.value, 'refresh_rss', {});
+    if (!current()) return
     if (res.success) {
       if (res.data) rankHistory.value = res.data;
       refreshResult.value = 'RSS 已刷新';
@@ -213,30 +252,34 @@ async function refreshDashboard() {
       refreshResult.value = res.message || 'RSS 刷新失败';
     }
   } catch (e) {
+    if (!current()) return
     refreshResult.value = `刷新失败: ${e}`;
   }
   refreshing.value = false;
-  setTimeout(() => { refreshResult.value = ''; }, 3000);
+  requestScope.later(() => { if (current()) refreshResult.value = ''; }, 3000);
 }
 
 async function showActionDialog(rk, item) {
+  if (!requestScope.isActive()) return
+  const current = requestScope.capture();
   const token = ++dialogResolveToken.value;
   dialogItem.value = { rk, item: { ...(item || {}) } };
   dialogResolveError.value = '';
+  dialogResolving.value = false;
   showDialog.value = true;
   if (tmdbIdOf(item)) return
   dialogResolving.value = true;
   try {
     const media = await resolveRankMedia(rk, item);
-    if (token !== dialogResolveToken.value) return
+    if (!current() || token !== dialogResolveToken.value) return
     dialogItem.value = { rk, item: media };
     if (!tmdbIdOf(media)) dialogResolveError.value = '未找到对应的 TMDB 条目';
   } catch (error) {
-    if (token === dialogResolveToken.value) {
+    if (current() && token === dialogResolveToken.value) {
       dialogResolveError.value = error?.message || 'TMDB 识别失败';
     }
   } finally {
-    if (token === dialogResolveToken.value) dialogResolving.value = false;
+    if (current() && token === dialogResolveToken.value) dialogResolving.value = false;
   }
 }
 
@@ -249,30 +292,39 @@ function dialogPoster() {
   return toPosterThumbnail(item.poster || item.poster_path || item.cover)
 }
 
-async function subscribeViaNativeDialog(rk, item) {
+async function subscribeViaNativeDialog(rk, item, current) {
+  const open = props.nativeSubscribe;
   const media = await resolveRankMedia(rk, item);
-  await props.nativeSubscribe(media);
+  if (!current()) return
+  await openNativeSubscription(open, media);
+  if (!current()) return
   subscribeResult.value = '已打开 MP 原生订阅窗口';
 }
 
-async function subscribeRankItem(rk, item) {
+async function subscribeRankItem(rk, item, current) {
   const res = await requestRankSubscription(rk, item);
+  if (!current()) return
   if (!res?.success) throw new Error(res?.message || '订阅失败')
   subscribeResult.value = res?.message || `${item.title || ''} 已添加订阅`;
 }
 
 async function doSubscribe() {
   if (!dialogItem.value || dialogResolving.value) return
+  if (!requestScope.isActive()) return
+  const owner = requestScope.capture();
+  const epoch = ++subscribeEpoch;
+  const current = () => owner() && epoch === subscribeEpoch;
   const { rk, item } = dialogItem.value;
   showDialog.value = false;
   subscribeResult.value = '';
   try {
-    if (props.nativeSubscribe) await subscribeViaNativeDialog(rk, item);
-    else await subscribeRankItem(rk, item);
+    if (props.nativeSubscribe) await subscribeViaNativeDialog(rk, item, current);
+    else await subscribeRankItem(rk, item, current);
   } catch (e) {
+    if (!current()) return
     subscribeResult.value = `订阅失败: ${e?.message || e}`;
   }
-  setTimeout(() => { subscribeResult.value = ''; }, 3000);
+  if (current()) requestScope.later(() => { if (current()) subscribeResult.value = ''; }, 3000);
 }
 
 function sourceButtonColor() {
@@ -744,6 +796,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9aa993ac"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a29975a2"]]);
 
 export { Dashboard as default };

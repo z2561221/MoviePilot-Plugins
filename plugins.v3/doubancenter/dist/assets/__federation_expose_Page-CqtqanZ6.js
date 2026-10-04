@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, t as toPosterThumbnail, a as getPluginApi, p as postPluginApi } from './api-ilAfCmvf.js';
-import { u as useRankMediaActions, s as sourceDescriptor } from './useRankMediaActions-JayhEIdr.js';
+import { _ as _export_sfc, u as useRequestScope, t as toPosterThumbnail, a as getPluginApi, o as openNativeSubscription, p as postPluginApi } from './useRequestScope-Dkqwm-Un.js';
+import { u as useRankMediaActions, s as sourceDescriptor } from './useRankMediaActions-BgIPihDT.js';
 
 const {resolveComponent:_resolveComponent$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2,withCtx:_withCtx$2,createVNode:_createVNode$2,toDisplayString:_toDisplayString$2,createTextVNode:_createTextVNode$2} = await importShared('vue');
 
@@ -832,7 +832,7 @@ return (_ctx, _cache) => {
 };
 const PageContent = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-b9bc81df"]]);
 
-const {reactive,ref} = await importShared('vue');
+const {reactive,ref,watch} = await importShared('vue');
 
 const INITIAL_LOAD_TIMEOUT_MS = 8000;
 
@@ -879,6 +879,32 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   const dialogResolving = ref(false);
   const dialogResolveError = ref('');
   const dialogResolveToken = ref(0);
+
+  let requestEpoch = 0;
+  function invalidateRequests() {
+    requestEpoch += 1;
+    dialogResolveToken.value += 1;
+    loading.value = false;
+  }
+  const requestScope = useRequestScope(pluginId, () => {
+    invalidateRequests();
+    actionKey.value = '';
+    actionMessage.value = '';
+    showDialog.value = false;
+    dialogResolving.value = false;
+  });
+  watch(showDialog, open => {
+    if (!open) {
+      dialogResolveToken.value += 1;
+      dialogResolving.value = false;
+    }
+  }, { flush: 'sync' });
+
+  function beginRequest() {
+    const epoch = ++requestEpoch;
+    const current = requestScope.capture();
+    return () => current() && epoch === requestEpoch
+  }
 
   function rankColorOf(key) {
     return rankIconColors[key] || rankIconColors.unknown
@@ -971,6 +997,8 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   } = useRankMediaActions({ api, pluginId, rankNameOf });
 
   async function loadAll() {
+    if (!requestScope.isActive()) return
+    const isCurrent = beginRequest();
     loading.value = true;
     loadError.value = '';
     const requests = [
@@ -999,8 +1027,9 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
     const results = await Promise.allSettled(requests.map(async request => {
       const response = await getPluginApi(api(), pluginId(), request.path, { timeoutMs: INITIAL_LOAD_TIMEOUT_MS });
       if (response?.success === false) throw new Error(response.message || `${request.label}加载失败`)
-      request.apply(normalizeApiData(response));
+      if (isCurrent()) request.apply(normalizeApiData(response));
     }));
+    if (!isCurrent()) return
     const failed = [];
     results.forEach((result, index) => {
       if (result.status === 'rejected') {
@@ -1013,6 +1042,8 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   }
 
   async function loadArchive() {
+    if (!requestScope.isActive()) return
+    const isCurrent = beginRequest();
     loading.value = true;
     loadError.value = '';
     try {
@@ -1022,14 +1053,16 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
         return normalizeApiData(response)
       };
       let data = await fetchPage(archiveData.value.page);
+      if (!isCurrent()) return
       const lastPage = Math.max(Number(data?.total_pages) || 0, 1);
       if ((Number(data?.page) || 1) > lastPage) data = await fetchPage(lastPage);
-      if (data) archiveData.value = data;
+      if (isCurrent() && data) archiveData.value = data;
     } catch (error) {
+      if (!isCurrent()) return
       loadError.value = '归档记录加载失败';
       console.error('[DoubanCenter] 归档记录加载失败', error);
     } finally {
-      loading.value = false;
+      if (isCurrent()) loading.value = false;
     }
   }
 
@@ -1039,6 +1072,7 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   }
 
   function closeArchivePage() {
+    invalidateRequests();
     archivePage.value = false;
   }
 
@@ -1055,22 +1089,25 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   }
 
   async function runDelete(path, body, key, successText) {
-    if (actionKey.value) return
+    if (actionKey.value || !requestScope.isActive()) return
+    const current = requestScope.capture();
     actionKey.value = key;
     actionMessage.value = '';
     actionOk.value = true;
     try {
       const qs = queryString(body);
       const response = await postPluginApi(api(), pluginId(), qs ? `${path}?${qs}` : path, {});
+      if (!current()) return
       actionOk.value = !!response?.success;
       actionMessage.value = response?.message || (actionOk.value ? successText : '操作失败');
       if (archivePage.value) await loadArchive();
       else await loadAll();
     } catch (error) {
+      if (!current()) return
       actionOk.value = false;
       actionMessage.value = error?.message || '操作失败';
     } finally {
-      actionKey.value = '';
+      if (current()) actionKey.value = '';
     }
   }
 
@@ -1101,21 +1138,24 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   }
 
   async function showActionDialog(rk, item) {
+    if (!requestScope.isActive()) return
+    const current = requestScope.capture();
     const token = ++dialogResolveToken.value;
     dialogItem.value = { rk, item: { ...(item || {}) } };
     dialogResolveError.value = '';
+    dialogResolving.value = false;
     showDialog.value = true;
     if (tmdbIdOf(item)) return
     dialogResolving.value = true;
     try {
       const media = await resolveRankMedia(rk, item);
-      if (token !== dialogResolveToken.value) return
+      if (!current() || token !== dialogResolveToken.value) return
       dialogItem.value = { rk, item: media };
       if (!tmdbIdOf(media)) dialogResolveError.value = '未找到对应的 TMDB 条目';
     } catch (error) {
-      if (token === dialogResolveToken.value) dialogResolveError.value = error?.message || 'TMDB 识别失败';
+      if (current() && token === dialogResolveToken.value) dialogResolveError.value = error?.message || 'TMDB 识别失败';
     } finally {
-      if (token === dialogResolveToken.value) dialogResolving.value = false;
+      if (current() && token === dialogResolveToken.value) dialogResolving.value = false;
     }
   }
 
@@ -1125,14 +1165,20 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   }
 
   async function subscribeViaNativeDialog(rk, item) {
+    const current = requestScope.capture();
+    const open = nativeSubscribe();
     const media = await resolveRankMedia(rk, item);
-    await nativeSubscribe()(media);
+    if (!current()) return
+    await openNativeSubscription(open, media);
+    if (!current()) return
     actionOk.value = true;
     actionMessage.value = '已打开 MP 原生订阅窗口';
   }
 
   async function subscribeRankItem(rk, item) {
+    const current = requestScope.capture();
     const response = await requestRankSubscription(rk, item);
+    if (!current()) return
     if (!response?.success) throw new Error(response?.message || '订阅失败')
     actionOk.value = true;
     actionMessage.value = response?.message || `${item.title || ''} 已添加订阅`;
@@ -1141,6 +1187,8 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
 
   async function doSubscribe() {
     if (!dialogItem.value || dialogResolving.value) return
+    if (!requestScope.isActive()) return
+    const current = requestScope.capture();
     const { rk, item } = dialogItem.value;
     showDialog.value = false;
     actionMessage.value = '';
@@ -1149,6 +1197,7 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
       if (nativeSubscribe()) await subscribeViaNativeDialog(rk, item);
       else await subscribeRankItem(rk, item);
     } catch (error) {
+      if (!current()) return
       actionOk.value = false;
       actionMessage.value = `订阅失败: ${error?.message || error}`;
     }
@@ -1438,6 +1487,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3293d466"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9b347f91"]]);
 
 export { Page as default };
