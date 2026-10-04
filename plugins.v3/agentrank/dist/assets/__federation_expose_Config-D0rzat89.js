@@ -149,7 +149,7 @@ const _hoisted_85 = { class: "ar-config__prompt-purpose" };
 const _hoisted_86 = { class: "ar-config__prompt-summary" };
 const _hoisted_87 = { class: "ar-config__hint mt-2" };
 
-const {computed,onMounted,reactive,ref,watch} = await importShared('vue');
+const {computed,onBeforeUnmount,onMounted,reactive,ref,watch} = await importShared('vue');
 
 const legacyDefaultPersonaPrompt = '以克里斯蒂娜式的天才少女口吻与用户交流：聪明、理性、傲娇又略带嘴硬，像未来道具研究所整理实验记录一样，把结论和证据讲清楚。可以自然使用“唔……”“诶？”“嗦嘎”“真是的”“别误会”“知道啦”“嘛”“哼”等口癖，偶尔使用“机关”“世界线”“实验数据”“未来道具研究所”等轻梗；可以轻微吐槽、撒娇和故作不情愿，但始终保持友善。二次元浓度要明显，但不要连续堆叠口癖，也不能让人设盖过事实。遇到错误、风险、失败和待确认操作时，先清楚说明结论，再自然补充人设语气。';
 
@@ -229,6 +229,9 @@ const legacyAgentPromptDefaults = new Set([
 ]);
 
 const form = reactive(structuredClone(defaults));
+let lastAppliedConfig = cloneConfig(defaults);
+let runtimeRequest = 0;
+let disposed = false;
 const activeMain = ref('overview');
 const activeProfile = ref('playback');
 const activeAdvanced = ref('runtime');
@@ -503,7 +506,7 @@ function cloneConfig(value) {
   return JSON.parse(JSON.stringify(value || {}))
 }
 
-function applyConfig(value) {
+function normalizeIncomingConfig(value) {
   const next = cloneConfig(value);
   delete next.profile_access_map;
   const legacyPersona = String(next.persona_prompt || '').trim();
@@ -520,22 +523,39 @@ function applyConfig(value) {
     if (!next.ranking_prompt) next.ranking_prompt = legacyPrompt;
   }
   delete next.agent_prompt;
-  Object.assign(form, cloneConfig(defaults), next);
-  form.playback_enabled = true;
-  form.emby_identities = Array.isArray(next.emby_identities)
+  const normalized = { ...cloneConfig(defaults), ...next };
+  normalized.playback_enabled = true;
+  normalized.emby_identities = Array.isArray(next.emby_identities)
     ? next.emby_identities.filter(identity => identity?.profile_id)
     : [];
-  form.default_profile_id = next.default_profile_id || form.emby_identities[0]?.profile_id || '';
-  form.emby_library_ids = next.emby_library_ids && typeof next.emby_library_ids === 'object'
+  normalized.default_profile_id = next.default_profile_id || normalized.emby_identities[0]?.profile_id || '';
+  normalized.emby_library_ids = next.emby_library_ids && typeof next.emby_library_ids === 'object'
     ? cloneConfig(next.emby_library_ids)
     : {};
-  delete form.media_types;
-  delete form.exclude_keywords;
-  delete form.discovery_sources;
-  delete form.weights;
+  delete normalized.media_types;
+  delete normalized.exclude_keywords;
+  delete normalized.discovery_sources;
+  delete normalized.weights;
+  return normalized
 }
 
-watch(() => props.initialConfig, applyConfig, { immediate: true, deep: true });
+function applyConfig(value) {
+  const incoming = normalizeIncomingConfig(value);
+  const draft = cloneConfig(form);
+  for (const key of new Set([...Object.keys(draft), ...Object.keys(incoming)])) {
+    if (JSON.stringify(draft[key]) !== JSON.stringify(lastAppliedConfig[key])) continue
+    if (Object.prototype.hasOwnProperty.call(incoming, key)) form[key] = incoming[key];
+    else delete form[key];
+  }
+  lastAppliedConfig = cloneConfig(incoming);
+}
+
+watch(() => props.initialConfig, value => {
+  runtimeRequest += 1;
+  loading.value = false;
+  applyConfig(value);
+}, { immediate: true, deep: true });
+onBeforeUnmount(() => { disposed = true; runtimeRequest += 1; });
 async function loadOverview(profileId = selectedProfileId.value) {
   if (!props.api?.get || !profileId) {
     overview.value = null;
@@ -545,7 +565,8 @@ async function loadOverview(profileId = selectedProfileId.value) {
 }
 
 async function loadRuntime() {
-  if (!props.api?.get) return
+  if (disposed || !props.api?.get) return
+  const request = ++runtimeRequest;
   loading.value = true;
   loadError.value = '';
   try {
@@ -553,6 +574,7 @@ async function loadRuntime() {
       getApi('status'),
       getApi('config/options'),
     ]);
+    if (disposed || request !== runtimeRequest) return
     status.value = statusData || status.value;
     availableIdentities.value = Array.isArray(optionsData?.emby_identities) ? optionsData.emby_identities : [];
     availableLibraries.value = optionsData?.emby_libraries && typeof optionsData.emby_libraries === 'object' ? optionsData.emby_libraries : {};
@@ -563,9 +585,9 @@ async function loadRuntime() {
     applyConfig(optionsData?.config || props.initialConfig);
     await loadOverview(optionsData?.default_profile_id || selectedProfileId.value);
   } catch (error) {
-    loadError.value = error?.message || '运行信息加载失败';
+    if (!disposed && request === runtimeRequest) loadError.value = error?.message || '运行信息加载失败';
   } finally {
-    loading.value = false;
+    if (!disposed && request === runtimeRequest) loading.value = false;
   }
 }
 
@@ -2593,6 +2615,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-92939c3c"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-faa57ac0"]]);
 
 export { Config as default };

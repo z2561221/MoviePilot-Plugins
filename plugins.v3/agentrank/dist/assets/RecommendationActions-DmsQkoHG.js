@@ -1148,11 +1148,16 @@ function useAgentRankState(api, pluginId) {
   }
 }
 
-const {toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,mergeProps:_mergeProps,withCtx:_withCtx,createVNode:_createVNode,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
+const {toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,mergeProps:_mergeProps,withCtx:_withCtx,createVNode:_createVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode} = await importShared('vue');
 
 
 const _hoisted_1 = ["aria-label"];
 const _hoisted_2 = { class: "ar-actions__label" };
+const _hoisted_3 = {
+  key: 0,
+  class: "ar-actions__error text-error",
+  role: "alert"
+};
 
 const {computed,inject,ref} = await importShared('vue');
 
@@ -1174,6 +1179,7 @@ const emit = __emit;
 
 const injectedNativeSubscribe = inject('moviepilot:nativeSubscribe', null);
 const nativeSubscribePending = ref(false);
+const nativeSubscribeError = ref('');
 
 function firstId(...values) {
   for (const value of values) {
@@ -1272,9 +1278,10 @@ function openTmdb() {
   openExternal(`https://www.themoviedb.org/${mediaPath}/${encodeURIComponent(tmdbId.value)}`);
 }
 
-/** 先调用宿主原生订阅，无效媒体才回退插件安全链。 */
+/** 宿主拒绝或取消时停止；仅在未提供原生入口时使用插件安全链。 */
 async function handleSubscribe() {
   if (nativeSubscribePending.value) return
+  nativeSubscribeError.value = '';
   const callback = nativeSubscribe.value;
   if (typeof callback !== 'function') {
     emit('subscribe', props.item?.candidate_id);
@@ -1288,9 +1295,11 @@ async function handleSubscribe() {
       return
     }
     if (result?.code === 'PERMISSION_DENIED') return
-    emit('subscribe', props.item?.candidate_id);
-  } catch (_) {
-    emit('subscribe', props.item?.candidate_id);
+    nativeSubscribeError.value = result?.message || '原生订阅未受理，请检查媒体信息后重试';
+  } catch (error) {
+    const cancelled = error?.__CANCEL__ || error?.code === 'ERR_CANCELED'
+      || ['AbortError', 'CanceledError'].includes(error?.name);
+    if (!cancelled) nativeSubscribeError.value = error?.message || '原生订阅暂时不可用，请重试';
   } finally {
     nativeSubscribePending.value = false;
   }
@@ -1424,12 +1433,15 @@ return (_ctx, _cache) => {
         }, 16, ["size", "color", "prepend-icon", "loading", "disabled", "aria-label", "aria-pressed"])
       ]),
       _: 1
-    }, 8, ["text"])
+    }, 8, ["text"]),
+    (nativeSubscribeError.value)
+      ? (_openBlock(), _createElementBlock("span", _hoisted_3, _toDisplayString(nativeSubscribeError.value), 1))
+      : _createCommentVNode("", true)
   ], 8, _hoisted_1))
 }
 }
 
 };
-const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ab76fd2e"]]);
+const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a937c213"]]);
 
 export { RecommendationActions as R, useAgentRankState as u };
