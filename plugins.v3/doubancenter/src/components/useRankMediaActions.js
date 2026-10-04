@@ -60,7 +60,7 @@ export function useRankMediaActions({ api, pluginId, rankNameOf }) {
       media_type: mediaType,
       title: item?.title || item?.name || '',
       year: item?.year || '',
-      season: item?.season || '',
+      season: item?.season ?? '',
     })
     const res = normalizeApiData(
       await getPluginApi(currentValue(api), currentValue(pluginId), `resolve_media?${params}`),
@@ -104,7 +104,7 @@ export function useRankMediaActions({ api, pluginId, rankNameOf }) {
       rank_key: rk,
       rank_name: item?.rank_name || rankNameOf(rk, item),
       source_link: item?.link || '',
-      season: item?.season || '',
+      season: item?.season ?? '',
     })
     return postPluginApi(currentValue(api), currentValue(pluginId), `subscribe?${params}`, {})
   }

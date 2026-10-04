@@ -254,6 +254,7 @@ class DoubanCenter(_PluginBase):
         bangumi_id=None,
         media_source=None,
         media_id=None,
+        season: Optional[int] = None,
     ):
         """根据标题、年份和外部 ID 解析媒体信息。"""
         return api_controller.api_resolve_media(
@@ -265,6 +266,7 @@ class DoubanCenter(_PluginBase):
             bangumi_id=bangumi_id,
             media_source=media_source,
             media_id=media_id,
+            season=season,
         )
 
     def api_subscribe(
@@ -279,6 +281,7 @@ class DoubanCenter(_PluginBase):
         rank_key="",
         rank_name="",
         source_link="",
+        season: Optional[int] = None,
     ):
         """根据前端请求创建媒体订阅。"""
         return api_controller.api_subscribe(
@@ -293,6 +296,7 @@ class DoubanCenter(_PluginBase):
             rank_key=rank_key,
             rank_name=rank_name,
             source_link=source_link,
+            season=season,
         )
 
     def api_refresh_rss(self):
