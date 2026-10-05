@@ -11,7 +11,8 @@ if (-not (Test-Path -LiteralPath $checksumPath -PathType Leaf)) {
 }
 
 $verified = 0
-foreach ($line in Get-Content -LiteralPath $checksumPath) {
+$verifiedPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($line in Get-Content -LiteralPath $checksumPath -Encoding UTF8) {
   if ([string]::IsNullOrWhiteSpace($line)) { continue }
   if ($line -notmatch '^([0-9a-f]{64})  (.+)$') {
     throw '校验清单格式无效，停止校验。'
@@ -29,8 +30,24 @@ foreach ($line in Get-Content -LiteralPath $checksumPath) {
   if ($actual -ne $expected) {
     throw "哈希不匹配：$relativePath"
   }
+  [void]$verifiedPaths.Add($relativePath)
   $verified++
 }
 
 if ($verified -eq 0) { throw '校验清单为空，停止恢复。' }
+if (-not $verifiedPaths.Contains('manifest.public.json')) {
+  throw '校验清单缺少 manifest.public.json，停止恢复。'
+}
+$publicManifest = Get-Content -LiteralPath (Join-Path $root 'manifest.public.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($publicManifest -isnot [PSCustomObject]) {
+  throw 'manifest.public.json 必须是 JSON 对象，停止恢复。'
+}
+$encryption = $publicManifest.encryption
+if ($null -ne $encryption -and $encryption -isnot [PSCustomObject]) {
+  throw '备份加密信息无效，停止恢复。'
+}
+$payloadName = if ($encryption -and $encryption.enabled) { 'payload.enc' } else { 'payload.zip' }
+if (-not $verifiedPaths.Contains($payloadName)) {
+  throw "校验清单缺少 $payloadName，停止恢复。"
+}
 Write-Output "校验通过：$verified 个文件。"
