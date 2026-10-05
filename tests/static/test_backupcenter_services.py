@@ -1304,3 +1304,59 @@ def test_plugin_directory_backup_uses_consistent_sqlite_snapshot(tmp_path, monke
         assert db.execute("SELECT value FROM data").fetchall() == [(42,)]
     finally:
         db.close()
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("password", ["", "test-password"])
+def test_empty_plugin_directories_round_trip(tmp_path, monkeypatch, nested, password):
+    """明文与加密备份保留空目录，在线恢复清除备份后新增的文件。"""
+    settings = _service_settings(tmp_path)
+    plugin = _Plugin(tmp_path)
+    own_path = plugin.get_data_path()
+    plugin.get_data_path = lambda plugin_id=None: (
+        settings.PLUGIN_DATA_PATH / plugin_id if plugin_id else own_path
+    )
+    plugin.get_backup_password = lambda: password
+    plugin.get_stored_backup_password = lambda: password
+    target = plugin.get_data_path("DemoPlugin")
+    target.mkdir()
+    if nested:
+        (target / "empty" / "nested").mkdir(parents=True)
+    backup = backup_module.BackupService(plugin, settings)
+    manifest = backup.create_backup(
+        backup_model.BackupScope(plugin_settings=False, plugin_data=False),
+        ["DemoPlugin"], password=password,
+    )
+    (target / "stale.txt").write_text("created after backup", encoding="utf-8")
+    restore = restore_module.RestoreService(plugin, backup)
+    monkeypatch.setattr(restore, "_create_host_database_backup", lambda: "test.sqlite")
+    monkeypatch.setattr(restore, "_stop_target_plugins", lambda _ids: (None, []))
+    result = restore.restore_logical(
+        manifest["backup_id"], backup_model.RestoreSelection(plugin_files=True),
+        ["DemoPlugin"], password=password,
+    )
+    assert result["restored"]["plugin_files"] == ["DemoPlugin"]
+    assert not (target / "stale.txt").exists()
+    assert target.is_dir()
+    assert (target / "empty" / "nested").is_dir() == nested
+    emergency = backup.read_public_manifest(result["emergency_backup_id"])
+    with restore._payload_directory(emergency["backup_id"], emergency, password) as payload:
+        assert (payload / "files/plugins/DemoPlugin/stale.txt").read_text(
+            encoding="utf-8"
+        ) == "created after backup"
+
+
+def test_absent_plugin_directory_is_not_restored_as_empty(tmp_path):
+    """备份时未存在的目录保持缺席，不能据此清除后来创建的数据。"""
+    source = tmp_path / "absent"
+    destination = tmp_path / "payload/files/plugins/DemoPlugin"
+    assert backup_module.BackupService._copy_tree(source, destination) == 0
+    assert not destination.exists()
+    target = tmp_path / "live/DemoPlugin"
+    target.mkdir(parents=True)
+    (target / "keep.txt").write_text("keep", encoding="utf-8")
+    restore = restore_module.RestoreService(
+        SimpleNamespace(get_data_path=lambda **_kwargs: target), SimpleNamespace()
+    )
+    assert restore._restore_plugin_files(tmp_path / "payload", ["DemoPlugin"]) == []
+    assert (target / "keep.txt").read_text(encoding="utf-8") == "keep"
