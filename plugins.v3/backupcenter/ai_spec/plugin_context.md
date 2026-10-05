@@ -22,10 +22,10 @@
 
 1. 从 `SystemConfig` 读取非插件设置、插件配置和已安装插件清单。
 2. 从 `PluginData` 按插件 ID 导出逻辑数据，并复制 `config/plugins/<PluginID>/` 标准数据目录；`BackupCenter` 自身始终从插件范围排除，避免历史备份递归嵌套。
-3. 负载 ZIP 内写入私有 manifest、逻辑数据、文件及 `docs/` 教程副本。
+3. 负载 ZIP 内写入私有 manifest、逻辑数据、文件、空目录及 `docs/` 教程副本；保留存在但为空的插件根目录，缺席的目录不伪造为空目录。
 4. 未设置口令时保存普通 `payload.zip`；设置口令时使用 scrypt 派生密钥并以流式 AES-256-GCM 保存为 `payload.enc`。两种格式的外层文件都使用 SHA-256 清单校验。
 5. 外层生成公开 manifest、恢复教程、核对清单、校验和及离线工具。
-6. 导出 API 在校验通过后生成临时 ZIP，响应完成后删除临时文件。
+6. 在线与离线校验均要求清单包含 `manifest.public.json` 和加密状态对应的 `payload.enc` / `payload.zip`，逐项验证文件存在与哈希。导出 API 在校验通过后生成临时 ZIP，响应完成后删除临时文件。
 
 自动备份与手动备份使用同一种清单格式。自动包和 MoviePilot 手动包可以在恢复时选择“配置”或“数据”，并进一步选择一个或多个已打包插件。单插件手动包恢复时仍可只恢复配置或只恢复数据。
 
@@ -78,4 +78,4 @@
 git diff --check
 ```
 
-本地运行态闭环为：窄测试和前端构建通过 -> 目标插件同步到 MP 本地仓库 -> GET reload -> `/api/v1/plugin/history/BackupCenter` 回读版本、history 和 `is_local=true` -> 用户 Chrome 新标签页完成桌面与 `390x844` 验收。文件同步和哈希一致本身不代表运行态已验收。
+本地运行态闭环为：受影响路径窄测试与必要的前端构建通过 -> 目标插件同步到 MP 本地仓库并按需安装 -> 目标插件 POST reload -> `/api/v1/plugin/history/BackupCenter` 回读版本、history、`installed=true`、`state=true` 与 `is_local=true`，并回读受影响 API。未变化的前端源码和产物复用已有证据；文件同步和哈希一致本身不代表运行态已验收。Chrome 桌面与 `390x844` 页面验收默认由用户完成，Codex 仅在明确授权后使用任务专用新标签页。
