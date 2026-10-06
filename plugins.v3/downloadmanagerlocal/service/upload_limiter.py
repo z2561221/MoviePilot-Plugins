@@ -6,6 +6,9 @@ import logging
 import threading
 import time
 from collections import defaultdict
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import wraps
 from typing import Any, Iterable
 
 from ..adapter.upload_limit import (
@@ -46,6 +49,57 @@ from .upload_allocator import (
 
 logger = logging.getLogger(__name__)
 _LOCK_GUARD = threading.RLock()
+_CURRENT_CYCLE = ContextVar("downloadmanager_upload_cycle", default=None)
+
+
+class UploadCycleStopped(RuntimeError):
+    """上传限速轮次所属代次已停止。"""
+
+
+def _cycle_checkpoint() -> None:
+    """拒绝旧代次后续读写，重新启用不能复活已经停止的轮次。"""
+    current = _CURRENT_CYCLE.get()
+    if current is None:
+        return
+    plugin, generation, stop_event = current
+    if (generation != int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
+            or (stop_event is not None and stop_event.is_set())
+            or not is_upload_limit_active(plugin)):
+        raise UploadCycleStopped("上传限速轮次已停止")
+
+
+def _cancellable_cycle(callback):
+    """绑定轮次的停止信号并将正常取消转换为状态回执。"""
+    @wraps(callback)
+    def run(plugin, *args, **kwargs):
+        """执行一个能够在外部调用之间停止的限速轮次。"""
+        token = _CURRENT_CYCLE.set((
+            plugin,
+            int(getattr(plugin, "_transfer_stop_generation", 0) or 0),
+            getattr(plugin, "_upload_limit_stop_event", None),
+        ))
+        try:
+            return callback(plugin, *args, **kwargs)
+        except UploadCycleStopped:
+            return {**get_upload_limit_status(plugin), "service_status": "stopped"}
+        finally:
+            _CURRENT_CYCLE.reset(token)
+    return run
+
+
+@contextmanager
+def _active_cycle_lock(plugin):
+    """等锁期间响应停止，获得锁后再次核对代次。"""
+    lock = _cycle_lock(plugin)
+    while True:
+        _cycle_checkpoint()
+        if lock.acquire(timeout=0.1):
+            break
+    try:
+        _cycle_checkpoint()
+        yield
+    finally:
+        lock.release()
 
 
 def load_upload_limit_state(plugin: Any) -> dict:
@@ -69,6 +123,7 @@ def load_upload_limit_state(plugin: Any) -> dict:
 
 def save_upload_limit_state(plugin: Any, state: dict) -> None:
     """保存当前上传限速运行态并更新插件实例缓存。"""
+    _cycle_checkpoint()
     state["schema_version"] = 1
     plugin._upload_limit_state = state
     if getattr(plugin, "_upload_limit_state_error", ""):
@@ -77,6 +132,7 @@ def save_upload_limit_state(plugin: Any, state: dict) -> None:
     plugin.save_data(UPLOAD_LIMIT_STATE_KEY, state)
 
 
+@_cancellable_cycle
 def run_upload_limit_cycle(
     plugin: Any,
     *,
@@ -87,7 +143,7 @@ def run_upload_limit_cycle(
     timestamp = float(now if now is not None else time.time())
     if not is_upload_limit_active(plugin):
         return get_upload_limit_status(plugin)
-    with _cycle_lock(plugin):
+    with _active_cycle_lock(plugin):
         if not is_upload_limit_active(plugin):
             return get_upload_limit_status(plugin)
         state = load_upload_limit_state(plugin)
@@ -128,6 +184,7 @@ def run_upload_limit_cycle(
         downloader_state = state.setdefault("downloaders", {})
 
         for downloader_id in selected:
+            _cycle_checkpoint()
             try:
                 service = plugin.service_info(downloader_id)
                 if not service or not getattr(service, "instance", None):
@@ -138,6 +195,7 @@ def run_upload_limit_cycle(
                 current_global = read_global_upload_settings(
                     service.instance, downloader_type
                 )
+                _cycle_checkpoint()
                 entry = downloader_state.setdefault(downloader_id, {
                     "downloader_type": downloader_type,
                     "first_managed_at": timestamp,
@@ -156,6 +214,7 @@ def run_upload_limit_cycle(
                     downloader_type, caps[downloader_id]
                 )
                 if not global_settings_equal(current_global, desired_global):
+                    _cycle_checkpoint()
                     desired_global = write_global_upload_limit(
                         service.instance, downloader_type, caps[downloader_id]
                     )
@@ -166,6 +225,7 @@ def run_upload_limit_cycle(
                 snapshots, poll_error = list_upload_torrents(
                     service.instance, downloader_id, downloader_type
                 )
+                _cycle_checkpoint()
                 if poll_error:
                     raise RuntimeError(poll_error)
                 all_snapshots = {
@@ -280,7 +340,10 @@ def run_upload_limit_cycle(
                         regular_tasks[task_key] = snapshot
                 entry["initial_scan_complete"] = True
                 entry["per_torrent_management_active"] = True
+            except UploadCycleStopped:
+                raise
             except Exception as error:
+                _cycle_checkpoint()
                 errors[downloader_id].append(str(error))
                 logger.exception("上传限速扫描下载器 %s 失败", downloader_id)
 
@@ -354,6 +417,7 @@ def run_upload_limit_cycle(
             try:
                 applied = expected
                 if not torrent_settings_equal(snapshot.upload_settings, expected):
+                    _cycle_checkpoint()
                     applied = write_torrent_upload_limit(
                         context["service"].instance,
                         snapshot.downloader_type,
@@ -364,7 +428,10 @@ def run_upload_limit_cycle(
                 record["last_allocation_kib"] = desired_kib
                 record["last_written_settings"] = settings_to_dict(applied)
                 record["last_applied_at"] = timestamp
+            except UploadCycleStopped:
+                raise
             except Exception as error:
+                _cycle_checkpoint()
                 errors[snapshot.downloader_id].append(
                     f"{snapshot.torrent_hash}: {error}"
                 )
@@ -483,7 +550,10 @@ def scan_upload_limit_site_tags(
                     })
                     item["task_count"] += 1
                     item["downloaders"].add(clean_id)
+        except UploadCycleStopped:
+            raise
         except Exception as error:
+            _cycle_checkpoint()
             errors.append({"downloader": clean_id, "message": str(error)})
     items = []
     for item in sorted(sites.values(), key=lambda value: value["name"].lower()):
@@ -945,6 +1015,7 @@ def _release_downloader_torrent_limits(
                 snapshot.upload_settings,
                 settings_from_dict(last_written),
             ):
+                _cycle_checkpoint()
                 restore_torrent_upload_settings(
                     instance,
                     downloader_type,
@@ -955,7 +1026,10 @@ def _release_downloader_torrent_limits(
             else:
                 report["preserved_manual"] += 1
             state.get("torrents", {}).pop(task_key, None)
+        except UploadCycleStopped:
+            raise
         except Exception as error:
+            _cycle_checkpoint()
             report["errors"].append(f"{snapshot.torrent_hash}: {error}")
             logger.exception(
                 "释放上传限速任务 %s/%s 失败",
@@ -982,6 +1056,7 @@ def _release_torrent_record(
             snapshot.upload_settings,
             settings_from_dict(last_written),
         ):
+            _cycle_checkpoint()
             restore_torrent_upload_settings(
                 instance,
                 downloader_type,
@@ -990,7 +1065,10 @@ def _release_torrent_record(
             )
         state.get("torrents", {}).pop(task_key, None)
         return ""
+    except UploadCycleStopped:
+        raise
     except Exception as error:
+        _cycle_checkpoint()
         logger.exception(
             "释放上传限速任务 %s/%s 失败",
             snapshot.downloader_id,
@@ -1023,6 +1101,7 @@ def _restore_one_downloader(plugin: Any, state: dict, downloader_id: str) -> dic
             current_global,
             global_settings_from_dict(last_global, downloader_type),
         ):
+            _cycle_checkpoint()
             restore_global_upload_settings(
                 service.instance,
                 downloader_type,
@@ -1052,6 +1131,7 @@ def _restore_one_downloader(plugin: Any, state: dict, downloader_id: str) -> dic
                 snapshot.upload_settings,
                 settings_from_dict(last_written),
             ):
+                _cycle_checkpoint()
                 restore_torrent_upload_settings(
                     service.instance,
                     downloader_type,
@@ -1061,7 +1141,10 @@ def _restore_one_downloader(plugin: Any, state: dict, downloader_id: str) -> dic
                 report["torrent_restored"] += 1
             else:
                 report["preserved_manual"] += 1
+    except UploadCycleStopped:
+        raise
     except Exception as error:
+        _cycle_checkpoint()
         report["errors"].append(str(error))
         logger.exception("恢复上传限速下载器 %s 失败", downloader_id)
         return report

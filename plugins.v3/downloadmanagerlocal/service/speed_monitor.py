@@ -6,6 +6,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
+from weakref import WeakValueDictionary
 
 from ..model.state import (
     SPEED_MONITOR_ALERTS_KEY,
@@ -144,7 +145,7 @@ class SpeedMonitorRuntime:
         """初始化线程安全的速度监控运行态。"""
         self._lock = threading.RLock()
         self.downloader_locks: dict[str, threading.RLock] = {}
-        self.session_locks: dict[str, threading.RLock] = {}
+        self.session_locks: WeakValueDictionary = WeakValueDictionary()
         self.sessions = dict(sessions or {})
         self.baselines = dict(baselines or {})
         self.alerts = dict(alerts or {})
