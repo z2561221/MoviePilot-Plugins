@@ -24,6 +24,8 @@ def stop(plugin) -> None:
     event = getattr(plugin, "_run_stop", None)
     if event is not None:
         event.set()
+    # 换掉缓存容器；在途旧查询即使返回，也不能把缓存重新挂回新代次。
+    plugin._folio_series_cache = {}
 
 
 def checkpoint(plugin) -> None:

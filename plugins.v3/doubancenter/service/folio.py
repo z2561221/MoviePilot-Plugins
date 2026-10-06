@@ -3,6 +3,7 @@ DoubanCenter - 豆瓣档案模块
 """
 import datetime
 import re
+import time
 from collections.abc import Mapping
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
@@ -30,6 +31,9 @@ from . import folio_retry, folio_watch, lifecycle
 WISH_NOTIFY_THROTTLE_SECONDS = 6 * 60 * 60
 WISH_RECOGNIZE_MAX_RETRIES = 3
 FOLIO_SERIES_CACHE_KEY = "_folio_series_cache"
+FOLIO_SERIES_CACHE_LIMIT = 256
+FOLIO_SERIES_CACHE_SECONDS = 300
+FOLIO_SERIES_MISS_CACHE_SECONDS = 60
 
 _PROVIDER_KEYS = {
     MediaSource.TMDB: ("Tmdb", "TMDB", "tmdb", "tmdb_id"),
@@ -531,6 +535,7 @@ def _server_names_for_event(event_info) -> list[str]:
     return result
 
 
+@lifecycle.scoped
 def _series_context(plugin, event_info) -> dict:
     """取得父级 Series 的标题、首播年份和媒体身份。"""
     item = _event_payload_item(event_info)
@@ -554,22 +559,40 @@ def _series_context(plugin, event_info) -> dict:
         cache = getattr(plugin, FOLIO_SERIES_CACHE_KEY, None)
         if not isinstance(cache, dict):
             cache = {}
+            setattr(plugin, FOLIO_SERIES_CACHE_KEY, cache)
+        now = time.monotonic()
+        for key, entry in list(cache.items()):
+            if not isinstance(entry, tuple) or len(entry) != 2 or entry[0] <= now:
+                cache.pop(key, None)
         server_names = _server_names_for_event(event_info)
         cache_key = (tuple(server_names), str(series_id))
-        cached = cache.get(cache_key)
+        entry = cache.get(cache_key)
+        cached = entry[1] if entry is not None else None
         if cached is None:
             cached = None
             try:
                 chain = MediaServerChain()
                 for server in server_names:
                     result = chain.iteminfo(server=server, item_id=str(series_id))
+                    lifecycle.checkpoint(plugin)
                     if result:
-                        cached = result
+                        cached_source, cached_id = identity_from_media(result)
+                        cached = {
+                            "title": _value_from_mapping(result, "title", "name"),
+                            "year": _value_from_mapping(result, "year", "first_air_date", "release_date"),
+                            "media_source": cached_source,
+                            "media_id": cached_id,
+                        }
                         break
+            except lifecycle.RunStopped:
+                raise
             except Exception as err:
                 logger.debug(f"查询父级 Series 失败 {series_id}：{err}")
-            cache[cache_key] = cached or {}
-            setattr(plugin, FOLIO_SERIES_CACHE_KEY, cache)
+            lifecycle.checkpoint(plugin)
+            while len(cache) >= FOLIO_SERIES_CACHE_LIMIT:
+                cache.pop(next(iter(cache)))
+            ttl = FOLIO_SERIES_CACHE_SECONDS if cached else FOLIO_SERIES_MISS_CACHE_SECONDS
+            cache[cache_key] = (time.monotonic() + ttl, cached or {})
         if cached:
             title = _value_from_mapping(cached, "title", "name") or title
             year = _value_from_mapping(cached, "year", "first_air_date", "release_date") or year
