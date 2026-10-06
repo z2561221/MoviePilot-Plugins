@@ -1250,7 +1250,7 @@ def _send_folio_notification(self, success: bool, message: str):
     t = f"豆瓣观影档案 {'成功' if success else '失败'}"
     msg = message.strip() + f"\n时间：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     try:
-        self.post_message(mtype=MessageType.MediaServer, title=t, text=msg, parse_mode="plain")
+        self.post_message(mtype=MessageType.Plugin, title=t, text=msg, parse_mode="plain")
     except Exception as e:
         logger.error(f'{self.plugin_name} 发送通知失败: {e}')
 
@@ -1279,7 +1279,7 @@ def _send_failure_notification(
         return
     msg = message.strip() + f"\n时间：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     try:
-        self.post_message(mtype=MessageType.MediaServer, title=title, text=msg, parse_mode="plain")
+        self.post_message(mtype=MessageType.Plugin, title=title, text=msg, parse_mode="plain")
         last_map[throttle_key] = now_ts
         self._wish_notification_last_times = last_map
     except Exception as e:
