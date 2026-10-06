@@ -12,6 +12,12 @@ def handle_sync_log(plugin, event: Event, played: bool = False) -> None:
     """处理媒体播放事件并同步到豆瓣时间。"""
     if not plugin._enabled or not plugin._folio_enabled:
         return
+    event_info = event.event_data
+    if not played and (
+        getattr(event_info, "event", None) not in {"playback.start", "media.play", "PlaybackStart"}
+        or getattr(event_info, "user_name", None) not in (plugin._folio_user or "").split(",")
+    ):
+        return
     if not hasattr(plugin, "_sync_lock"):
         plugin._sync_lock = threading.Lock()
     # 不同媒体的已看事件不能当作重复请求丢弃；等待当前实例完成后逐条处理。

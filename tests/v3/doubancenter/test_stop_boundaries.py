@@ -16,6 +16,7 @@ def make_plugin():
     plugin = object.__new__(DoubanCenter)
     plugin._enabled = True
     plugin._folio_enabled = True
+    plugin._folio_user = "tester"
     plugin._scheduler = None
     plugin._sync_lock = threading.Lock()
     lifecycle.start(plugin)
@@ -88,7 +89,7 @@ def test_stopped_webhook_leaves_busy_lock_without_waiting_for_holder(monkeypatch
     plugin._sync_lock.acquire()
     try:
         with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(webhook.handle_sync_log, plugin, SimpleNamespace(event_data={}))
+            future = executor.submit(webhook.handle_sync_log, plugin, SimpleNamespace(event_data=SimpleNamespace(event="playback.start", user_name="tester")))
             assert entered.wait(3)
             plugin.stop_service()
             future.result(timeout=1)

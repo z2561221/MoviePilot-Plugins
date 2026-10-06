@@ -75,28 +75,33 @@ def _create_douban_api(self):
 
 
 def check_cookie_periodically(self) -> None:
-    """定期检测豆瓣 Cookie 是否仍然可用。"""
+    """定期检查明确的登录证据，网络或页面异常不推断 Cookie 失效。"""
     now = datetime.datetime.now().timestamp()
-    if not hasattr(self, '_last_cookie_check_time'):
-        self._last_cookie_check_time = 0
-    if now - self._last_cookie_check_time > 3600:
-        if not hasattr(self, '_last_cookie_invalid_time'):
-            self._last_cookie_invalid_time = 0
-        try:
-            _, sid = _create_douban_api(self).get_subject_id(title="肖申克的救赎")
-        except Exception:
-            sid = None
-        if sid:
-            if not hasattr(self, '_last_cookie_valid_time'):
-                self._last_cookie_valid_time = 0
-            if now - self._last_cookie_valid_time > 600:
-                logger.info("cookie有效性检测通过")
-                self._last_cookie_valid_time = now
-        else:
-            if now - self._last_cookie_invalid_time > 600:
-                _send_wish_notification(self, "豆瓣 Cookie 可能已失效，请及时更换！", throttle_key="cookie_invalid")
-                self._last_cookie_invalid_time = now
-        self._last_cookie_check_time = now
+    if now - getattr(self, "_last_cookie_check_time", 0) <= 3600:
+        return
+    self._last_cookie_check_time = now
+    try:
+        # 健康检查不挂接业务 CK 失败通知，避免探测异常被当作同步失败。
+        status, reason = DoubanApi(user_cookie=getattr(self, "_folio_cookie", "")).get_login_status()
+    except lifecycle.RunStopped:
+        raise
+    except Exception as err:
+        # 异常正文可能含请求参数或 Cookie，只记录异常类型。
+        logger.warning(f"豆瓣登录状态检查未完成：{type(err).__name__}；未判定 Cookie 失效")
+        return
+    lifecycle.checkpoint(self)
+    if status == "valid":
+        logger.info("豆瓣登录状态检查通过")
+    elif status == "login_required":
+        logger.warning(f"豆瓣登录状态异常：{reason}")
+        if getattr(self, "_folio_notify", False):
+            _send_failure_notification(
+                self, "豆瓣登录状态异常",
+                "豆瓣返回登录验证要求，请检查登录状态，必要时更新 Cookie。",
+                throttle_key="login_required",
+            )
+    else:
+        logger.warning(f"豆瓣登录状态检查未确认（{status}）：{reason}；未判定 Cookie 失效")
 
 
 @lifecycle.managed
