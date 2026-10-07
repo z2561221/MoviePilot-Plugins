@@ -47,16 +47,24 @@ def test_queued_cycle_cannot_reapply_after_disable():
             """建立可重入测试锁。"""
             self.lock = threading.RLock()
 
-        def __enter__(self):
-            """在真实阻塞前通知测试主线程。"""
+        def acquire(self, *args, **kwargs):
+            """在真实阻塞前通知测试主线程，支持可取消的超时等锁。"""
             if threading.current_thread().name == "old-cycle":
                 entered.set()
-            self.lock.acquire()
+            return self.lock.acquire(*args, **kwargs)
+
+        def release(self):
+            """释放可重入测试锁。"""
+            self.lock.release()
+
+        def __enter__(self):
+            """支持恢复限速路径使用的上下文锁接口。"""
+            self.acquire()
             return self
 
         def __exit__(self, *args):
             """释放测试锁。"""
-            self.lock.release()
+            self.release()
 
     plugin._upload_limit_cycle_lock = ObservedLock()
     with plugin._upload_limit_cycle_lock:

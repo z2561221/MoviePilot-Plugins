@@ -139,7 +139,7 @@ def test_transfer_successes_persist_total_and_fallback_subset(monkeypatch, tmp_p
 
     monkeypatch.setattr(transfer_service, "validate_config", lambda _plugin: True)
     monkeypatch.setattr(transfer_service, "download_torrent", lambda *_args, **_kwargs: "target-hash")
-    monkeypatch.setattr(transfer_service, "post_transfer_process", lambda *_args: None)
+    monkeypatch.setattr(transfer_service, "post_transfer_process", lambda *_args: True)
     monkeypatch.setattr(transfer_service, "is_downloader_type", lambda *_args, **_kwargs: False)
 
     transfer_service.transfer(plugin, trigger_source="事件驱动")

@@ -126,3 +126,50 @@ def test_frontend_api_forwards_silent_feedback_without_double_unwrap() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     source = API_MODULE.read_text(encoding="utf-8")
     assert "response.data.data" not in source
+
+
+def test_config_save_respects_draft_instance_and_unmount() -> None:
+    """执行实际组件，旧成功、旧错误、排队请求不能影响新草稿或实例。"""
+    script = r'''
+      import assert from 'node:assert/strict';
+      import { readFileSync } from 'node:fs';
+      const source = readFileSync('plugins.v3/downloadmanagerlocal/frontend/src/components/Config.vue', 'utf8')
+        .match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '');
+      const props = {pluginId: 'first-instance', api: {}, initialConfig: {upload_limit_site_rules: {Site: {limit_kib: 100}}}};
+      const watchers = [], cleanups = [], pending = [];
+      const build = new Function('ref', 'reactive', 'computed', 'watch', 'onMounted', 'onBeforeUnmount',
+        'defineProps', 'defineEmits', 'getPluginApi', 'postPluginJsonApi',
+        source + '\nreturn {form,queueUploadSiteRulesSave,uploadMessage,uploadMessageStatus};');
+      globalThis.document = { removeEventListener() {} };
+      const state = build(value => ({value}), value => value, fn => ({get value(){return fn()}}),
+        (get, cb, options) => {watchers.push({get,cb});if(options?.immediate)cb(get());},
+        () => {}, fn => cleanups.push(fn), () => props, () => () => {}, () => {},
+        (api,id,path,body) => new Promise((resolve,reject) => pending.push({id,body,resolve,reject})));
+      const tick = () => new Promise(resolve => setImmediate(resolve));
+      const rules = limit => ({Site:{limit_kib:limit}});
+      const first = state.queueUploadSiteRulesSave(rules(100));
+      await tick();
+      const queued = state.queueUploadSiteRulesSave(rules(200));
+      props.initialConfig = {upload_limit_site_rules: rules(500)};
+      watchers[0].cb(props.initialConfig);
+      pending[0].resolve({code:0,rules:rules(100)});
+      await Promise.all([first,queued]);
+      assert.equal(state.form.upload_limit_site_rules.Site.limit_kib, 500);
+      assert.equal(pending.length, 1);
+      const current = state.queueUploadSiteRulesSave(rules(600));
+      await tick();pending[1].resolve({code:0,rules:rules(600)});await current;
+      assert.equal(state.form.upload_limit_site_rules.Site.limit_kib, 600);
+      const oldInstance = state.queueUploadSiteRulesSave(rules(700));await tick();
+      const staleQueued = state.queueUploadSiteRulesSave(rules(800));
+      props.pluginId = 'second-instance';watchers[1].cb(props.pluginId);
+      pending[2].reject(new Error('old instance failed'));
+      await Promise.all([oldInstance,staleQueued]);
+      assert.equal(pending.length, 3);
+      assert.equal(state.uploadMessageStatus.value, 'success');
+      const disposed = state.queueUploadSiteRulesSave(rules(900));await tick();
+      for(const cleanup of cleanups)cleanup();
+      pending[3].resolve({code:0,rules:rules(900)});await disposed;
+      assert.equal(state.form.upload_limit_site_rules.Site.limit_kib, 600);
+    '''
+    result = _run_node(script)
+    assert result.returncode == 0, result.stdout + result.stderr

@@ -252,7 +252,8 @@ def process_seed_recheck_once(plugin, queue, stop_event=None):
                 try:
                     if stop_event is not None and stop_event.is_set():
                         return changed
-                    downloader.start_torrents(ids=[hash_text])
+                    if downloader.start_torrents(ids=[hash_text]) is False:
+                        raise RuntimeError("下载器未确认开始做种成功")
                     logger.info(f"做种校验：{hash_text} 校验完成，已自动开始做种，来源={item.get('source')}")
                     queue.pop(queue_key, None)
                     changed = True
@@ -261,6 +262,9 @@ def process_seed_recheck_once(plugin, queue, stop_event=None):
                 continue
             if seed_is_error(state, downloader_type):
                 item["attempts"] = item.get("attempts", 0) + 1
+                item["last_check"] = time.time()
+                item["updated_at"] = time.time()
+                changed = True
                 if item["attempts"] >= 5:
                     queue.pop(queue_key, None)
                     changed = True
@@ -347,10 +351,9 @@ def sweep_paused_seed_tasks(plugin, check_services: list[Any]) -> None:
                 source_text = "，".join(
                     f"{source} {count} 个" for source, count in source_counts.items()
                 )
-                logger.info(
-                    f"做种校验服务：兜底发现下载器 {service.name} 中 {source_text} 已校验但未开始，开始做种"
-                )
-                downloader.start_torrents(ids=ready_hashes)
+                if downloader.start_torrents(ids=ready_hashes) is False:
+                    raise RuntimeError("下载器未确认开始做种成功")
+                logger.info(f"做种校验服务：下载器 {service.name} 中 {source_text} 已开始做种")
         except Exception as exc:
             logger.error(f"做种校验服务：兜底扫描下载器 {service.name} 失败: {exc}")
 
@@ -419,8 +422,9 @@ def _process_legacy_recheck_queue(plugin, check_services: list[Any]) -> None:
                 source_text = "，".join(
                     f"{source} {count} 个" for source, count in source_counts.items()
                 ) or f"{len(ready_hashes)} 个"
-                logger.info(f"做种校验服务：下载器 {service.name} 中 {source_text} 任务校验完成，开始做种")
-                downloader.start_torrents(ids=ready_hashes)
+                if downloader.start_torrents(ids=ready_hashes) is False:
+                    raise RuntimeError("下载器未确认开始做种成功")
+                logger.info(f"做种校验服务：下载器 {service.name} 中 {source_text} 任务校验完成，已开始做种")
                 for hash_id in ready_hashes:
                     recheck_items.pop(hash_id, None)
                 plugin._recheck_torrents[service.name] = recheck_items

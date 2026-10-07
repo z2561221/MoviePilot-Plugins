@@ -26,7 +26,7 @@ from ..adapter.moviepilot import (
     request_get_res,
     request_post_res,
 )
-from ..model.state import iyuu_history_key, iyuu_source_key, record_iyuu_results
+from ..model.state import IYUU_PENDING_KEY, iyuu_history_key, iyuu_source_key, record_iyuu_results
 from ..utils.sensitive import mask_sensitive_url
 from ..utils.torrent_adapter import get_label, get_tracker_urls
 from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
@@ -136,6 +136,7 @@ def _run_iyuu_batch(plugin):
         return
     _reset_iyuu_run_counters(plugin)
     try:
+        _resume_iyuu_postprocess(plugin, generation)
         return _iyuu_auto_seed(plugin, generation)
     except Exception as e:
         logger.error(f"IYUU辅种任务执行失败: {e}", exc_info=True)
@@ -489,6 +490,16 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         )
         return False
 
+    pending_key = f"{service.name}::{seed.get('info_hash')}"
+    pending = _load_iyuu_pending(plugin)
+    if pending_key in pending:
+        # 旧提交的状态未确定，由恢复流程核验，禁止再次提交。
+        return False
+    pending[pending_key] = {
+        "downloader": service.name, "source_hash": source_hash,
+        "expected_hash": seed.get("info_hash"), "download_id": None,
+    }
+    plugin.save_data(IYUU_PENDING_KEY, pending)
     logger.info(f"IYUU辅种：准备添加下载任务：{safe_torrent_url}")
     download_id = iyuu_download(plugin, service=service, content=content,
                                 save_path=save_path, save_category=save_category,
@@ -499,15 +510,77 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         if _transfer_stopped(plugin, generation):
             return False
         plugin._iyuu_fail += 1
-        append_iyuu_cache(plugin._iyuu_error_caches, seed.get("info_hash"))
-        plugin._iyuu_cached += 1
         return False
 
-    # 目标已经接收，即使此刻停止，也必须让调用者记录实际目标以供同步清理。
-    if _transfer_stopped(plugin, generation):
+    # 提交前的意图已落盘；即使下面写回失败，恢复仍可按预期 hash 查询目标。
+    pending = _load_iyuu_pending(plugin)
+    pending[pending_key]["download_id"] = download_id
+    plugin.save_data(IYUU_PENDING_KEY, pending)
+    _finish_iyuu_pending(plugin, pending_key, pending[pending_key], service, generation)
+    return True
+
+
+def _load_iyuu_pending(plugin) -> dict:
+    """读取续办登记；无记录为空，损坏数据拒绝覆盖。"""
+    data = plugin.get_data(IYUU_PENDING_KEY)
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError("辅种续办数据格式错误")
+    return data
+
+
+def _finish_iyuu_pending(plugin, key, item, service, generation) -> bool:
+    """先登记真实目标，再完成校验与标签处理，失败保留续办记录。"""
+    download_id = item.get("download_id") or item["expected_hash"]
+    source_hash = item.get("source_hash")
+    try:
+        if source_hash and iyuu_save_history(plugin, source_hash, service.name, [download_id]) is False:
+            return False
+        if _transfer_stopped(plugin, generation):
+            return False
+        if not _postprocess_iyuu_target(plugin, service, download_id, source_hash, generation):
+            return False
+        pending = _load_iyuu_pending(plugin)
+        pending.pop(key, None)
+        plugin.save_data(IYUU_PENDING_KEY, pending)
+        append_iyuu_cache(plugin._iyuu_success_caches, item["expected_hash"])
+        plugin._iyuu_success += 1
         return True
-    plugin._iyuu_success += 1
-    append_iyuu_cache(plugin._iyuu_success_caches, seed.get("info_hash"))
+    except Exception as error:
+        logger.error(f"IYUU辅种：目标 {download_id} 后处理未完成，保留续办记录：{error}")
+        return False
+
+
+def _resume_iyuu_postprocess(plugin, generation) -> None:
+    """恢复已登记目标的后处理，不重复添加种子。"""
+    for key, item in list(_load_iyuu_pending(plugin).items()):
+        if _transfer_stopped(plugin, generation):
+            return
+        if not isinstance(item, dict):
+            raise ValueError("辅种续办记录格式错误")
+        try:
+            service = plugin.service_info(item["downloader"])
+            if not service or not service.instance:
+                continue
+            identity = item.get("download_id") or item["expected_hash"]
+            torrents, error = service.instance.get_torrents(ids=[identity])
+            if error or torrents is None:
+                continue
+            if not torrents:
+                # 提交前留下的意图经成功查询确认未落地，允许普通扫描再次提交。
+                if not item.get("download_id"):
+                    pending = _load_iyuu_pending(plugin)
+                    pending.pop(key, None)
+                    plugin.save_data(IYUU_PENDING_KEY, pending)
+                continue
+            _finish_iyuu_pending(plugin, key, item, service, generation)
+        except Exception as error:
+            logger.error(f"IYUU辅种：恢复目标 {key} 失败，保留记录：{error}")
+
+
+def _postprocess_iyuu_target(plugin, service, download_id, source_hash, generation) -> bool:
+    """对已接收的辅种目标执行可重试后处理。"""
     dl = service.instance
     dl_type = service.type
 
@@ -520,20 +593,21 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
                 logger.info(f"IYUU辅种：{download_id} 跳过校验，等待手动开始")
         else:
             logger.info(f"IYUU辅种：qbittorrent 开始校验 {download_id}")
-            dl.recheck_torrents(ids=[download_id])
+            if dl.recheck_torrents(ids=[download_id]) is False:
+                return False
             if _transfer_stopped(plugin, generation):
-                return True
+                return False
             plugin._register_seed_recheck(service.name, [download_id], "iyuu")
     else:
         plugin._register_seed_recheck(service.name, [download_id], "iyuu")
 
     if _transfer_stopped(plugin, generation):
-        return True
+        return False
     if plugin._rename_enabled:
         try:
             torrents, _ = dl.get_torrents(ids=[download_id])
             if _transfer_stopped(plugin, generation):
-                return True
+                return False
             if torrents:
                 t = torrents[0]
                 torrent_name = t.get("name", "") if dl_type == "qbittorrent" else t.name
@@ -549,12 +623,12 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
             logger.error(f"IYUU辅种后重命名失败: {e}")
 
     if _transfer_stopped(plugin, generation):
-        return True
+        return False
     if plugin._tag_enabled:
         try:
             torrents, _ = dl.get_torrents(ids=[download_id])
             if _transfer_stopped(plugin, generation):
-                return True
+                return False
             if torrents:
                 t = torrents[0]
                 tags = get_label(t, dl_type)
@@ -797,8 +871,10 @@ def iyuu_save_history(plugin, current_hash: str, downloader: str, success_torren
         for seed_hash in success_torrents:
             if seed_hash:
                 plugin.save_data(key=iyuu_source_key(seed_hash), value=current_hash)
+        return True
     except Exception as e:
         logger.error(f"IYUU辅种：保存历史失败：{e}")
+        return False
 
 
 def append_iyuu_cache(cache_list: list, info_hash: str):

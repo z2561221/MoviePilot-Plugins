@@ -8,7 +8,7 @@ from app.sdk.logging import logger
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from ..adapter.moviepilot import get_downloader_config, list_builtin_sites
+from ..adapter.moviepilot import get_downloader_service, list_builtin_sites
 from ..model.api import (
     ApiBusinessModel,
     DiagnosticsResult,
@@ -387,11 +387,15 @@ def api_upload_limit_site_rules_update(plugin, payload: UploadLimitRulesRequest)
 def api_upload_limit_disable_restore(plugin, payload: EmptyRequest | None = None):
     """停用上传限速、停止协调 worker 并恢复接管前设置。"""
     try:
-        config = dict(plugin.get_config() or {})
+        config = plugin.get_config()
+        if not isinstance(config, dict):
+            raise RuntimeError("读取插件配置失败，未停用上传限速")
+        config = dict(config)
         config["upload_limit_enabled"] = False
+        if plugin.update_config(config=config) is False:
+            raise RuntimeError("保存停用配置失败，未停用上传限速")
         plugin._upload_limit_enabled = False
         stop_upload_limit_worker(plugin)
-        plugin.update_config(config=config)
         result = restore_upload_limits(plugin)
         return _operation_response(result, UploadLimitDisableResult)
     except Exception as e:
@@ -549,14 +553,14 @@ def api_recovery_torrent(plugin, hash: str = ""):
 
     # 在目标下载器中查找并恢复
     try:
-        to_config = get_downloader_config(plugin._todownloader)
-        if not to_config:
+        to_service = get_downloader_service(plugin._todownloader)
+        if not to_service or not to_service.instance:
             return _operation_response(
                 {"code": 1, "msg": f"下载器 {plugin._todownloader} 不存在", "hash": hash},
                 HashActionResult,
             )
-        dl = to_config.instance
-        dl_type = to_config.type
+        dl = to_service.instance
+        dl_type = to_service.type
 
         if dl_type == "qbittorrent":
             dl.qbc.torrents_rename(torrent_hash=hash, new_torrent_name=original_name)

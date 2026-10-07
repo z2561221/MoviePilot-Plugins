@@ -140,28 +140,28 @@ def post_transfer_process(plugin, to_service: ServiceInfo, torrent_hash: str,
     """目标任务后处理逐步响应停止信号。"""
     generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) if stop_generation is None else stop_generation
     if _transfer_stopped(plugin, generation):
-        return
+        return False
     if not torrent_hash or not to_service or not to_service.instance:
-        return
+        return False
 
     dl = to_service.instance
     dl_type = to_service.type
 
     try:
         if dl_type == "qbittorrent":
-            torrents, _ = dl.get_torrents(ids=[torrent_hash])
-            if not torrents:
+            torrents, error = dl.get_torrents(ids=[torrent_hash])
+            if error or not torrents:
                 logger.warning(f"转移后处理：无法获取种子信息 hash={torrent_hash}")
-                return
+                return False
             torrent = torrents[0]
             torrent_name = torrent.get("name", "")
             torrent_tags = get_label(torrent, dl_type)
             trackers = get_tracker_urls(torrent, dl_type)
             save_path = get_save_path(torrent, dl_type)
         else:
-            torrents, _ = dl.get_torrents(ids=[torrent_hash])
-            if not torrents:
-                return
+            torrents, error = dl.get_torrents(ids=[torrent_hash])
+            if error or not torrents:
+                return False
             torrent = torrents[0]
             torrent_name = torrent.name
             torrent_tags = get_label(torrent, dl_type)
@@ -169,20 +169,21 @@ def post_transfer_process(plugin, to_service: ServiceInfo, torrent_hash: str,
             save_path = get_save_path(torrent, dl_type)
     except Exception as e:
         logger.error(f"转移后处理：获取种子信息失败 hash={torrent_hash}: {e}")
-        return
+        return False
 
     if not torrent_name:
-        return
+        return False
 
     if _transfer_stopped(plugin, generation):
-        return
+        return False
     if plugin._rename_enabled:
         plugin._rename_torrent(dl, dl_type, torrent_hash, torrent_name, save_path)
 
     if _transfer_stopped(plugin, generation):
-        return
+        return False
     if plugin._tag_enabled:
         plugin._tag_torrent(dl, dl_type, torrent_hash, torrent_tags, trackers)
+    return True
 
 
 def _complete_transfer(plugin, from_downloader, to_service, source_hash: str,
@@ -190,7 +191,8 @@ def _complete_transfer(plugin, from_downloader, to_service, source_hash: str,
     """完成当前目标任务的后处理，停止后保留源任务供下次续办。"""
     if _transfer_stopped(plugin, generation):
         return False
-    post_transfer_process(plugin, to_service, download_id, generation)
+    if not post_transfer_process(plugin, to_service, download_id, generation):
+        return False
     if _transfer_stopped(plugin, generation):
         return False
     to_downloader = to_service.instance
@@ -199,7 +201,8 @@ def _complete_transfer(plugin, from_downloader, to_service, source_hash: str,
             if plugin._seed_autostart:
                 plugin._register_seed_recheck(to_service.name, [download_id], "transfer")
         else:
-            to_downloader.recheck_torrents(ids=[download_id])
+            if to_downloader.recheck_torrents(ids=[download_id]) is False:
+                return False
             if _transfer_stopped(plugin, generation):
                 return False
             plugin._register_seed_recheck(to_service.name, [download_id], "transfer")
@@ -208,7 +211,8 @@ def _complete_transfer(plugin, from_downloader, to_service, source_hash: str,
     if _transfer_stopped(plugin, generation):
         return False
     if plugin._deletesource:
-        from_downloader.delete_torrents(delete_file=False, ids=[source_hash])
+        if from_downloader.delete_torrents(delete_file=False, ids=[source_hash]) is False:
+            return False
     return True
 
 
@@ -354,9 +358,13 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                 fail += 1
                 continue
 
-            torrent_info, _ = to_downloader.get_torrents(ids=[torrent_item.get('hash')])
+            torrent_info, poll_error = to_downloader.get_torrents(ids=[torrent_item.get('hash')])
             if _transfer_stopped(plugin, generation):
                 break
+            if poll_error or torrent_info is None:
+                logger.warning(f"目标任务查询失败，保留源任务：{torrent_item.get('hash')}")
+                fail += 1
+                continue
             if torrent_info:
                 previous = plugin.get_data(f"{from_service.name}-{torrent_item.get('hash')}") or {}
                 if (
@@ -370,6 +378,7 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                         plugin, from_service, to_service, torrent_item["hash"], download_id, generation,
                     )
                     if not completed:
+                        fail += 1
                         break
                     success += 1
                     continue
@@ -377,8 +386,10 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                     if _transfer_stopped(plugin, generation):
                         break
                     logger.info(f"删除重复的源下载器任务（不含文件）：{torrent_item.get('hash')} ...")
-                    from_downloader.delete_torrents(delete_file=False, ids=[torrent_item.get('hash')])
-                    del_dup += 1
+                    if from_downloader.delete_torrents(delete_file=False, ids=[torrent_item.get('hash')]) is False:
+                        fail += 1
+                    else:
+                        del_dup += 1
                 else:
                     logger.info(f"{torrent_item.get('hash')} 已在目的下载器中，跳过 ...")
                     skip += 1
@@ -448,7 +459,8 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                 plugin, from_service, to_service, torrent_item["hash"], download_id, generation,
             )
             if not completed:
-                logger.warning(f"转移已停止：目标任务 {download_id} 已创建，源任务保留，下次续办后处理")
+                fail += 1
+                logger.warning(f"转移尚未完成：目标任务 {download_id} 已创建，源任务保留，下次续办后处理")
                 break
             success += 1
 

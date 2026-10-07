@@ -16,6 +16,7 @@ _TRANSFER_STATS_LOCK = RLock()
 TRANSFER_SCHEDULE_KEY = "transfer_schedule"
 TRANSFER_SCHEDULE_SCHEMA_VERSION = 1
 
+IYUU_PENDING_KEY = "iyuu_pending_postprocess"
 IYUU_STATS_KEY = "iyuu_stats"
 IYUU_STATS_SCHEMA_VERSION = 1
 _IYUU_STATS_LOCK = RLock()
@@ -56,6 +57,7 @@ PERSISTED_STATE_KEYS = {
     "iyuu_source": f"{IYUU_SOURCE_KEY_PREFIX}<seed_hash>",
     "iyuu_cache_config": IYUU_CACHE_CONFIG_KEYS,
     "iyuu_stats": IYUU_STATS_KEY,
+    "iyuu_pending_postprocess": IYUU_PENDING_KEY,
 }
 
 

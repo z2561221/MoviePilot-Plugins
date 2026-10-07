@@ -3,7 +3,7 @@
 ## 插件定位
 
 `DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
-`3.3.11`（基于已发布的 V3.3.10）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`3.3.12`（基于已发布的 V3.3.11）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
@@ -25,10 +25,20 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.11`；V2 源码与元数据保持原样。
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.12`；V2 源码与元数据保持原样。
 - 转移批次在停止和重新初始化后失效；已创建目标而未收尾的任务以 `stopped_after_add` 记录，保留源任务，下次继续后处理并避免重复添加。
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
+
+## 2026-10-04 全局审查修复
+
+- 转种目标查询失败、校验失败或源删除失败时保留 `stopped_after_add`，不会虚报完成。
+- `iyuu_pending_postprocess` 保存辅种提交意图及已接收目标；下轮批次先恢复后处理，
+  成功前不进入成功缓存。历史先于校验登记，后处理失败仍可同步清理实际目标。
+- 恢复原名使用下载器运行服务；做种启动返回失败保留队列，错误次数逐轮持久化。
+- 限速停用先确认配置保存成功，再停止协调和恢复原值。
+- 保存路径按目录边界映射；配置草稿替换、实例切换与销毁使旧请求失效。
+- 故障测试只使用模拟下载器与隔离存储；运行态同步/reload/API 证据单独记录。
 
 ## 2026-09-16 归档记录直接补刀
 

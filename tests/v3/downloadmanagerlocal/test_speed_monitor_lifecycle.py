@@ -202,7 +202,7 @@ def test_qb_tr_multi_downloader_scan_creates_sessions_from_first_observation():
     assert tr_session.first_observed_at == 500
     assert tr_session.start_downloaded_bytes == 500
     assert tr_session.start_remaining_bytes == 1500
-    assert set(runtime.session_locks) == set(runtime.sessions)
+    assert not runtime.session_locks  # 无持有者或等待者的会话锁应立即释放。
 
 
 def test_disabled_monitor_does_not_poll_or_create_runtime():

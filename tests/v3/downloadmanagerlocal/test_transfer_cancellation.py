@@ -70,7 +70,7 @@ def transfer_case(monkeypatch, tmp_path):
     monkeypatch.setattr(transfer, "validate_config", lambda plugin: True)
     monkeypatch.setattr(transfer, "download_torrent", add_target)
     monkeypatch.setattr(transfer, "is_downloader_type", lambda *args, **kwargs: False)
-    monkeypatch.setattr(transfer, "post_transfer_process", lambda plugin, service, identity, generation=None: processed.append(identity))
+    monkeypatch.setattr(transfer, "post_transfer_process", lambda plugin, service, identity, generation=None: (processed.append(identity) or True))
     return SimpleNamespace(
         plugin=plugin, hooks=hooks, added=added, deleted=deleted, processed=processed,
         registered=registered, data=data, target=target,
