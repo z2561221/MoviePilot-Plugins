@@ -100,4 +100,13 @@ class ManifestService:
             verified.append(safe_relative.as_posix())
         if not verified:
             raise ManifestError("校验清单为空")
+        if "manifest.public.json" not in verified:
+            raise ManifestError("校验清单缺少 manifest.public.json")
+        public_manifest = cls.read_json(root / "manifest.public.json")
+        encryption = public_manifest.get("encryption") or {}
+        if not isinstance(encryption, dict):
+            raise ManifestError("备份加密信息无效")
+        payload_name = "payload.enc" if encryption.get("enabled") else "payload.zip"
+        if payload_name not in verified:
+            raise ManifestError(f"校验清单缺少 {payload_name}")
         return verified

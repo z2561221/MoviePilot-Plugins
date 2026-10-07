@@ -129,6 +129,7 @@ class BackupService:
             return 0
         if source.is_symlink():
             raise BackupServiceError("不允许备份符号链接目录")
+        destination.mkdir(parents=True, exist_ok=True)
         items = list(source.rglob("*"))
         databases: set[Path] = set()
         for item in items:
@@ -168,7 +169,7 @@ class BackupService:
             compresslevel=6,
         ) as archive:
             for source in sorted(payload_root.rglob("*")):
-                if source.is_file():
+                if source.is_file() or source.is_dir():
                     archive.write(source, source.relative_to(payload_root.parent).as_posix())
 
     def _append_index(self, public_manifest: Dict[str, Any]) -> None:

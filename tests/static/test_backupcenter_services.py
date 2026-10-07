@@ -4,6 +4,8 @@ import copy
 import importlib.util
 import sys
 import sqlite3
+import shutil
+import subprocess
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -1304,3 +1306,109 @@ def test_plugin_directory_backup_uses_consistent_sqlite_snapshot(tmp_path, monke
         assert db.execute("SELECT value FROM data").fetchall() == [(42,)]
     finally:
         db.close()
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("password", ["", "test-password"])
+def test_empty_plugin_directories_round_trip(tmp_path, monkeypatch, nested, password):
+    """明文与加密备份保留空目录，在线恢复清除备份后新增的文件。"""
+    settings = _service_settings(tmp_path)
+    plugin = _Plugin(tmp_path)
+    own_path = plugin.get_data_path()
+    plugin.get_data_path = lambda plugin_id=None: (
+        settings.PLUGIN_DATA_PATH / plugin_id if plugin_id else own_path
+    )
+    plugin.get_backup_password = lambda: password
+    plugin.get_stored_backup_password = lambda: password
+    target = plugin.get_data_path("DemoPlugin")
+    target.mkdir()
+    if nested:
+        (target / "empty" / "nested").mkdir(parents=True)
+    backup = backup_module.BackupService(plugin, settings)
+    manifest = backup.create_backup(
+        backup_model.BackupScope(plugin_settings=False, plugin_data=False),
+        ["DemoPlugin"], password=password,
+    )
+    (target / "stale.txt").write_text("created after backup", encoding="utf-8")
+    restore = restore_module.RestoreService(plugin, backup)
+    monkeypatch.setattr(restore, "_create_host_database_backup", lambda: "test.sqlite")
+    monkeypatch.setattr(restore, "_stop_target_plugins", lambda _ids: (None, []))
+    result = restore.restore_logical(
+        manifest["backup_id"], backup_model.RestoreSelection(plugin_files=True),
+        ["DemoPlugin"], password=password,
+    )
+    assert result["restored"]["plugin_files"] == ["DemoPlugin"]
+    assert not (target / "stale.txt").exists()
+    assert target.is_dir()
+    assert (target / "empty" / "nested").is_dir() == nested
+    emergency = backup.read_public_manifest(result["emergency_backup_id"])
+    with restore._payload_directory(emergency["backup_id"], emergency, password) as payload:
+        assert (payload / "files/plugins/DemoPlugin/stale.txt").read_text(
+            encoding="utf-8"
+        ) == "created after backup"
+
+
+def test_absent_plugin_directory_is_not_restored_as_empty(tmp_path):
+    """备份时未存在的目录保持缺席，不能据此清除后来创建的数据。"""
+    source = tmp_path / "absent"
+    destination = tmp_path / "payload/files/plugins/DemoPlugin"
+    assert backup_module.BackupService._copy_tree(source, destination) == 0
+    assert not destination.exists()
+    target = tmp_path / "live/DemoPlugin"
+    target.mkdir(parents=True)
+    (target / "keep.txt").write_text("keep", encoding="utf-8")
+    restore = restore_module.RestoreService(
+        SimpleNamespace(get_data_path=lambda **_kwargs: target), SimpleNamespace()
+    )
+    assert restore._restore_plugin_files(tmp_path / "payload", ["DemoPlugin"]) == []
+    assert (target / "keep.txt").read_text(encoding="utf-8") == "keep"
+
+
+@pytest.mark.parametrize("encrypted", [False, True])
+@pytest.mark.parametrize("damage", ["intact", "omit_payload", "missing_payload", "omit_manifest", "corrupt_payload"])
+def test_required_payload_checksum_online_and_offline(tmp_path, encrypted, damage):
+    """在线和离线校验都拒绝缺少负载、缺少关键校验项或负载损坏的包。"""
+    plugin = _Plugin(tmp_path)
+    backup = backup_module.BackupService(plugin, _service_settings(tmp_path))
+    root = backup.get_backup_root() / "backup-checksum"
+    root.mkdir()
+    payload_name = "payload.enc" if encrypted else "payload.zip"
+    manifest_path = Path("manifest.public.json")
+    manifest_module.ManifestService.write_json(root / manifest_path, {
+        "format_version": 3, "backup_id": "backup-checksum",
+        "encryption": {"enabled": encrypted}, "scope": {"plugin_files": True},
+    })
+    payload = root / payload_name
+    payload.write_bytes(b"payload bytes")
+    checked = [manifest_path, Path(payload_name)]
+    if damage == "omit_payload":
+        checked.remove(Path(payload_name))
+    elif damage == "omit_manifest":
+        checked.remove(manifest_path)
+    manifest_module.ManifestService.write_checksums(root, checked)
+    if damage == "missing_payload":
+        payload.unlink()
+    elif damage == "corrupt_payload":
+        payload.write_bytes(b"damaged bytes")
+    if damage == "intact":
+        verified = backup.verify_backup("backup-checksum")
+        assert set(verified["verified_files"]) == {payload_name, manifest_path.as_posix()}
+    else:
+        with pytest.raises(manifest_module.ManifestError):
+            backup.verify_backup("backup-checksum")
+        with pytest.raises(manifest_module.ManifestError):
+            backup.create_export_archive("backup-checksum")
+        restore = restore_module.RestoreService(plugin, backup)
+        with pytest.raises(manifest_module.ManifestError):
+            restore.preview("backup-checksum")
+        with pytest.raises(manifest_module.ManifestError):
+            with restore._payload_directory("backup-checksum", {}):
+                pytest.fail("不完整备份不得进入解包阶段")
+    pwsh = shutil.which("pwsh.exe") or shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("离线校验工具需要 PowerShell 7，在线校验已完成")
+    result = subprocess.run(
+        [pwsh, "-NoProfile", "-File", str(PLUGIN_DIR / "tools/verify-backup.ps1"),
+         "-BackupRoot", str(root)], capture_output=True, check=False,
+    )
+    assert (result.returncode == 0) == (damage == "intact"), result.stdout + result.stderr
