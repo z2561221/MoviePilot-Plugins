@@ -1,9 +1,12 @@
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onScopeDispose, reactive, ref, watch } from 'vue'
 import { getPluginApi, postPluginApi } from './api.js'
 
 const OPTIONS_CACHE_TTL_MS = 5 * 60 * 1000
 const PROFILE_CACHE_TTL_MS = 60 * 1000
 const ACTIVITY_LIMIT = 50
+const OPERATION_CACHE_LIMIT = 128
+const ANALYSIS_CACHE_LIMIT = 32
+const EXPOSURE_CACHE_LIMIT = 128
 const cacheByApi = new WeakMap()
 const fallbackCacheByPlugin = new Map()
 
@@ -145,6 +148,31 @@ export function useAgentRankState(api, pluginId) {
   const secondaryProfileId = ref('')
   const pendingFeedbackRequests = new Map()
   const recordedExposureKeys = new Set()
+  let disposed = false
+
+  function trimOperations(protectedKey = '') {
+    const keys = Object.keys(operations)
+    let excess = keys.length - OPERATION_CACHE_LIMIT
+    for (const key of keys) {
+      if (excess <= 0) break
+      const state = operations[key]
+      if (key === protectedKey || state.loading) continue
+      state.sequence += 1
+      state.retry = null
+      state.error = null
+      delete operations[key]
+      excess -= 1
+    }
+  }
+
+  onScopeDispose(() => {
+    disposed = true
+    Object.values(operations).forEach(state => { state.sequence += 1 })
+    Object.keys(operations).forEach(key => delete operations[key])
+    Object.keys(analyses).forEach(key => delete analyses[key])
+    pendingFeedbackRequests.clear()
+    recordedExposureKeys.clear()
+  })
 
   const identities = computed(() => {
     const configured = options.value.config?.emby_identities
@@ -173,6 +201,7 @@ export function useAgentRankState(api, pluginId) {
         updatedAt: 0,
         sequence: 0,
       }
+      trimOperations(name)
     }
     return operations[name]
   }
@@ -193,6 +222,7 @@ export function useAgentRankState(api, pluginId) {
   }
 
   async function runOperation(key, task, retry, settings = {}) {
+    if (disposed) return null
     const state = operationState(key)
     const sequence = state.sequence + 1
     state.sequence = sequence
@@ -204,7 +234,7 @@ export function useAgentRankState(api, pluginId) {
     if (legacyLoading) loading[legacyLoading] = true
     if (actionKey) loading.action = actionKey
     if (settings.globalError !== false) error.value = null
-    const isCurrent = () => state.sequence === sequence
+    const isCurrent = () => !disposed && operations[key] === state && state.sequence === sequence
     try {
       const result = await task({ isCurrent, sequence })
       if (isCurrent()) state.updatedAt = Date.now()
@@ -222,6 +252,7 @@ export function useAgentRankState(api, pluginId) {
         state.loading = false
         if (legacyLoading) loading[legacyLoading] = false
         if (actionKey && loading.action === actionKey) loading.action = ''
+        trimOperations(key)
       }
     }
   }
@@ -248,8 +279,10 @@ export function useAgentRankState(api, pluginId) {
       state.loading = false
       state.error = null
       state.retry = null
-      state.updatedAt = 0
+      delete operations[key]
     })
+    pendingFeedbackRequests.clear()
+    recordedExposureKeys.clear()
     loading.data = false
     loading.action = ''
     error.value = null
@@ -649,8 +682,11 @@ export function useAgentRankState(api, pluginId) {
         `consumption:exposure:${currentBoard.run_id}:${currentBoard.revision}`,
         async ({ isCurrent }) => {
           const response = await postApi('consumption/exposure', payload)
-          recordedExposureKeys.add(key)
           if (isCurrent() && selectedProfileId.value === targetProfile) {
+            recordedExposureKeys.add(key)
+            while (recordedExposureKeys.size > EXPOSURE_CACHE_LIMIT) {
+              recordedExposureKeys.delete(recordedExposureKeys.values().next().value)
+            }
             board.value = { ...board.value, consumption: response?.consumption || null }
             learningHealth.value = response?.learning_health || learningHealth.value
           }
@@ -734,7 +770,12 @@ export function useAgentRankState(api, pluginId) {
           candidate_id: targetCandidate,
           analysis_id: targetAnalysis,
         })
-        if (isCurrent() && selectedProfileId.value === targetProfile) analyses[targetCandidate] = result
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          delete analyses[targetCandidate]
+          analyses[targetCandidate] = result
+          const keys = Object.keys(analyses)
+          keys.slice(0, Math.max(0, keys.length - ANALYSIS_CACHE_LIMIT)).forEach(oldKey => delete analyses[oldKey])
+        }
         return result
       },
       retryForProfile(targetProfile, () => loadAnalysis(targetCandidate, targetAnalysis)),

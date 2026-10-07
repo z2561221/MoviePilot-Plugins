@@ -73,6 +73,8 @@ class FeedbackQueueService:
         self._executor: Optional[ThreadPoolExecutor] = None
         self._active_profiles: Set[str] = set()
         self._started = False
+        self._generation = 0
+        self._running_tasks: set[asyncio.Task] = set()
 
     @property
     def started(self) -> bool:
@@ -116,6 +118,7 @@ class FeedbackQueueService:
             if self._started:
                 return
             self._stop_event.clear()
+            self._generation += 1
             self._active_profiles.clear()
             profiles = set(self._profiles)
             for profile_id in profiles:
@@ -134,6 +137,7 @@ class FeedbackQueueService:
             self._started = True
             self._dispatcher = threading.Thread(
                 target=self._dispatch_loop,
+                args=(self._generation,),
                 name="agentrank-feedback-dispatcher",
                 daemon=True,
             )
@@ -141,15 +145,25 @@ class FeedbackQueueService:
         self._wake.set()
 
     def stop(self) -> None:
-        """停止调度、恢复未完成租约并取消尚未开始的后台任务。"""
+        """停止调度、取消运行任务并恢复未完成租约。"""
         with self._state_lock:
             if not self._started:
                 return
             self._stop_event.set()
+            self._generation += 1
+            running_tasks = tuple(self._running_tasks)
             dispatcher = self._dispatcher
             executor = self._executor
             profiles = set(self._profiles)
             self._wake.set()
+        for task in running_tasks:
+            loop = task.get_loop()
+            if not task.done() and not loop.is_closed():
+                try:
+                    loop.call_soon_threadsafe(task.cancel)
+                except RuntimeError:
+                    if not loop.is_closed():
+                        raise
         if dispatcher is not None and dispatcher is not threading.current_thread():
             dispatcher.join(timeout=max(1.0, self._poll_seconds * 4))
         for profile_id in profiles:
@@ -234,9 +248,9 @@ class FeedbackQueueService:
 
         return time.monotonic()
 
-    def _dispatch_loop(self) -> None:
+    def _dispatch_loop(self, generation: int) -> None:
         """循环寻找每个 profile 的首个就绪任务并提交有限 worker。"""
-        while not self._stop_event.is_set():
+        while self._current_generation(generation):
             dispatched = False
             with self._state_lock:
                 handler_ready = self._handler is not None
@@ -244,78 +258,105 @@ class FeedbackQueueService:
                 profiles = sorted(self._profiles)
             if handler_ready and available > 0:
                 for profile_id in profiles:
-                    if self._stop_event.is_set() or available <= 0:
+                    if not self._current_generation(generation) or available <= 0:
                         break
                     with self._state_lock:
+                        if not self._current_generation(generation):
+                            break
                         if profile_id in self._active_profiles:
                             continue
                         handler = self._handler
                         executor = self._executor
                         if handler is None or executor is None:
                             break
-                        lease_id = uuid.uuid4().hex
-                    try:
-                        job = self._repository.claim_next_feedback_job(
-                            profile_id, lease_id=lease_id, now=self._now()
-                        )
-                    except Exception:
-                        logger.exception(
-                            "AgentRank 反馈任务认领失败 profile_id=%s", profile_id
-                        )
-                        continue
-                    if job is None:
-                        continue
-                    with self._state_lock:
+                        try:
+                            job = self._repository.claim_next_feedback_job(
+                                profile_id, lease_id=uuid.uuid4().hex, now=self._now()
+                            )
+                        except Exception:
+                            logger.exception(
+                                "AgentRank 反馈任务认领失败 profile_id=%s", profile_id
+                            )
+                            continue
+                        if job is None:
+                            continue
                         self._active_profiles.add(profile_id)
-                    executor.submit(self._process_job, job, handler)
+                        executor.submit(self._process_job, job, handler, generation)
                     available -= 1
                     dispatched = True
             if not dispatched:
                 self._wake.wait(timeout=self._poll_seconds)
                 self._wake.clear()
 
+    def _current_generation(self, generation: int) -> bool:
+        """停止或再次启动后，旧任务不能再提交结果或清理新任务。"""
+        return generation == self._generation and not self._stop_event.is_set()
+
     def _process_job(
-        self, job: FeedbackQueueJob, handler: FeedbackQueueHandler
+        self, job: FeedbackQueueJob, handler: FeedbackQueueHandler,
+        generation: Optional[int] = None,
     ) -> None:
-        """执行单个任务并以租约安全写回完成、退避或死信状态。"""
-        attention_job: Optional[FeedbackQueueJob] = None
-        try:
-            result = handler(job)
-            if inspect.isawaitable(result):
-                result = asyncio.run(result)
-            completed = job.complete(self._now())
-            replaced = self._repository.replace_feedback_job(
-                completed, expected_lease_id=job.lease_id
-            )
-            if replaced:
-                self._notify_completion(job, result)
-        except Exception as error:
-            safe_error = self._safe_error(error)
-            if getattr(error, "terminal_retryable", False) or job.attempts >= job.max_attempts:
-                attention_job = job.needs_attention(error=safe_error, now=self._now())
-            else:
-                delay = min(
-                    self._retry_max_seconds,
-                    self._retry_base_seconds * (2 ** max(0, job.attempts - 1)),
-                )
-                attention_job = job.retry(
-                    next_attempt_at=self._now() + timedelta(seconds=delay),
-                    error=safe_error,
-                    now=self._now(),
-                )
+        """登记可取消任务，按代次和租约安全写回完成、退避或死信状态。"""
+        generation = self._generation if generation is None else generation
+
+        async def execute() -> None:
+            task = asyncio.current_task()
+            with self._state_lock:
+                if not self._current_generation(generation):
+                    return
+                self._running_tasks.add(task)
             try:
-                replaced = self._repository.replace_feedback_job(
-                    attention_job, expected_lease_id=job.lease_id
-                )
-                if replaced and attention_job.status == "needs_attention":
-                    self._notify_attention(attention_job)
-            except Exception:
-                logger.exception(
-                    "AgentRank 反馈任务失败状态无法写回 job_id=%s", job.job_id
-                )
+                result = handler(job)
+                if inspect.isawaitable(result):
+                    result = await result
+                with self._state_lock:
+                    if not self._current_generation(generation):
+                        return
+                    replaced = self._repository.replace_feedback_job(
+                        job.complete(self._now()), expected_lease_id=job.lease_id
+                    )
+                if replaced:
+                    await self._notify_completion(job, result, generation)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                safe_error = self._safe_error(error)
+                if getattr(error, "terminal_retryable", False) or job.attempts >= job.max_attempts:
+                    attention_job = job.needs_attention(error=safe_error, now=self._now())
+                else:
+                    delay = min(
+                        self._retry_max_seconds,
+                        self._retry_base_seconds * (2 ** max(0, job.attempts - 1)),
+                    )
+                    attention_job = job.retry(
+                        next_attempt_at=self._now() + timedelta(seconds=delay),
+                        error=safe_error, now=self._now(),
+                    )
+                try:
+                    with self._state_lock:
+                        if not self._current_generation(generation):
+                            return
+                        replaced = self._repository.replace_feedback_job(
+                            attention_job, expected_lease_id=job.lease_id
+                        )
+                    if replaced and attention_job.status == "needs_attention":
+                        await self._notify_attention(attention_job, generation)
+                except Exception:
+                    logger.exception(
+                        "AgentRank 反馈任务失败状态无法写回 job_id=%s", job.job_id
+                    )
+            finally:
+                with self._state_lock:
+                    self._running_tasks.discard(task)
+
+        try:
+            asyncio.run(execute())
+        except asyncio.CancelledError:
+            pass
         finally:
             with self._state_lock:
-                self._active_profiles.discard(job.profile_id)
+                if generation == self._generation:
+                    self._active_profiles.discard(job.profile_id)
             self._wake.set()
 
     @staticmethod
@@ -323,28 +364,28 @@ class FeedbackQueueService:
         """只保留异常类型与通用文案，避免令牌和原始响应进入队列。"""
         return f"{type(error).__name__}: 反馈理解任务失败"
 
-    def _notify_attention(self, job: FeedbackQueueJob) -> None:
+    async def _notify_attention(self, job: FeedbackQueueJob, generation: int) -> None:
         """调用死信通知回调，通知失败不影响队列终态。"""
         with self._state_lock:
-            callback = self._attention_handler
+            callback = self._attention_handler if self._current_generation(generation) else None
         if callback is None:
             return
         try:
             result = callback(job)
             if inspect.isawaitable(result):
-                asyncio.run(result)
+                await result
         except Exception:
             logger.exception("AgentRank 反馈死信通知失败 job_id=%s", job.job_id)
 
-    def _notify_completion(self, job: FeedbackQueueJob, result: Any) -> None:
+    async def _notify_completion(self, job: FeedbackQueueJob, result: Any, generation: int) -> None:
         """调用成功回调，通知异常不得把已完成任务改回重试。"""
         with self._state_lock:
-            callback = self._completion_handler
+            callback = self._completion_handler if self._current_generation(generation) else None
         if callback is None:
             return
         try:
             value = callback(job, result)
             if inspect.isawaitable(value):
-                asyncio.run(value)
+                await value
         except Exception:
             logger.exception("AgentRank 反馈完成通知失败 job_id=%s", job.job_id)

@@ -923,28 +923,29 @@ class DataLifecycleService:
             raise DataLifecycleError("profile_id_required", "必须指定 profile_id", 422)
         if not token:
             raise DataLifecycleError("confirmation_required", "需要清空全部数据确认令牌", 409)
-        record = self.repository.load_reset_confirmation(target)
-        if record is None:
-            raise DataLifecycleError("confirmation_missing", "确认令牌不存在或已失效", 409)
-        if str(record.get("requester_id") or "") != requester:
-            raise DataLifecycleError("confirmation_forbidden", "确认令牌不属于当前用户", 403)
-        try:
-            expires = datetime.fromisoformat(str(record.get("expires_at") or ""))
-            if expires.tzinfo is None:
-                expires = expires.replace(tzinfo=timezone.utc)
-        except ValueError:
-            expires = datetime.min.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) >= expires:
-            self.repository.delete_reset_confirmation(target)
-            raise DataLifecycleError("confirmation_expired", "确认令牌已过期，请重新发起", 409)
-        expected = str(record.get("token_hash") or "")
-        actual = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        if not expected or not hmac.compare_digest(expected, actual):
-            raise DataLifecycleError("confirmation_invalid", "确认令牌不正确", 409)
-        removed = self.repository.reset_all_profile_data(target)
-        return {
-            "profile_id": target,
-            "mode": "full",
-            "removed_keys": len(removed),
-            "preserved": ["moviepilot_subscriptions", "moviepilot_library", "plugin_config"],
-        }
+        with self.repository.feedback_action_guard(target):
+            record = self.repository.load_reset_confirmation(target)
+            if record is None:
+                raise DataLifecycleError("confirmation_missing", "确认令牌不存在或已失效", 409)
+            if str(record.get("requester_id") or "") != requester:
+                raise DataLifecycleError("confirmation_forbidden", "确认令牌不属于当前用户", 403)
+            try:
+                expires = datetime.fromisoformat(str(record.get("expires_at") or ""))
+                if expires.tzinfo is None:
+                    expires = expires.replace(tzinfo=timezone.utc)
+            except ValueError:
+                expires = datetime.min.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) >= expires:
+                self.repository.delete_reset_confirmation(target)
+                raise DataLifecycleError("confirmation_expired", "确认令牌已过期，请重新发起", 409)
+            expected = str(record.get("token_hash") or "")
+            actual = hashlib.sha256(token.encode("utf-8")).hexdigest()
+            if not expected or not hmac.compare_digest(expected, actual):
+                raise DataLifecycleError("confirmation_invalid", "确认令牌不正确", 409)
+            removed = self.repository.reset_all_profile_data(target)
+            return {
+                "profile_id": target,
+                "mode": "full",
+                "removed_keys": len(removed),
+                "preserved": ["moviepilot_subscriptions", "moviepilot_library", "plugin_config"],
+            }

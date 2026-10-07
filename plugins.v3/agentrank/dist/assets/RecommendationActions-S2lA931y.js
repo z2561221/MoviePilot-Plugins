@@ -1,11 +1,14 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { g as getPluginApi, p as postPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-C3tB_UbJ.js';
 
-const {computed: computed$1,reactive,ref: ref$1,watch} = await importShared('vue');
+const {computed: computed$1,onScopeDispose,reactive,ref: ref$1,watch} = await importShared('vue');
 
 const OPTIONS_CACHE_TTL_MS = 5 * 60 * 1000;
 const PROFILE_CACHE_TTL_MS = 60 * 1000;
 const ACTIVITY_LIMIT = 50;
+const OPERATION_CACHE_LIMIT = 128;
+const ANALYSIS_CACHE_LIMIT = 32;
+const EXPOSURE_CACHE_LIMIT = 128;
 const cacheByApi = new WeakMap();
 const fallbackCacheByPlugin = new Map();
 
@@ -147,6 +150,31 @@ function useAgentRankState(api, pluginId) {
   const secondaryProfileId = ref$1('');
   const pendingFeedbackRequests = new Map();
   const recordedExposureKeys = new Set();
+  let disposed = false;
+
+  function trimOperations(protectedKey = '') {
+    const keys = Object.keys(operations);
+    let excess = keys.length - OPERATION_CACHE_LIMIT;
+    for (const key of keys) {
+      if (excess <= 0) break
+      const state = operations[key];
+      if (key === protectedKey || state.loading) continue
+      state.sequence += 1;
+      state.retry = null;
+      state.error = null;
+      delete operations[key];
+      excess -= 1;
+    }
+  }
+
+  onScopeDispose(() => {
+    disposed = true;
+    Object.values(operations).forEach(state => { state.sequence += 1; });
+    Object.keys(operations).forEach(key => delete operations[key]);
+    Object.keys(analyses).forEach(key => delete analyses[key]);
+    pendingFeedbackRequests.clear();
+    recordedExposureKeys.clear();
+  });
 
   const identities = computed$1(() => {
     const configured = options.value.config?.emby_identities;
@@ -175,6 +203,7 @@ function useAgentRankState(api, pluginId) {
         updatedAt: 0,
         sequence: 0,
       };
+      trimOperations(name);
     }
     return operations[name]
   }
@@ -195,6 +224,7 @@ function useAgentRankState(api, pluginId) {
   }
 
   async function runOperation(key, task, retry, settings = {}) {
+    if (disposed) return null
     const state = operationState(key);
     const sequence = state.sequence + 1;
     state.sequence = sequence;
@@ -206,7 +236,7 @@ function useAgentRankState(api, pluginId) {
     if (legacyLoading) loading[legacyLoading] = true;
     if (actionKey) loading.action = actionKey;
     if (settings.globalError !== false) error.value = null;
-    const isCurrent = () => state.sequence === sequence;
+    const isCurrent = () => !disposed && operations[key] === state && state.sequence === sequence;
     try {
       const result = await task({ isCurrent, sequence });
       if (isCurrent()) state.updatedAt = Date.now();
@@ -224,6 +254,7 @@ function useAgentRankState(api, pluginId) {
         state.loading = false;
         if (legacyLoading) loading[legacyLoading] = false;
         if (actionKey && loading.action === actionKey) loading.action = '';
+        trimOperations(key);
       }
     }
   }
@@ -250,8 +281,10 @@ function useAgentRankState(api, pluginId) {
       state.loading = false;
       state.error = null;
       state.retry = null;
-      state.updatedAt = 0;
+      delete operations[key];
     });
+    pendingFeedbackRequests.clear();
+    recordedExposureKeys.clear();
     loading.data = false;
     loading.action = '';
     error.value = null;
@@ -651,8 +684,11 @@ function useAgentRankState(api, pluginId) {
         `consumption:exposure:${currentBoard.run_id}:${currentBoard.revision}`,
         async ({ isCurrent }) => {
           const response = await postApi('consumption/exposure', payload);
-          recordedExposureKeys.add(key);
           if (isCurrent() && selectedProfileId.value === targetProfile) {
+            recordedExposureKeys.add(key);
+            while (recordedExposureKeys.size > EXPOSURE_CACHE_LIMIT) {
+              recordedExposureKeys.delete(recordedExposureKeys.values().next().value);
+            }
             board.value = { ...board.value, consumption: response?.consumption || null };
             learningHealth.value = response?.learning_health || learningHealth.value;
           }
@@ -736,7 +772,12 @@ function useAgentRankState(api, pluginId) {
           candidate_id: targetCandidate,
           analysis_id: targetAnalysis,
         });
-        if (isCurrent() && selectedProfileId.value === targetProfile) analyses[targetCandidate] = result;
+        if (isCurrent() && selectedProfileId.value === targetProfile) {
+          delete analyses[targetCandidate];
+          analyses[targetCandidate] = result;
+          const keys = Object.keys(analyses);
+          keys.slice(0, Math.max(0, keys.length - ANALYSIS_CACHE_LIMIT)).forEach(oldKey => delete analyses[oldKey]);
+        }
         return result
       },
       retryForProfile(targetProfile, () => loadAnalysis(targetCandidate, targetAnalysis)),
@@ -1148,11 +1189,16 @@ function useAgentRankState(api, pluginId) {
   }
 }
 
-const {toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,mergeProps:_mergeProps,withCtx:_withCtx,createVNode:_createVNode,openBlock:_openBlock,createElementBlock:_createElementBlock} = await importShared('vue');
+const {toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,resolveComponent:_resolveComponent,mergeProps:_mergeProps,withCtx:_withCtx,createVNode:_createVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode} = await importShared('vue');
 
 
 const _hoisted_1 = ["aria-label"];
 const _hoisted_2 = { class: "ar-actions__label" };
+const _hoisted_3 = {
+  key: 0,
+  class: "ar-actions__error text-error",
+  role: "alert"
+};
 
 const {computed,inject,ref} = await importShared('vue');
 
@@ -1174,6 +1220,7 @@ const emit = __emit;
 
 const injectedNativeSubscribe = inject('moviepilot:nativeSubscribe', null);
 const nativeSubscribePending = ref(false);
+const nativeSubscribeError = ref('');
 
 function firstId(...values) {
   for (const value of values) {
@@ -1272,9 +1319,10 @@ function openTmdb() {
   openExternal(`https://www.themoviedb.org/${mediaPath}/${encodeURIComponent(tmdbId.value)}`);
 }
 
-/** 先调用宿主原生订阅，无效媒体才回退插件安全链。 */
+/** 宿主拒绝或取消时停止；仅在未提供原生入口时使用插件安全链。 */
 async function handleSubscribe() {
   if (nativeSubscribePending.value) return
+  nativeSubscribeError.value = '';
   const callback = nativeSubscribe.value;
   if (typeof callback !== 'function') {
     emit('subscribe', props.item?.candidate_id);
@@ -1288,9 +1336,11 @@ async function handleSubscribe() {
       return
     }
     if (result?.code === 'PERMISSION_DENIED') return
-    emit('subscribe', props.item?.candidate_id);
-  } catch (_) {
-    emit('subscribe', props.item?.candidate_id);
+    nativeSubscribeError.value = result?.message || '原生订阅未受理，请检查媒体信息后重试';
+  } catch (error) {
+    const cancelled = error?.__CANCEL__ || error?.code === 'ERR_CANCELED'
+      || ['AbortError', 'CanceledError'].includes(error?.name);
+    if (!cancelled) nativeSubscribeError.value = error?.message || '原生订阅暂时不可用，请重试';
   } finally {
     nativeSubscribePending.value = false;
   }
@@ -1424,12 +1474,15 @@ return (_ctx, _cache) => {
         }, 16, ["size", "color", "prepend-icon", "loading", "disabled", "aria-label", "aria-pressed"])
       ]),
       _: 1
-    }, 8, ["text"])
+    }, 8, ["text"]),
+    (nativeSubscribeError.value)
+      ? (_openBlock(), _createElementBlock("span", _hoisted_3, _toDisplayString(nativeSubscribeError.value), 1))
+      : _createCommentVNode("", true)
   ], 8, _hoisted_1))
 }
 }
 
 };
-const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ab76fd2e"]]);
+const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a937c213"]]);
 
 export { RecommendationActions as R, useAgentRankState as u };

@@ -148,7 +148,7 @@ def test_playback_settings_enforce_reporting_and_sync_by_profile_id():
     """配置页明确 Playback Reporting 硬阻断且所有动作使用 profile_id。"""
     config = _read("Config.vue")
     assert "playback_enabled: true" in config
-    assert "form.playback_enabled = true" in config
+    assert "normalized.playback_enabled = true" in config
     assert 'v-model="form.playback_enabled"' not in config
     assert "Playback Reporting" in config
     assert "Playback Reporting 硬依赖未满足" in config
@@ -283,7 +283,7 @@ def test_shared_state_centralizes_new_agent_workflows_and_retryable_failures():
         "state.loading = true",
         "state.error = err",
         "state.retry = typeof retry === 'function' ? retry : null",
-        "const isCurrent = () => state.sequence === sequence",
+        "const isCurrent = () => !disposed && operations[key] === state && state.sequence === sequence",
         "if (isCurrent() && selectedProfileId.value === targetProfile)",
         "state.sequence += 1",
         "board.value = emptyBoard(target, username)",

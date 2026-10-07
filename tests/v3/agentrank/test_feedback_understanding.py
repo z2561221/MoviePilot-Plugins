@@ -658,3 +658,32 @@ def test_runtime_injects_feedback_understanding_handler_into_queue():
     assert queue._handler.__self__ is understanding
     assert queue._handler.__func__ is understanding.handle_job.__func__
     assert plugin._feedback_understanding is understanding
+
+
+@pytest.mark.parametrize("suppress_cancel", [False, True])
+def test_cancelled_feedback_never_persists_late_agent_result(suppress_cancel):
+    """供应商正常取消或吞掉取消返回时，均不落库理解结果。"""
+    async def scenario():
+        entered = asyncio.Event()
+
+        class Agent:
+            async def run_feedback(self, _prompt, _context):
+                entered.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    if not suppress_cancel:
+                        raise
+                    return json.dumps({"outcome": "understood", "restatement": "late",
+                                       "signals": [], "uncertainties": []})
+
+        repository, event = _repository_with_event(_event(key="cancel-understanding"))
+        service = FeedbackUnderstandingService(repository, Agent())
+        task = asyncio.create_task(service.handle_job(_job(event)))
+        await asyncio.wait_for(entered.wait(), 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert repository.load_feedback_understanding(PROFILE_ID, event.event_id) is None
+
+    asyncio.run(scenario())

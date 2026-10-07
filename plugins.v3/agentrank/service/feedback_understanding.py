@@ -401,7 +401,10 @@ class FeedbackUnderstandingService:
             try:
                 result = method(prompt, context)
                 if hasattr(result, "__await__"):
-                    return await asyncio.wait_for(result, timeout=remaining)
+                    result = await asyncio.wait_for(result, timeout=remaining)
+                # 供应商若吞掉取消并返回，仍禁止继续解析和持久化旧结果。
+                if asyncio.current_task().cancelling():
+                    raise asyncio.CancelledError
                 return result
             except asyncio.TimeoutError as error:
                 raise FeedbackUnderstandingBudgetError(

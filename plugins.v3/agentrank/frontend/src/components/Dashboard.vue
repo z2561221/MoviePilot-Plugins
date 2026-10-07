@@ -14,6 +14,7 @@ const props = defineProps({
 const state = useAgentRankState(props.api, props.pluginId)
 const snackbar = ref({ show: false, message: '', color: 'success' })
 let runProgressTimer = null
+let disposed = false
 
 const topItems = computed(() => (state.board.value?.recommendations || []).slice(0, 5))
 const fullBoardHref = computed(() => {
@@ -55,6 +56,7 @@ function formatTime(value) {
 async function initialize() {
   try {
     await state.loadOptions()
+    if (disposed) return
     if (props.config?.default_profile_id && state.identities.value.some(identity => identity.profile_id === props.config.default_profile_id)) {
       state.selectedProfileId.value = props.config.default_profile_id
     }
@@ -86,16 +88,18 @@ function stopRunProgressPoll() {
 
 function scheduleRunProgressPoll(delay = 1000, force = false) {
   stopRunProgressPoll()
-  if (!state.selectedProfileId.value || (!force && !state.runProgress.value?.active)) return
+  if (disposed || !state.selectedProfileId.value || (!force && !state.runProgress.value?.active)) return
   runProgressTimer = window.setTimeout(pollRunProgress, delay)
 }
 
 async function pollRunProgress() {
   stopRunProgressPoll()
+  if (disposed) return
   const profileId = state.selectedProfileId.value
   const wasActive = Boolean(state.runProgress.value?.active)
   try {
     const progress = await state.loadRunProgress(profileId)
+    if (disposed) return
     if (wasActive && !progress?.active && state.selectedProfileId.value === profileId) {
       await state.loadProfileData(profileId, { force: true })
     }
@@ -120,7 +124,10 @@ function openFullBoard() {
 }
 
 onMounted(initialize)
-onBeforeUnmount(stopRunProgressPoll)
+onBeforeUnmount(() => {
+  disposed = true
+  stopRunProgressPoll()
+})
 </script>
 
 <template>

@@ -28,7 +28,7 @@ class LibraryAdapter:
     @staticmethod
     def _lookup(
         candidate: Candidate,
-    ) -> Optional[Tuple[MediaSource, str, str]]:
+    ) -> Optional[Tuple[MediaSource, str, str, str, Optional[str]]]:
         """把候选转换为公开 MediaServerOper 使用的规范查询参数。"""
         try:
             media_source = MediaSource(candidate.media_source)
@@ -39,7 +39,9 @@ class LibraryAdapter:
         media_type = str(candidate.metadata.get("mp_media_type") or "").strip()
         if media_type not in {"电影", "电视剧"}:
             media_type = "电影" if candidate.media_type == "movie" else "电视剧"
-        return media_source, str(candidate.media_id), media_type
+        title = str(candidate.title or "").strip()
+        year = str(candidate.year) if candidate.year else None
+        return media_source, str(candidate.media_id), media_type, title, year
 
     def candidate_states(self, candidates: Iterable[Candidate]) -> Dict[str, Optional[bool]]:
         """按身份去重查询，分别保留存在、不存在和失败三种状态。"""
@@ -47,15 +49,16 @@ class LibraryAdapter:
         states: Dict[str, Optional[bool]] = {
             candidate.candidate_id: None for candidate in items
         }
-        candidate_map: Dict[Tuple[MediaSource, str, str], Set[str]] = {}
+        candidate_map: Dict[Tuple[MediaSource, str, str, str, Optional[str]], Set[str]] = {}
         for candidate in items:
             lookup = self._lookup(candidate)
             if lookup is not None:
                 candidate_map.setdefault(lookup, set()).add(candidate.candidate_id)
-        for (media_source, media_id, media_type), candidate_ids in candidate_map.items():
+        for (media_source, media_id, media_type, title, year), candidate_ids in candidate_map.items():
             try:
                 state = bool(self._oper.exists(
                     media_source=media_source, media_id=media_id, mtype=media_type,
+                    title=title, year=year,
                 ))
             except Exception:
                 state = None

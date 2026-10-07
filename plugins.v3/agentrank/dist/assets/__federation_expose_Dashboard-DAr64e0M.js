@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-BBczK2MO.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-S2lA931y.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-C3tB_UbJ.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode} = await importShared('vue');
@@ -38,6 +38,7 @@ const props = __props;
 const state = useAgentRankState(props.api, props.pluginId);
 const snackbar = ref({ show: false, message: '', color: 'success' });
 let runProgressTimer = null;
+let disposed = false;
 
 const topItems = computed(() => (state.board.value?.recommendations || []).slice(0, 5));
 const fullBoardHref = computed(() => {
@@ -79,6 +80,7 @@ function formatTime(value) {
 async function initialize() {
   try {
     await state.loadOptions();
+    if (disposed) return
     if (props.config?.default_profile_id && state.identities.value.some(identity => identity.profile_id === props.config.default_profile_id)) {
       state.selectedProfileId.value = props.config.default_profile_id;
     }
@@ -110,16 +112,18 @@ function stopRunProgressPoll() {
 
 function scheduleRunProgressPoll(delay = 1000, force = false) {
   stopRunProgressPoll();
-  if (!state.selectedProfileId.value || (!force && !state.runProgress.value?.active)) return
+  if (disposed || !state.selectedProfileId.value || (!force && !state.runProgress.value?.active)) return
   runProgressTimer = window.setTimeout(pollRunProgress, delay);
 }
 
 async function pollRunProgress() {
   stopRunProgressPoll();
+  if (disposed) return
   const profileId = state.selectedProfileId.value;
   const wasActive = Boolean(state.runProgress.value?.active);
   try {
     const progress = await state.loadRunProgress(profileId);
+    if (disposed) return
     if (wasActive && !progress?.active && state.selectedProfileId.value === profileId) {
       await state.loadProfileData(profileId, { force: true });
     }
@@ -144,7 +148,10 @@ function openFullBoard() {
 }
 
 onMounted(initialize);
-onBeforeUnmount(stopRunProgressPoll);
+onBeforeUnmount(() => {
+  disposed = true;
+  stopRunProgressPoll();
+});
 
 return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent("VIcon");
@@ -401,6 +408,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b8f23df2"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f1eb1fa8"]]);
 
 export { Dashboard as default };

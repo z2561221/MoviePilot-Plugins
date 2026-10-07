@@ -110,7 +110,7 @@ def test_media_recognition_converts_douban_to_tmdb_before_recognizing():
 
 
 def test_library_lookup_uses_media_identity_pair():
-    """媒体库查重只调用 V3 的成对主身份参数。"""
+    """媒体库查重保留 V3 主身份，并提供跨来源回退元数据。"""
     class Oper:
         def __init__(self):
             self.calls = []
@@ -135,6 +135,8 @@ def test_library_lookup_uses_media_identity_pair():
             "media_source": MediaSource.TMDB,
             "media_id": "16",
             "mtype": "电视剧",
+            "title": "Series",
+            "year": None,
         }
     ]
 

@@ -1,5 +1,6 @@
 """持久异步反馈队列的顺序、并发、恢复与失败边界测试。"""
 
+import asyncio
 import copy
 import importlib
 import sys
@@ -499,3 +500,113 @@ def test_export_contains_only_safe_queue_metadata_and_pruning_keeps_pending_jobs
     assert "last_error" not in item
     assert repository.prune_feedback_queue(PROFILE_ID, 1) == 0
     assert repository.load_feedback_queue(PROFILE_ID)[0].status == "running"
+
+
+@pytest.mark.parametrize("stage", ["handler", "completion", "attention"])
+def test_stop_cancels_running_coroutines_and_releases_worker(stage):
+    """停止能取消正在等待的处理及通知协程，释放任务登记和工作线程。"""
+    repository = AgentRankRepository(FakePlugin())
+    entered, cancelled = threading.Event(), threading.Event()
+    workers = []
+
+    async def blocked(*_args):
+        workers.append(threading.current_thread())
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    def fail(_job):
+        raise RuntimeError("failed")
+
+    queue = FeedbackQueueService(
+        repository, handler=blocked if stage == "handler" else fail if stage == "attention" else lambda _: {},
+        completion_handler=blocked if stage == "completion" else None,
+        attention_handler=blocked if stage == "attention" else None,
+        profile_ids=[PROFILE_ID], max_attempts=1, poll_seconds=0.01,
+    )
+    queue.enqueue_event(_stored(repository, "cancel-" + stage))
+    queue.start()
+    try:
+        assert entered.wait(2)
+    finally:
+        queue.stop()
+    assert cancelled.wait(2)
+    _wait_until(lambda: not queue._running_tasks)
+    for worker in workers:
+        worker.join(2)
+        assert not worker.is_alive()
+    current = repository.load_feedback_queue(PROFILE_ID)[0]
+    assert current.status == {"handler": "queued", "completion": "completed", "attention": "needs_attention"}[stage]
+
+
+@pytest.mark.parametrize("late_error", [False, True])
+def test_old_synchronous_worker_cannot_affect_restarted_generation(late_error):
+    """同步阻塞调用返回后不得回写旧结果、发通知或清除新任务登记。"""
+    repository = AgentRankRepository(FakePlugin())
+    entered, release = threading.Event(), threading.Event()
+    replacement_entered, replacement_release = threading.Event(), threading.Event()
+    old_workers, notices = [], []
+
+    def old_handler(_job):
+        old_workers.append(threading.current_thread())
+        entered.set()
+        assert release.wait(5)
+        if late_error:
+            raise RuntimeError("late")
+        return "old"
+
+    def new_handler(_job):
+        replacement_entered.set()
+        assert replacement_release.wait(5)
+        return "new"
+
+    queue = FeedbackQueueService(repository, handler=old_handler, profile_ids=[PROFILE_ID],
+                                 completion_handler=lambda _, result: notices.append(result), poll_seconds=0.01)
+    queue.enqueue_event(_stored(repository, "restart-stale"))
+    queue.start()
+    try:
+        assert entered.wait(2)
+        queue.stop()
+        queue.set_handler(new_handler)
+        queue.start()
+        assert replacement_entered.wait(2)
+        release.set()
+        old_workers[0].join(2)
+        assert not old_workers[0].is_alive()
+        assert PROFILE_ID in queue._active_profiles
+        assert repository.load_feedback_queue(PROFILE_ID)[0].status == "running"
+        assert notices == []
+        replacement_release.set()
+        _wait_until(lambda: notices == ["new"])
+    finally:
+        release.set()
+        replacement_release.set()
+        queue.stop()
+
+
+def test_handler_suppressing_cancellation_cannot_complete_old_job():
+    """吞掉取消的处理器返回后仍受代次保护，不能触发完成通知。"""
+    repository = AgentRankRepository(FakePlugin())
+    entered = threading.Event()
+    notices = []
+
+    async def handler(_job):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            return "late"
+
+    queue = FeedbackQueueService(repository, handler=handler, profile_ids=[PROFILE_ID],
+                                 completion_handler=lambda *_: notices.append(True), poll_seconds=0.01)
+    queue.enqueue_event(_stored(repository, "suppressed-cancel"))
+    queue.start()
+    try:
+        assert entered.wait(2)
+    finally:
+        queue.stop()
+    _wait_until(lambda: not queue._running_tasks)
+    assert repository.load_feedback_queue(PROFILE_ID)[0].status == "queued"
+    assert notices == []
