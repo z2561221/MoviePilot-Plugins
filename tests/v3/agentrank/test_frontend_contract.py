@@ -283,7 +283,7 @@ def test_shared_state_centralizes_new_agent_workflows_and_retryable_failures():
         "state.loading = true",
         "state.error = err",
         "state.retry = typeof retry === 'function' ? retry : null",
-        "const isCurrent = () => state.sequence === sequence",
+        "const isCurrent = () => !disposed && operations[key] === state && state.sequence === sequence",
         "if (isCurrent() && selectedProfileId.value === targetProfile)",
         "state.sequence += 1",
         "board.value = emptyBoard(target, username)",

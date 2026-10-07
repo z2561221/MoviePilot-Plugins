@@ -125,5 +125,75 @@ async function configDraft() {
   other.unmount()
 }
 
-const cases = {native: nativeSubscribe, dashboard: dashboardLifecycle, config: configDraft}
+function stateHarness(get, post = async () => ({})) {
+  const source = fs.readFileSync(path.join(frontend, 'src/components/useAgentRankState.js'), 'utf8')
+    .replace(/^import .*$/gm, '').replace('export function useAgentRankState', 'function useAgentRankState')
+    .replace('    operations,', '    operations, recordedExposureKeys, pendingFeedbackRequests,')
+  const scope = vue.effectScope()
+  const context = {...vue, console, getPluginApi: get, postPluginApi: post}
+  vm.createContext(context)
+  const state = scope.run(() => {
+    vm.runInContext(`${source}\nglobalThis.state = useAgentRankState({}, 'AgentRank')`, context)
+    return context.state
+  })
+  state.selectedProfileId.value = 'profile-A'
+  return {...state, unmount: () => scope.stop()}
+}
+
+async function cacheBounds() {
+  let requests = 0
+  const state = stateHarness(async (_api, _id, _path, params) => ({candidate_id: params.candidate_id}),
+    async () => { requests += 1; return {} })
+  for (let index = 0; index < 2000; index += 1) {
+    await state.loadAnalysis(`candidate-${index}`, `analysis-${index}`)
+  }
+  assert.equal(Object.keys(state.analyses).length, 32)
+  assert.equal(Object.keys(state.operations).length, 128)
+  assert.equal(state.currentAnalysis('candidate-0'), null)
+  assert.equal(state.currentAnalysis('candidate-1999').candidate_id, 'candidate-1999')
+  for (let index = 0; index < 2000; index += 1) {
+    state.board.value = {run_id: `run-${index}`, revision: 1}
+    await state.recordBoardExposure([])
+  }
+  assert.equal(state.recordedExposureKeys.size, 128)
+  assert.equal(Object.keys(state.operations).length, 128)
+  await state.recordBoardExposure([])
+  assert.equal(requests, 2000, 'the current board exposure must remain deduplicated')
+  state.selectedProfileId.value = 'profile-B'
+  assert.equal(Object.keys(state.analyses).length, 0)
+  assert.equal(Object.keys(state.operations).length, 0)
+  assert.equal(state.recordedExposureKeys.size, 0)
+  state.unmount()
+}
+
+async function cacheLifecycle() {
+  for (const unmount of [false, true]) {
+    const response = deferred()
+    const state = stateHarness(() => response.promise)
+    const pending = state.loadAnalysis('old-candidate', 'old-analysis')
+    if (unmount) state.unmount()
+    else state.selectedProfileId.value = 'profile-B'
+    response.resolve({candidate_id: 'old-candidate'})
+    await pending
+    assert.equal(Object.keys(state.analyses).length, 0)
+    assert.equal(Object.keys(state.operations).length, 0)
+    if (!unmount) state.unmount()
+  }
+  const held = deferred()
+  const state = stateHarness((_api, _id, _path, params) => params.candidate_id === 'held'
+    ? held.promise : Promise.resolve({candidate_id: params.candidate_id}))
+  const pending = state.loadAnalysis('held', 'held-analysis')
+  for (let index = 0; index < 256; index += 1) await state.loadAnalysis(`item-${index}`, 'analysis')
+  assert.equal(state.operations['analysis:held'].loading, true, 'active requests must survive eviction')
+  held.resolve({candidate_id: 'held'})
+  await pending
+  assert.equal(state.currentAnalysis('held').candidate_id, 'held')
+  state.unmount()
+  assert.equal(Object.keys(state.operations).length, 0)
+  assert.equal(Object.keys(state.analyses).length, 0)
+  assert.equal(await state.loadAnalysis('after-stop', 'analysis'), null)
+}
+
+const cases = {native: nativeSubscribe, dashboard: dashboardLifecycle, config: configDraft,
+  cache: cacheBounds, cacheLifecycle}
 cases[process.argv[2]]().catch(error => { console.error(error); process.exitCode = 1 })
