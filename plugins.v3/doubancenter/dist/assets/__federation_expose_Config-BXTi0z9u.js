@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, a as getPluginApi } from './api-CE1QTgMg.js';
+import { _ as _export_sfc, u as useRequestScope, a as getPluginApi } from './useRequestScope-Dkqwm-Un.js';
 
 const {createElementVNode:_createElementVNode$4,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,withCtx:_withCtx$4,vShow:_vShow$3,withDirectives:_withDirectives$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$4} = await importShared('vue');
 
@@ -1302,6 +1302,7 @@ function validCustomRoute(route) {
 }
 
 function useConfigForm({ api, pluginId, initialConfig, emit }) {
+  let overviewEpoch = 0;
   const form = reactive({});
   const activeMain = ref('overview');
   const activeSub = ref('overview');
@@ -1497,18 +1498,29 @@ function useConfigForm({ api, pluginId, initialConfig, emit }) {
   }
 
   async function loadOverview() {
+    if (!requestScope.isActive()) return
+    const owner = requestScope.capture();
+    const epoch = ++overviewEpoch;
+    const current = () => owner() && epoch === overviewEpoch;
     loadingOverview.value = true;
     try {
       const response = await getPluginApi(api(), pluginId(), 'overview');
+      if (!current()) return
       if (response?.success === false) throw new Error(response.message || '总览加载失败')
       const data = response?.data ?? response;
       if (data?.code === 0 || data?.cards) overview.value = data;
     } catch (error) {
+      if (!current()) return
       console.error('加载豆瓣中心总览失败:', error);
     } finally {
-      loadingOverview.value = false;
+      if (current()) loadingOverview.value = false;
     }
   }
+
+  const requestScope = useRequestScope(pluginId, () => {
+    overviewEpoch += 1;
+    loadingOverview.value = false;
+  });
 
   watch(initialConfig, value => {
     Object.keys(form).forEach(key => delete form[key]);
@@ -1756,6 +1768,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2e190982"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-83c69975"]]);
 
 export { Config as default };

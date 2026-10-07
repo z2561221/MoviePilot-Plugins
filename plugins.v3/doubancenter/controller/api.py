@@ -11,6 +11,7 @@ from fastapi import HTTPException
 
 from ..service import dashboard as dash
 from ..service import folio, folio_repair
+from ..service import lifecycle
 from ..service import rank_pipeline as feed
 from . import schemas as api_schemas
 
@@ -82,10 +83,14 @@ def _to_response(result: Any, data_model, *, default_message: str = ""):
     return schemas.Response(success=success, message=message, data=data)
 
 
-def _invoke(data_model, callback: Callable, *, error_message: str, **kwargs):
+def _invoke(data_model, callback: Callable, *, error_message: str, _plugin=None, **kwargs):
     """执行业务函数并将未预期异常交给 V3 HTTP 错误层。"""
     try:
-        return _to_response(callback(**kwargs), data_model)
+        plugin = _plugin if _plugin is not None else kwargs.get("self")
+        with lifecycle.scope(plugin):
+            return _to_response(callback(**kwargs), data_model)
+    except lifecycle.RunStopped as err:
+        raise HTTPException(status_code=409, detail=str(err)) from err
     except HTTPException:
         raise
     except Exception as err:
@@ -118,7 +123,10 @@ def api_folio_repair_preview(plugin, request: api_schemas.FolioRepairPreviewRequ
         source, media_id = _normalize_request_identity(item.media_source, item.media_id)
         targets.append({**item.model_dump(), "media_source": source.value, "media_id": media_id})
     try:
-        result = folio_repair.preview(plugin, targets, refresh_posters=request.refresh_posters)
+        with lifecycle.scope(plugin):
+            result = folio_repair.preview(plugin, targets, refresh_posters=request.refresh_posters)
+    except lifecycle.RunStopped as err:
+        raise HTTPException(status_code=409, detail=str(err)) from err
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
     return _to_response(result, api_schemas.FolioRepairPreviewData)
@@ -127,7 +135,10 @@ def api_folio_repair_preview(plugin, request: api_schemas.FolioRepairPreviewRequ
 def api_folio_repair_apply(plugin, request: api_schemas.FolioRepairApplyRequest):
     """在并发校验和备份通过后应用修复。"""
     try:
-        result = folio_repair.apply(plugin, request.plan_id)
+        with lifecycle.scope(plugin):
+            result = folio_repair.apply(plugin, request.plan_id)
+    except lifecycle.RunStopped as err:
+        raise HTTPException(status_code=409, detail=str(err)) from err
     except ValueError as err:
         raise HTTPException(status_code=409, detail=str(err)) from err
     return _to_response(result, api_schemas.FolioRepairApplyData)
@@ -222,7 +233,7 @@ def api_refresh_rss(plugin):
         rank_keys = plugin._dashboard_rank_keys or None
         return {"data": feed.refresh_rank_data(plugin, rank_keys=rank_keys)}
 
-    return _invoke(api_schemas.RefreshRssData, _refresh, error_message="刷新 RSS 失败")
+    return _invoke(api_schemas.RefreshRssData, _refresh, error_message="刷新 RSS 失败", _plugin=plugin)
 
 
 def api_stats(plugin):
@@ -338,4 +349,5 @@ def api_repair_folio_posters(plugin):
         api_schemas.RepairFolioPostersData,
         repair,
         error_message="修复豆瓣时间线海报失败",
+        _plugin=plugin,
     )

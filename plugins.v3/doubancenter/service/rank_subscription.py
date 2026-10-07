@@ -8,6 +8,7 @@ from app.sdk.logging import logger
 from ..adapter import rss as rss_adapter
 from ..model import rank as rank_model
 from .. import utils
+from . import lifecycle
 
 
 def _normalize_regions_for_filter(value: Any) -> List[str]:
@@ -211,6 +212,7 @@ def subscribe_ranks(
         url = rss_adapter.build_rsshub_url(rsshub, rank["route"], fetch_count)
         logger.info(f"豆瓣中心：开始处理 [{rank['name']}] {url}")
         processor = process_coming if rank["coming"] else process_general
+        lifecycle.checkpoint(plugin)
         processor(plugin, url, rank)
         time.sleep(1)
     logger.info("豆瓣中心：榜单订阅刷新完成")
@@ -255,6 +257,7 @@ def subscribe_rank_snapshots(
             emit_summary(rank, description, result_lines)
             continue
         processor = process_coming if rank["coming"] else process_general
+        lifecycle.checkpoint(plugin)
         processor(plugin, subscribe_items, rank, result_lines=result_lines)
         emit_summary(rank, description, result_lines)
         time.sleep(1)
@@ -276,4 +279,5 @@ def refresh_then_subscribe(
         limit_by_rank=limit_by_rank(plugin),
         with_snapshots=True,
     )
+    lifecycle.checkpoint(plugin)
     subscribe_snapshots(plugin, snapshots)

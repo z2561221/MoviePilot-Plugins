@@ -6,6 +6,8 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.sdk.logging import logger
 
+from . import lifecycle
+
 
 def get_services(plugin, run_all: Callable[[], None], run_wish: Optional[Callable[[], None]] = None) -> List[Dict[str, Any]]:
     """返回插件声明的定时服务。"""
@@ -16,7 +18,7 @@ def get_services(plugin, run_all: Callable[[], None], run_wish: Optional[Callabl
                 "id": "DoubanCenter",
                 "name": "豆瓣中心定时服务",
                 "trigger": CronTrigger.from_crontab(plugin._cron),
-                "func": run_all,
+                "func": lifecycle.bind(plugin, run_all),
                 "kwargs": {},
             }
         )
@@ -26,7 +28,7 @@ def get_services(plugin, run_all: Callable[[], None], run_wish: Optional[Callabl
                 "id": "DoubanCenterWish",
                 "name": "豆瓣想看同步服务",
                 "trigger": CronTrigger.from_crontab(plugin._wish_cron),
-                "func": run_wish,
+                "func": lifecycle.bind(plugin, run_wish),
                 "kwargs": {},
             }
         )

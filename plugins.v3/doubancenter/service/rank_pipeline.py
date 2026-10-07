@@ -32,6 +32,7 @@ from . import rank_refresh as rank_refresh_service
 from . import rank_snapshot as rank_snapshot_service
 from . import rank_subscription as rank_subscription_service
 from . import rank_timing
+from . import lifecycle
 from . import subscription as subscription_service
 from ..storage import records as storage
 
@@ -1276,11 +1277,13 @@ def _refresh_then_subscribe(self, message: str) -> None:
     )
 
 
+@lifecycle.managed
 def run_once(self) -> None:
     """立即刷新榜单数据，并按当前订阅配置执行订阅。"""
     _refresh_then_subscribe(self, "豆瓣中心：立即运行开始，先刷新 RSS 榜单，再按配置执行订阅")
 
 
+@lifecycle.managed
 def run_scheduled(self) -> None:
     """定时刷新榜单数据，并按当前订阅配置执行订阅。"""
     _refresh_then_subscribe(self, "豆瓣中心：定时运行开始，先刷新 RSS 榜单，再按配置执行订阅")

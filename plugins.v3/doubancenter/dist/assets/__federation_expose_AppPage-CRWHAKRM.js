@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-DMDQ8iFF.js';
-import Page from './__federation_expose_Page-ruTNDxI8.js';
-import { _ as _export_sfc, g as getPluginConfig, s as savePluginConfig } from './api-ilAfCmvf.js';
+import Config from './__federation_expose_Config-BXTi0z9u.js';
+import Page from './__federation_expose_Page-CqtqanZ6.js';
+import { _ as _export_sfc, u as useRequestScope, g as getPluginConfig, s as savePluginConfig } from './useRequestScope-Dkqwm-Un.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock,resolveComponent:_resolveComponent,createCommentVNode:_createCommentVNode,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,createElementBlock:_createElementBlock} = await importShared('vue');
 
@@ -29,31 +29,46 @@ const savingSettings = ref(false);
 const settingsConfig = ref({});
 const pageKey = ref(0);
 const snackbar = ref({ show: false, message: '', color: 'success' });
+const requestScope = useRequestScope(() => props.pluginId, () => {
+  settingsDialog.value = false;
+  loadingSettings.value = false;
+  savingSettings.value = false;
+  snackbar.value.show = false;
+});
 
 async function openSettings() {
+  if (loadingSettings.value || !requestScope.isActive()) return
+  const current = requestScope.capture();
   loadingSettings.value = true;
   try {
-    settingsConfig.value = await getPluginConfig(props.api, props.pluginId);
+    const config = await getPluginConfig(props.api, props.pluginId);
+    if (!current()) return
+    settingsConfig.value = config;
     settingsDialog.value = true;
   } catch (error) {
+    if (!current()) return
     snackbar.value = { show: true, message: error?.message || '设置加载失败', color: 'error' };
   } finally {
-    loadingSettings.value = false;
+    if (current()) loadingSettings.value = false;
   }
 }
 
 async function saveSettings(config) {
+  if (savingSettings.value || !requestScope.isActive()) return
+  const current = requestScope.capture();
   savingSettings.value = true;
   try {
     await savePluginConfig(props.api, props.pluginId, config);
+    if (!current()) return
     settingsConfig.value = { ...(config || {}) };
     settingsDialog.value = false;
     pageKey.value += 1;
     snackbar.value = { show: true, message: '设置已保存', color: 'success' };
   } catch (error) {
+    if (!current()) return
     snackbar.value = { show: true, message: error?.message || '设置保存失败', color: 'error' };
   } finally {
-    savingSettings.value = false;
+    if (current()) savingSettings.value = false;
   }
 }
 
@@ -115,6 +130,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-130e7966"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ce306a17"]]);
 
 export { AppPage as default };

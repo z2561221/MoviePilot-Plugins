@@ -12,24 +12,24 @@ def test_busy_webhook_waits_and_delivers_distinct_events(monkeypatch):
     """两个不同媒体事件并发到达时，后者等待且最终执行一次。"""
     entered, release, attempted = threading.Event(), threading.Event(), threading.Event()
     calls = []
-    plugin = SimpleNamespace(_enabled=True, _folio_enabled=True, _sync_lock=threading.Lock())
+    plugin = SimpleNamespace(_enabled=True, _folio_enabled=True, _folio_user="tester", _sync_lock=threading.Lock())
 
     def handler(_plugin, event, **kwargs):
         """让首个事件停在临界区，构造确定性的竞争。"""
-        calls.append(event)
-        if event == "first":
+        calls.append(event.item_name)
+        if event.item_name == "first":
             entered.set()
             assert release.wait(3)
 
     def second():
         """第二个请求在首个尚未结束时尝试处理。"""
         attempted.set()
-        webhook.handle_sync_log(plugin, SimpleNamespace(event_data="second"), played=True)
+        webhook.handle_sync_log(plugin, SimpleNamespace(event_data=SimpleNamespace(event="item.markplayed", user_name="tester", item_name="second")), played=True)
 
     monkeypatch.setattr(webhook.folio, "check_cookie_periodically", lambda p: None)
     monkeypatch.setattr(webhook.folio, "sync_log_handler", handler)
     with ThreadPoolExecutor(max_workers=2) as executor:
-        first = executor.submit(webhook.handle_sync_log, plugin, SimpleNamespace(event_data="first"))
+        first = executor.submit(webhook.handle_sync_log, plugin, SimpleNamespace(event_data=SimpleNamespace(event="playback.start", user_name="tester", item_name="first")))
         try:
             assert entered.wait(3)
             later = executor.submit(second)
@@ -43,12 +43,42 @@ def test_busy_webhook_waits_and_delivers_distinct_events(monkeypatch):
 
 def test_webhook_exception_releases_instance_lock(monkeypatch):
     """一次处理失败后后续事件仍可进入实例锁。"""
-    plugin = SimpleNamespace(_enabled=True, _folio_enabled=True, _sync_lock=threading.Lock())
+    plugin = SimpleNamespace(_enabled=True, _folio_enabled=True, _folio_user="tester", _sync_lock=threading.Lock())
     monkeypatch.setattr(webhook.folio, "check_cookie_periodically", lambda p: None)
     def fail(*args, **kwargs):
         """模拟豆瓣处理失败。"""
         raise RuntimeError("offline")
     monkeypatch.setattr(webhook.folio, "sync_log_handler", fail)
     with pytest.raises(RuntimeError):
-        webhook.handle_sync_log(plugin, SimpleNamespace(event_data={}))
+        webhook.handle_sync_log(plugin, SimpleNamespace(event_data=SimpleNamespace(event="playback.start", user_name="tester")))
     assert not plugin._sync_lock.locked()
+
+
+@pytest.mark.parametrize("event_name,user", [
+    ("system.serverrestartrequired", "tester"),
+    ("system.serverstartup", "tester"),
+    ("playback.stop", "tester"),
+    ("playback.start", "other"),
+    (None, None),
+])
+def test_unrelated_webhooks_do_not_probe_cookie_or_sync(monkeypatch, event_name, user):
+    """复现误报触发事件，确认系统事件和无关用户不会访问豆瓣。"""
+    plugin = SimpleNamespace(_enabled=True, _folio_enabled=True, _folio_user="tester")
+    calls = []
+    monkeypatch.setattr(webhook.folio, "check_cookie_periodically", lambda p: calls.append("probe"))
+    monkeypatch.setattr(webhook.folio, "sync_log_handler", lambda *a, **k: calls.append("sync"))
+    webhook.handle_sync_log(plugin, SimpleNamespace(
+        event_data=SimpleNamespace(event=event_name, user_name=user)))
+    assert calls == []
+
+
+@pytest.mark.parametrize("event_name", ["playback.start", "media.play", "PlaybackStart"])
+def test_supported_playback_events_still_sync(monkeypatch, event_name):
+    """保留 Emby、Plex、Jellyfin 已支持的播放入口。"""
+    plugin = SimpleNamespace(_enabled=True, _folio_enabled=True, _folio_user="tester")
+    calls = []
+    monkeypatch.setattr(webhook.folio, "check_cookie_periodically", lambda p: calls.append("probe"))
+    monkeypatch.setattr(webhook.folio, "sync_log_handler", lambda *a, **k: calls.append("sync"))
+    webhook.handle_sync_log(plugin, SimpleNamespace(
+        event_data=SimpleNamespace(event=event_name, user_name="tester")))
+    assert calls == ["probe", "sync"]

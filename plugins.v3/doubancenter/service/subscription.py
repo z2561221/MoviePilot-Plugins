@@ -2,6 +2,7 @@
 
 import datetime
 import threading
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from app.chain.subscribe import SubscribeChain
@@ -12,10 +13,18 @@ from .. import utils
 from ..adapter import subscription_query
 from ..model.identity import identity_from_media, identity_payload, legacy_identity
 from ..storage import records as storage
-from . import observation
+from . import observation, lifecycle
 
 
 _SUBSCRIBE_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class SubscriptionResult:
+    """区分新增、已存在及失败，供需要决定是否出队的调用者使用。"""
+
+    status: str
+    reason: str = ""
 
 
 def _default_media_server_oper_cls():
@@ -282,6 +291,7 @@ def write_subscribe_record(
     storage.save_subscribe_records(plugin, kept)
 
 
+@lifecycle.scoped
 def add_subscription(
     plugin,
     mediainfo,
@@ -294,12 +304,19 @@ def add_subscription(
     subscribe_oper_cls=None,
     media_server_oper_cls=None,
     record_year: Optional[str] = None,
-) -> bool:
+    *,
+    with_result: bool = False,
+) -> bool | SubscriptionResult:
     """按 MoviePilot V3 通用媒体身份执行自动订阅。"""
+    def receipt(status: str, reason: str = ""):
+        """保留旧布尔合同，同时为队列提供明确结果。"""
+        return SubscriptionResult(status, reason) if with_result else status == "success"
+
     if meta is not None:
         meta.begin_season = utils.resolve_media_season(meta, titles=(record_title,))
     # 订阅链本身是先查后建，锁住整个区段以防并发榜单任务重复创建同一媒体。
-    with _SUBSCRIBE_LOCK:
+    with lifecycle.serialized(plugin, _SUBSCRIBE_LOCK):
+        lifecycle.checkpoint(plugin)
         existing_state = is_existing_media(
             mediainfo,
             meta,
@@ -316,10 +333,10 @@ def add_subscription(
                 season=getattr(meta, "begin_season", None) if meta else None,
                 prefer_title=bool(record_title),
             )
-            return False
+            return receipt("failed", "订阅状态检查失败，未提交订阅")
         if existing_state:
             observation.cleanup_observe_logs(plugin, title=getattr(mediainfo, "title", ""))
-            return False
+            return receipt("existing")
         subscribe_chain = subscribe_chain_cls()
         season = getattr(meta, "begin_season", None) if meta else None
         media_source, media_id = identity_from_media(mediainfo)
@@ -337,7 +354,8 @@ def add_subscription(
                 season=season,
                 prefer_title=bool(record_title),
             )
-            return False
+            return receipt("failed", "缺少有效媒体身份")
+        lifecycle.checkpoint(plugin)
         sid, msg = subscribe_chain.add(
             title=mediainfo.title,
             year=mediainfo.year or "",
@@ -364,7 +382,7 @@ def add_subscription(
                 season=season,
                 prefer_title=bool(record_title),
             )
-            return False
+            return receipt("failed", msg or "订阅失败")
         observation.cleanup_observe_logs(plugin, title=mediainfo.title)
         write_subscribe_record(
             plugin,
@@ -378,4 +396,4 @@ def add_subscription(
             season=season,
             prefer_title=bool(record_title),
         )
-        return True
+        return receipt("success")

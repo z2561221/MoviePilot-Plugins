@@ -33,7 +33,7 @@ def test_page_and_dashboard_forward_media_identity_pair():
         assert "async function resolveRankMedia" not in source
     assert actions.count("media_source: item?.media_source") >= 2
     assert actions.count("media_id: item?.media_id") >= 2
-    assert actions.count("season: item?.season || ''") >= 2
+    # Season 0 is verified through real requests in frontend_lifecycle.test.cjs.
     assert "merged.media_source" in actions
     assert "merged.media_id" in actions
     assert "delete_subscribe_history" in page_runtime

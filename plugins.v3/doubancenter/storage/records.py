@@ -4,6 +4,7 @@ import hashlib
 from typing import Any, Dict, List, Optional
 
 from ..model.identity import normalize_record
+from ..service.lifecycle import checkpoint
 
 RANK_HISTORY_LIMIT = 500
 DETAIL_RECORD_LIMIT = 500
@@ -56,6 +57,7 @@ def write_list(plugin, key: str, records: List[dict], limit: Optional[int] = Non
             normalized_records.append(record)
     records = normalized_records
     records = trim_records(records, limit)
+    checkpoint(plugin)
     plugin.save_data(key, records)
     return records
 
@@ -75,6 +77,7 @@ def read_dict(plugin, key: str, plugin_id: str = "") -> Dict[str, Any]:
 def write_dict(plugin, key: str, data: Dict[str, Any]) -> Dict[str, Any]:
     """写入字典数据并返回实际保存的对象。"""
     data = data if isinstance(data, dict) else {}
+    checkpoint(plugin)
     plugin.save_data(key, data)
     return data
 

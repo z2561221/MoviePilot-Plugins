@@ -5,7 +5,7 @@ from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from http.cookies import SimpleCookie
 from typing import Tuple
-from urllib.parse import unquote, urljoin
+from urllib.parse import unquote, urljoin, urlparse
 from xml.etree import ElementTree
 
 # MoviePilot V3 da51ff1a5feea9c22451968e4b86bc8f32011925 仍未将 CookieCloudHelper
@@ -269,6 +269,7 @@ class DoubanApi:
         """从豆瓣首页响应中刷新 ck cookie。"""
         self.headers["Cookie"] = ";".join([f"{k}={v}" for k, v in self.cookies.items()])
         response = self._request_utils(headers=self.headers).get_res("https://www.douban.com/")
+        self._account_response = response
         if not response:
             self.cookies['ck'] = ''
             return
@@ -278,6 +279,37 @@ class DoubanApi:
             return
         ck = ck_str.split(";")[0].split("=")[1].strip()
         self.cookies['ck'] = '' if ck == '"deleted"' else ck
+
+    def get_login_status(self) -> tuple[str, str]:
+        """从首页响应识别登录证据；搜索结果和 ck 本身不代表登录有效。"""
+        response = getattr(self, "_account_response", None)
+        if response is None:
+            return "network_error", "首页请求无响应"
+        status = response.status_code
+        if status in {403, 429}:
+            return "blocked", f"首页访问受限：HTTP {status}"
+        if status == 401:
+            return "login_required", "首页返回 HTTP 401"
+        if status != 200:
+            return "http_error", f"首页请求失败：HTTP {status}"
+        url = urlparse(str(getattr(response, "url", "") or ""))
+        body = response.text or ""
+        if url.hostname == "sec.douban.com" or any(
+            marker in body.lower() for marker in ("captcha", "验证码", "异常请求")
+        ):
+            return "blocked", "首页要求验证码或触发访问限制"
+        if url.hostname == "accounts.douban.com" and url.path.startswith("/passport/login"):
+            return "login_required", "首页跳转到豆瓣登录页"
+        soup = BeautifulSoup(body, "lxml")
+        for anchor in soup.find_all("a", href=True):
+            link = urlparse(urljoin("https://www.douban.com/", anchor["href"]))
+            if link.hostname in {"www.douban.com", "accounts.douban.com"} and link.path == "/accounts/logout":
+                return "valid", "首页包含账号退出入口"
+        for form in soup.find_all("form", action=True):
+            link = urlparse(urljoin("https://www.douban.com/", form["action"]))
+            if link.hostname == "accounts.douban.com" and link.path in {"/login", "/passport/login"}:
+                return "login_required", "首页返回豆瓣登录表单"
+        return "unknown", "首页缺少可确认的登录状态标记"
 
     def get_subject_id(self, title: str = None, meta: MetaBase = None) -> Tuple:
         """根据标题或媒体元数据搜索豆瓣条目 ID。"""

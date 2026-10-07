@@ -3,6 +3,7 @@ DoubanCenter - 豆瓣档案模块
 """
 import datetime
 import re
+import time
 from collections.abc import Mapping
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
@@ -25,11 +26,14 @@ from ..model.identity import (
     recognize_media,
 )
 from ..storage import records as storage
-from . import folio_retry, folio_watch
+from . import folio_retry, folio_watch, lifecycle
 
 WISH_NOTIFY_THROTTLE_SECONDS = 6 * 60 * 60
 WISH_RECOGNIZE_MAX_RETRIES = 3
 FOLIO_SERIES_CACHE_KEY = "_folio_series_cache"
+FOLIO_SERIES_CACHE_LIMIT = 256
+FOLIO_SERIES_CACHE_SECONDS = 300
+FOLIO_SERIES_MISS_CACHE_SECONDS = 60
 
 _PROVIDER_KEYS = {
     MediaSource.TMDB: ("Tmdb", "TMDB", "tmdb", "tmdb_id"),
@@ -71,30 +75,36 @@ def _create_douban_api(self):
 
 
 def check_cookie_periodically(self) -> None:
-    """定期检测豆瓣 Cookie 是否仍然可用。"""
+    """定期检查明确的登录证据，网络或页面异常不推断 Cookie 失效。"""
     now = datetime.datetime.now().timestamp()
-    if not hasattr(self, '_last_cookie_check_time'):
-        self._last_cookie_check_time = 0
-    if now - self._last_cookie_check_time > 3600:
-        if not hasattr(self, '_last_cookie_invalid_time'):
-            self._last_cookie_invalid_time = 0
-        try:
-            _, sid = _create_douban_api(self).get_subject_id(title="肖申克的救赎")
-        except Exception:
-            sid = None
-        if sid:
-            if not hasattr(self, '_last_cookie_valid_time'):
-                self._last_cookie_valid_time = 0
-            if now - self._last_cookie_valid_time > 600:
-                logger.info("cookie有效性检测通过")
-                self._last_cookie_valid_time = now
-        else:
-            if now - self._last_cookie_invalid_time > 600:
-                _send_wish_notification(self, "豆瓣 Cookie 可能已失效，请及时更换！", throttle_key="cookie_invalid")
-                self._last_cookie_invalid_time = now
-        self._last_cookie_check_time = now
+    if now - getattr(self, "_last_cookie_check_time", 0) <= 3600:
+        return
+    self._last_cookie_check_time = now
+    try:
+        # 健康检查不挂接业务 CK 失败通知，避免探测异常被当作同步失败。
+        status, reason = DoubanApi(user_cookie=getattr(self, "_folio_cookie", "")).get_login_status()
+    except lifecycle.RunStopped:
+        raise
+    except Exception as err:
+        # 异常正文可能含请求参数或 Cookie，只记录异常类型。
+        logger.warning(f"豆瓣登录状态检查未完成：{type(err).__name__}；未判定 Cookie 失效")
+        return
+    lifecycle.checkpoint(self)
+    if status == "valid":
+        logger.info("豆瓣登录状态检查通过")
+    elif status == "login_required":
+        logger.warning(f"豆瓣登录状态异常：{reason}")
+        if getattr(self, "_folio_notify", False):
+            _send_failure_notification(
+                self, "豆瓣登录状态异常",
+                "豆瓣返回登录验证要求，请检查登录状态，必要时更新 Cookie。",
+                throttle_key="login_required",
+            )
+    else:
+        logger.warning(f"豆瓣登录状态检查未确认（{status}）：{reason}；未判定 Cookie 失效")
 
 
+@lifecycle.managed
 def run_wish_scheduled(self) -> None:
     """执行豆瓣想看同步定时入口。"""
     run_wish_sync(self)
@@ -235,6 +245,7 @@ def _default_wish_recognize(self):
     return recognize
 
 
+@lifecycle.managed
 def process_wish_queue(self, recognize=None, subscribe=None) -> None:
     """处理想看待订阅队列，识别后通过现有订阅链创建订阅。"""
     queue = storage.read_folio_wish_queue(self)
@@ -248,11 +259,15 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
     subscriber = subscribe
     if subscriber is None:
         from . import subscription as subscription_service
-        subscriber = subscription_service.add_subscription
+
+        def subscriber(*args, **kwargs):
+            """读取明确订阅回执，不再用历史条数猜测本次结果。"""
+            return subscription_service.add_subscription(*args, **kwargs, with_result=True)
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     remaining = []
     for item in queue:
+        lifecycle.checkpoint(self)
         subject_id = str(item.get("subject_id") or "")
         title = item.get("title") or ""
         year = item.get("year") or ""
@@ -272,10 +287,10 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
             if retry < WISH_RECOGNIZE_MAX_RETRIES:
                 remaining.append(_wish_queue_record(item, now, retry=retry))
             continue
+        lifecycle.checkpoint(self)
         failed = _clear_wish_failed(failed, subject_id, reason="recognize_failed")
         subscribe_failed = False
         subscribe_reason = ""
-        before_failed_records = _failed_subscribe_record_count(self, mediainfo)
         try:
             result = subscriber(self, mediainfo, rank_key=WISH_RANK_KEY, rank_name=WISH_RANK_NAME, source_link=link)
         except Exception as err:
@@ -283,12 +298,14 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
             subscribe_failed = True
             subscribe_reason = str(err) or "subscribe_failed"
             logger.warning(f"豆瓣想看订阅失败：{title} {err}")
-        if _subscribe_result_is_failed(result) or _failed_subscribe_record_count(self, mediainfo) > before_failed_records:
+        if not subscribe_failed and _subscribe_result_is_failed(result):
             subscribe_failed = True
             subscribe_reason = _subscribe_failure_reason(result)
         if subscribe_failed:
-            _record_wish_failed(failed, item, "subscribe_failed", now, subscribe_reason)
+            retry = _record_wish_failed(failed, item, "subscribe_failed", now, subscribe_reason)
+            remaining.append(_wish_queue_record(item, now, retry=retry))
             continue
+        failed = _clear_wish_failed(failed, subject_id, reason="subscribe_failed")
         processed.append({"subject_id": subject_id, "title": title, "processed_at": now})
 
     storage.save_folio_wish_queue(self, remaining)
@@ -351,31 +368,29 @@ def _clear_wish_failed(failed, subject_id, reason=""):
 
 
 def _subscribe_result_is_failed(result) -> bool:
-    """判断订阅调用返回值是否明确表示失败。"""
-    if not isinstance(result, dict):
-        return False
-    status = str(result.get("status") or result.get("result") or "").lower()
-    return status in {"failed", "failure", "error"} or (result.get("ok") is False and not result.get("existing"))
+    """仅明确成功或已存在可出队；空回执和布尔失败均保留重试。"""
+    from .subscription import SubscriptionResult
+
+    if isinstance(result, SubscriptionResult):
+        return result.status not in {"success", "existing"}
+    if isinstance(result, dict):
+        status = str(result.get("status") or result.get("result") or "").lower()
+        if status in {"failed", "failure", "error", "cancelled"}:
+            return True
+        return not (result.get("existing") is True or status in {"success", "existing"}
+                    or result.get("ok") is True or result.get("success") is True)
+    return result is not True
 
 
 def _subscribe_failure_reason(result) -> str:
     """从订阅调用结果中提取失败原因。"""
+    from .subscription import SubscriptionResult
+
+    if isinstance(result, SubscriptionResult):
+        return result.reason or "subscribe_failed"
     if not isinstance(result, dict):
         return "subscribe_failed"
     return str(result.get("reason") or result.get("message") or "subscribe_failed")
-
-
-def _failed_subscribe_record_count(plugin, mediainfo) -> int:
-    """统计当前媒体对应的失败订阅历史记录数量。"""
-    count = 0
-    for record in storage.read_subscribe_records(plugin):
-        if not isinstance(record, dict) or record.get("status") != "failed":
-            continue
-        if record.get("rank_key") != WISH_RANK_KEY:
-            continue
-        if str(record.get("tmdbid") or "") == str(getattr(mediainfo, "tmdb_id", "") or ""):
-            count += 1
-    return count
 
 
 def _wish_seen_record(item, now):
@@ -525,6 +540,7 @@ def _server_names_for_event(event_info) -> list[str]:
     return result
 
 
+@lifecycle.scoped
 def _series_context(plugin, event_info) -> dict:
     """取得父级 Series 的标题、首播年份和媒体身份。"""
     item = _event_payload_item(event_info)
@@ -548,22 +564,40 @@ def _series_context(plugin, event_info) -> dict:
         cache = getattr(plugin, FOLIO_SERIES_CACHE_KEY, None)
         if not isinstance(cache, dict):
             cache = {}
+            setattr(plugin, FOLIO_SERIES_CACHE_KEY, cache)
+        now = time.monotonic()
+        for key, entry in list(cache.items()):
+            if not isinstance(entry, tuple) or len(entry) != 2 or entry[0] <= now:
+                cache.pop(key, None)
         server_names = _server_names_for_event(event_info)
         cache_key = (tuple(server_names), str(series_id))
-        cached = cache.get(cache_key)
+        entry = cache.get(cache_key)
+        cached = entry[1] if entry is not None else None
         if cached is None:
             cached = None
             try:
                 chain = MediaServerChain()
                 for server in server_names:
                     result = chain.iteminfo(server=server, item_id=str(series_id))
+                    lifecycle.checkpoint(plugin)
                     if result:
-                        cached = result
+                        cached_source, cached_id = identity_from_media(result)
+                        cached = {
+                            "title": _value_from_mapping(result, "title", "name"),
+                            "year": _value_from_mapping(result, "year", "first_air_date", "release_date"),
+                            "media_source": cached_source,
+                            "media_id": cached_id,
+                        }
                         break
+            except lifecycle.RunStopped:
+                raise
             except Exception as err:
                 logger.debug(f"查询父级 Series 失败 {series_id}：{err}")
-            cache[cache_key] = cached or {}
-            setattr(plugin, FOLIO_SERIES_CACHE_KEY, cache)
+            lifecycle.checkpoint(plugin)
+            while len(cache) >= FOLIO_SERIES_CACHE_LIMIT:
+                cache.pop(next(iter(cache)))
+            ttl = FOLIO_SERIES_CACHE_SECONDS if cached else FOLIO_SERIES_MISS_CACHE_SECONDS
+            cache[cache_key] = (time.monotonic() + ttl, cached or {})
         if cached:
             title = _value_from_mapping(cached, "title", "name") or title
             year = _value_from_mapping(cached, "year", "first_air_date", "release_date") or year
@@ -1131,7 +1165,9 @@ def _sync_to_douban(
         )
     if sid:
         logger.info(f"查询：{title} => 匹配豆瓣：{name}")
+        lifecycle.checkpoint(self)
         if dh.set_watching_status(subject_id=sid, status=status, private=self._folio_private):
+            lifecycle.checkpoint(self)
             record = {
                 **previous,
                 "subject_id": sid, "subject_name": name or title,
@@ -1242,7 +1278,7 @@ def _send_folio_notification(self, success: bool, message: str):
     t = f"豆瓣观影档案 {'成功' if success else '失败'}"
     msg = message.strip() + f"\n时间：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     try:
-        self.post_message(mtype=MessageType.MediaServer, title=t, text=msg, parse_mode="plain")
+        self.post_message(mtype=MessageType.Plugin, title=t, text=msg, parse_mode="plain")
     except Exception as e:
         logger.error(f'{self.plugin_name} 发送通知失败: {e}')
 
@@ -1271,7 +1307,7 @@ def _send_failure_notification(
         return
     msg = message.strip() + f"\n时间：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     try:
-        self.post_message(mtype=MessageType.MediaServer, title=title, text=msg, parse_mode="plain")
+        self.post_message(mtype=MessageType.Plugin, title=title, text=msg, parse_mode="plain")
         last_map[throttle_key] = now_ts
         self._wish_notification_last_times = last_map
     except Exception as e:

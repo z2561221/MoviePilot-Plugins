@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import Config from './Config.vue'
 import Page from './Page.vue'
 import { getPluginConfig, savePluginConfig } from './api'
+import { useRequestScope } from './useRequestScope'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -17,31 +18,46 @@ const savingSettings = ref(false)
 const settingsConfig = ref({})
 const pageKey = ref(0)
 const snackbar = ref({ show: false, message: '', color: 'success' })
+const requestScope = useRequestScope(() => props.pluginId, () => {
+  settingsDialog.value = false
+  loadingSettings.value = false
+  savingSettings.value = false
+  snackbar.value.show = false
+})
 
 async function openSettings() {
+  if (loadingSettings.value || !requestScope.isActive()) return
+  const current = requestScope.capture()
   loadingSettings.value = true
   try {
-    settingsConfig.value = await getPluginConfig(props.api, props.pluginId)
+    const config = await getPluginConfig(props.api, props.pluginId)
+    if (!current()) return
+    settingsConfig.value = config
     settingsDialog.value = true
   } catch (error) {
+    if (!current()) return
     snackbar.value = { show: true, message: error?.message || '设置加载失败', color: 'error' }
   } finally {
-    loadingSettings.value = false
+    if (current()) loadingSettings.value = false
   }
 }
 
 async function saveSettings(config) {
+  if (savingSettings.value || !requestScope.isActive()) return
+  const current = requestScope.capture()
   savingSettings.value = true
   try {
     await savePluginConfig(props.api, props.pluginId, config)
+    if (!current()) return
     settingsConfig.value = { ...(config || {}) }
     settingsDialog.value = false
     pageKey.value += 1
     snackbar.value = { show: true, message: '设置已保存', color: 'success' }
   } catch (error) {
+    if (!current()) return
     snackbar.value = { show: true, message: error?.message || '设置保存失败', color: 'error' }
   } finally {
-    savingSettings.value = false
+    if (current()) savingSettings.value = false
   }
 }
 </script>

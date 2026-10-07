@@ -7,6 +7,7 @@ from app.schemas.types import MediaSource
 from ..model.identity import identity_from_media, legacy_identity, recognize_media
 from . import bangumi_tmdb as bangumi_tmdb_service
 from . import subscription as subscription_service
+from . import lifecycle
 
 
 def _default_media_chain_cls():
@@ -145,6 +146,7 @@ def add_silent_subscription(
     media_source: Any = None,
     media_id: Any = None,
     season: Any = None,
+    plugin=None,
 ):
     """按 MoviePilot 默认订阅参数静默添加订阅。"""
     kwargs = {
@@ -165,6 +167,7 @@ def add_silent_subscription(
     )
     if source and resolved_id:
         kwargs.update(media_source=source, media_id=resolved_id)
+    lifecycle.checkpoint(plugin)
     return subscribe_chain.add(**kwargs)
 
 
@@ -212,6 +215,7 @@ def subscribe_from_bangumi_subject(
         media_source="bangumi",
         media_id=str(bangumi_id),
         season=season,
+        plugin=plugin,
     )
     if not sid:
         _record_manual_subscription(
@@ -356,6 +360,7 @@ def subscribe_from_rank(
         tmdb_id=tmdb_id or getattr(mediainfo, "tmdb_id", None),
         bangumi_id=bangumi_id or getattr(mediainfo, "bangumi_id", None),
         season=getattr(meta, "begin_season", None),
+        plugin=plugin,
     )
     if not sid:
         _record_manual_subscription(

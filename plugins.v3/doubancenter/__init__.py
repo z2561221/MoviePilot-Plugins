@@ -1,5 +1,5 @@
 """
-DoubanCenter v3.0.12 - MoviePilot V3 本地插件
+DoubanCenter v3.0.13 - MoviePilot V3 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """
 import threading
@@ -25,6 +25,7 @@ from .model.config import (
 )
 from .service import dashboard as dash
 from .service import folio
+from .service import lifecycle
 from .service import rank_pipeline as feed
 from .service import scheduler as scheduler_service
 from .service import webhook as webhook_service
@@ -37,7 +38,7 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣时间 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "3.0.12"
+    plugin_version = "3.0.13"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
@@ -86,10 +87,12 @@ class DoubanCenter(_PluginBase):
         self._wait_process: Optional[Dict[str, Any]] = None
         self._sync_lock = threading.Lock()
         self._folio_repair_plans: dict[str, Any] = {}
+        lifecycle.start(self)
 
     def init_plugin(self, config: dict = None):
         """根据插件配置初始化运行状态并触发一次性任务。"""
         self.stop_service()
+        lifecycle.start(self)
         config = config or {}
         self._enabled = config.get("enabled", False)
         self._cron = config.get("cron") or DEFAULT_CRON
@@ -254,6 +257,7 @@ class DoubanCenter(_PluginBase):
         bangumi_id=None,
         media_source=None,
         media_id=None,
+        season: Optional[int] = None,
     ):
         """根据标题、年份和外部 ID 解析媒体信息。"""
         return api_controller.api_resolve_media(
@@ -265,6 +269,7 @@ class DoubanCenter(_PluginBase):
             bangumi_id=bangumi_id,
             media_source=media_source,
             media_id=media_id,
+            season=season,
         )
 
     def api_subscribe(
@@ -279,6 +284,7 @@ class DoubanCenter(_PluginBase):
         rank_key="",
         rank_name="",
         source_link="",
+        season: Optional[int] = None,
     ):
         """根据前端请求创建媒体订阅。"""
         return api_controller.api_subscribe(
@@ -293,6 +299,7 @@ class DoubanCenter(_PluginBase):
             rank_key=rank_key,
             rank_name=rank_name,
             source_link=source_link,
+            season=season,
         )
 
     def api_refresh_rss(self):
@@ -391,6 +398,7 @@ class DoubanCenter(_PluginBase):
 
     def stop_service(self):
         """停止插件后台定时服务。"""
+        lifecycle.stop(self)
         scheduler_service.stop_scheduler(self)
 
     @eventmanager.register(EventType.WebhookMessage)
