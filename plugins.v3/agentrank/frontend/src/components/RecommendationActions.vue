@@ -50,7 +50,17 @@ const doubanId = computed(() => firstId(sourceIds.value.douban))
 const bangumiId = computed(() => firstId(sourceIds.value.bangumi))
 const anilistId = computed(() => firstId(sourceIds.value.anilist))
 const nativeSubscribe = computed(() => props.nativeSubscribe || injectedNativeSubscribe)
-const nativeMediaType = computed(() => props.item?.media_type === 'movie' ? '电影' : '电视剧')
+const nativeMediaType = computed(() => {
+  const candidateId = String(props.item?.candidate_id || '').trim().toLowerCase()
+  if (candidateId.startsWith('tmdb:movie:')) return '电影'
+  if (candidateId.startsWith('tmdb:tv:')) return '电视剧'
+  const explicitType = String(
+    props.item?.mp_media_type || props.item?.metadata?.mp_media_type || '',
+  ).trim().toLowerCase()
+  if (explicitType === '电影' || explicitType === 'movie') return '电影'
+  if (explicitType === '电视剧' || explicitType === 'tv') return '电视剧'
+  return props.item?.media_type === 'movie' ? '电影' : '电视剧'
+})
 const alreadySubscribed = computed(() => props.item?.subscribed === true)
 const likePressed = computed(() => props.item?.feedback_kind === 'like')
 const dislikePressed = computed(() => props.item?.feedback_kind === 'dislike')
@@ -106,7 +116,7 @@ function openExternal(url) {
 
 function openTmdb() {
   if (!tmdbId.value) return
-  const mediaPath = props.item?.media_type === 'movie' ? 'movie' : 'tv'
+  const mediaPath = nativeMediaType.value === '电影' ? 'movie' : 'tv'
   openExternal(`https://www.themoviedb.org/${mediaPath}/${encodeURIComponent(tmdbId.value)}`)
 }
 

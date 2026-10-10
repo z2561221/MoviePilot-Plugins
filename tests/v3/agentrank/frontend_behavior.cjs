@@ -27,6 +27,31 @@ function component(name, props, exports, extra = {}) {
 }
 
 async function nativeSubscribe() {
+  for (const [candidateId, mediaType, expectedType] of [
+    ['tmdb:movie:1', 'anime', '电影'],
+    ['tmdb:tv:2', 'anime', '电视剧'],
+  ]) {
+    let payload = null
+    const app = component('RecommendationActions.vue', {
+      item: {candidate_id: candidateId, media_type: mediaType},
+      nativeSubscribe: async media => { payload = media; return {success: true} },
+    }, 'handleSubscribe')
+    await app.handleSubscribe()
+    assert.equal(payload.type, expectedType, `${candidateId} must preserve the stable media identity type`)
+    app.unmount()
+  }
+  for (const [candidateId, expectedPath] of [
+    ['tmdb:movie:129', 'movie'], ['tmdb:tv:42509', 'tv'],
+  ]) {
+    let opened = ''
+    const id = candidateId.split(':').pop()
+    const app = component('RecommendationActions.vue', {
+      item: {candidate_id: candidateId, media_type: 'anime', source_ids: {tmdb: id}},
+    }, 'openTmdb', {window: {open: url => { opened = url }}})
+    app.openTmdb()
+    assert.equal(opened, `https://www.themoviedb.org/${expectedPath}/${id}`)
+    app.unmount()
+  }
   for (const result of [{success: false, code: 'INVALID_MEDIA'}, {success: false, code: 'PERMISSION_DENIED'}, undefined]) {
     const app = component('RecommendationActions.vue', {
       item: {candidate_id: 'tmdb:movie:1'}, nativeSubscribe: async () => result,
