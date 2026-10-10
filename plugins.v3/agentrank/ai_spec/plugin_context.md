@@ -6,7 +6,7 @@
 
 插件 ID 为 `AgentRank`，源码位于 `plugins.v3/agentrank`，生产导入命名空间为 `app.plugins.agentrank`，入口类为 `AgentRank`，配置前缀为 `agentrank_`。当前运行模式为 `("vue", "dist/assets")`。
 
-本周期开发版本为 `3.0.7`。Agent 修正回合使用新对象，兼容宿主 cleanup 永久关闭任务作用域的行为；内部受信工具不向普通聊天注册。Telegram 重试会话持久化原消息来源、消息 ID、聊天 ID 与重试代次。同一轮及其重试仅发送一条通知，受理后移除按钮，后台每 5 秒合并真实阶段并调用宿主 `edit_message` 原地更新；成功显示结果，失败恢复下一代重试按钮，编辑失败不降级为新消息。重试仍使用有界后台线程，停止时取消任务与进度发布器。媒体库状态仍使用 `true`、`false`、`null` 区分存在、不存在与查询失败，排除已入库时拦截未知状态。
+当前版本以 `__init__.py` 的 `plugin_version`、`plugin.json` 和 `package.v3.json` 的 `AgentRank` 条目为准，变更说明见 [README](../README.md)。Agent 修正回合使用新对象，兼容宿主 cleanup 永久关闭任务作用域的行为；内部受信工具不向普通聊天注册。Telegram 重试会话持久化原消息来源、消息 ID、聊天 ID 与重试代次。同一轮及其重试仅发送一条通知，受理后移除按钮，后台每 5 秒合并真实阶段并调用宿主 `edit_message` 原地更新；成功显示结果，失败恢复下一代重试按钮，编辑失败不降级为新消息。重试仍使用有界后台线程，停止时取消任务与进度发布器。媒体库状态仍使用 `true`、`false`、`null` 区分存在、不存在与查询失败，排除已入库时拦截未知状态。
 
 ## 入口与生命周期
 
@@ -16,6 +16,7 @@
 - `get_sidebar_nav()` 在插件启用且 `discovery_page_enabled=true` 时提供发现区入口。
 - Vue 联邦暴露 `./Page`、`./Config`、`./Dashboard` 和 `./AppPage`，构建产物必须完整保留在 `dist/assets`。
 - 前端 API 由 `controller/routes.py::build_api_routes()` 统一注册，端点绑定位于 `controller/endpoints.py`，并全部声明为 `auth: "bear"`。浏览器端只能使用宿主注入的 `api` 客户端，且必须以宿主传入的 `pluginId` 组装当前实例路由。
+- 推荐卡片的原生订阅类型与 TMDB 详情路径共用 `nativeMediaType`：优先读取 `candidate_id` 的 `tmdb:movie:` / `tmdb:tv:` 身份，再读取条目或 metadata 的 `mp_media_type`，最后使用 `media_type` 回退。`anime` 是推荐分类，不能覆盖已确定的电影身份。原生订阅拒绝、取消或异常时停止；仅在宿主未提供原生入口时转入插件订阅链。
 
 ## 推荐主链
 
