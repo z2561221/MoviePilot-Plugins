@@ -119,7 +119,7 @@ def test_v3_internal_imports_match_symbol_allowlist_and_avoid_host_models():
     assert actual == REVIEWED_INTERNAL_IMPORTS
     assert forbidden == []
     compat = _source("host_compat.py")
-    assert "2026-08-29" in compat
+    assert "338687bee8ed288644e775e408536a5e556a6252" in compat
     assert "稳定 SDK 导出后" in compat
     assert "def get_internal_user_id" in compat
     assert "from ..host_compat import get_internal_user_id" in _source(

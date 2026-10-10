@@ -6,7 +6,7 @@
 应删除本模块中的内部导入，并由契约测试阻止其它内部路径扩散。
 """
 
-# Reviewed against MoviePilot V3 origin/v3 on 2026-08-29.
+# Reviewed against MoviePilot V3 host commit 338687bee8ed288644e775e408536a5e556a6252 on 2026-10-10.
 from app.foundation.identity import SYSTEM_INTERNAL_USER_ID
 
 

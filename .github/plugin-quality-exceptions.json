@@ -1,4 +1,16 @@
 {
+  "AgentRank": {
+    "imports": [
+      {
+        "module": "app.foundation.identity",
+        "symbol": "SYSTEM_INTERNAL_USER_ID",
+        "reason": "当前 V3 宿主仍未将系统 Agent 占位用户 ID 导出到稳定 SDK；插件需要该值隔离内部 Agent 会话与记忆。",
+        "host_version": "338687bee8ed288644e775e408536a5e556a6252",
+        "removal_condition": "宿主稳定 SDK 导出 SYSTEM_INTERNAL_USER_ID 后迁移并删除此例外。",
+        "test": "tests/v3/agentrank/test_runtime_contracts.py::test_v3_internal_imports_match_symbol_allowlist_and_avoid_host_models"
+      }
+    ]
+  },
   "DoubanCenter": {
     "imports": [
       {

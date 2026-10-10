@@ -215,7 +215,9 @@ def test_all_ranking_surfaces_use_feedback_icons_and_three_labeled_actions():
     assert "nativeSubscribe" in actions
     assert "moviepilot:nativeSubscribe" in actions
     assert "PERMISSION_DENIED" in actions
-    assert "const nativeMediaType = computed(() => props.item?.media_type === 'movie' ? '电影' : '电视剧')" in actions
+    assert "candidateId.startsWith('tmdb:movie:')" in actions
+    assert "candidateId.startsWith('tmdb:tv:')" in actions
+    assert "props.item?.metadata?.mp_media_type" in actions
     assert "media.media_id = sourceId" in actions
     assert "if (result?.success === true)" in actions
     assert "emit('native-subscribe-opened', props.item?.candidate_id)" in actions
