@@ -1,8 +1,10 @@
 """使用宿主真实 Telegram 模块和客户端验证原消息编辑，不连接网络。"""
 
+import time
 from types import SimpleNamespace
 
 import pytest
+from app.modules.telegram import telegram as telegram_module
 from app.modules.telegram.module import TelegramModule
 from app.modules.telegram.telegram import Telegram
 from app.schemas.types import NotificationChannel
@@ -10,6 +12,19 @@ from app.schemas.types import NotificationChannel
 from tests.v3.agentrank import test_telegram_retry as retry_cases
 
 setup_retry = retry_cases.setup_retry
+
+
+@pytest.fixture
+def host_edit_clock(monkeypatch):
+    """只替换 Telegram 模块的时钟，保留宿主真实限频规则。"""
+    clock = SimpleNamespace(
+        now=1000.0,
+        interval=getattr(telegram_module, "TELEGRAM_EDIT_MIN_INTERVAL_SECONDS", 2.0),
+    )
+    host_time = SimpleNamespace(**vars(time))
+    host_time.monotonic = lambda: clock.now
+    monkeypatch.setattr(telegram_module, "time", host_time, raising=False)
+    return clock
 
 
 class RecordingBot:
@@ -40,7 +55,7 @@ class RecordingBot:
 
 
 @pytest.mark.parametrize("original_kind", ["text", "caption", "missing"])
-def test_real_host_edit_path_never_creates_followup_message(setup_retry, original_kind):
+def test_real_host_edit_path_never_creates_followup_message(setup_retry, original_kind, host_edit_clock):
     """经过真实宿主分发与客户端，即使按钮清空或编辑失败也只发送一次。"""
     plugin, _, service, calls = setup_retry
     bot = RecordingBot(original_kind)
@@ -74,15 +89,19 @@ def test_real_host_edit_path_never_creates_followup_message(setup_retry, origina
     assert calls == [retry_cases.PROFILE]
     assert bot.text_edits[0]["reply_markup"] is None
     assert bot.text_edits[0]["message_id"] == 42
-    service.update_progress(
-        retry_cases.PROFILE,
-        key,
-        {
-            "active": True,
-            "run_id": "retry-run",
-            "message": "正在分析 <候选>&结果",
-        },
-    )
+    progress = {
+        "active": True,
+        "run_id": "retry-run",
+        "message": "正在分析 <候选>&结果",
+    }
+    if hasattr(client, "_reserve_edit"):
+        assert service.update_progress(retry_cases.PROFILE, key, progress) is False
+        assert len(bot.text_edits) == 1
+        assert len(bot.sent) == len(plugin.messages) == 1
+
+    host_edit_clock.now += host_edit_clock.interval + 0.1
+    assert service.update_progress(retry_cases.PROFILE, key, progress) is (original_kind != "missing")
+    host_edit_clock.now += host_edit_clock.interval + 0.1
     updated = service.finish(
         retry_cases.PROFILE,
         key,
