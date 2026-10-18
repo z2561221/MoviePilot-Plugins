@@ -47,9 +47,27 @@ def default_media_type(addr: str) -> str:
 
 
 def douban_subject_id(value: Any) -> str:
-    """从豆瓣 subject 链接或复合文本中提取数字 ID。"""
-    match = re.search(r"/(?:movie/)?subject/(\d+)(?:[/?#]|$)", str(value or ""), flags=re.IGNORECASE)
-    return match.group(1) if match else ""
+    """Read subject IDs from Douban URLs, relative paths or stored composite keys."""
+    text = str(value or "").strip()
+    candidates = re.findall(r"(?:https?://|douban://|//)[^\s<>\"']+", text, flags=re.IGNORECASE)
+    if text.startswith("/") and not text.startswith("//"):
+        candidates.insert(0, text)
+    for candidate in candidates:
+        try:
+            parsed = urlsplit(candidate)
+        except ValueError:
+            continue
+        host = (parsed.hostname or "").casefold()
+        if (parsed.scheme or parsed.netloc) and not (host == "douban.com" or host.endswith(".douban.com")):
+            continue
+        match = re.fullmatch(
+            r"/(?:(?:movie/)?subject|(?:doubanapp/)?dispatch/(?:movie|tv)|movie|tv)/(\d+)/?",
+            parsed.path,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            return match.group(1)
+    return ""
 
 
 def build_rsshub_url(domain: str, route: str, limit: int = 5) -> str:
@@ -167,6 +185,26 @@ def _strict_title(value: Any) -> str:
     return re.sub(r"\s+", "", str(value or "")).casefold()
 
 
+def _metadata_agrees(item: dict, remote_item: dict) -> bool:
+    """Reject known year/type conflicts without inventing missing metadata."""
+    year = str(item.get("year") or "").strip()
+    remote_year = str(remote_item.get("year") or "").strip()
+    if re.fullmatch(r"\d{4}", year) and re.fullmatch(r"\d{4}", remote_year) and year != remote_year:
+        return False
+    media_type = str(item.get("mtype") or "").strip().casefold()
+    remote_types = {
+        str(remote_item.get(key) or "").strip().casefold()
+        for key in ("type", "subtype")
+    } & {"movie", "tv"}
+    for key in ("uri", "url", "sharing_url"):
+        match = re.search(r"/(movie|tv)/(?:subject/)?\d+(?:[/?#]|$)", str(remote_item.get(key) or ""), re.IGNORECASE)
+        if match:
+            remote_types.add(match.group(1).casefold())
+    if len(remote_types) > 1:
+        return False
+    return not (media_type in {"movie", "tv"} and remote_types and media_type not in remote_types)
+
+
 def _enrich_douban_ids(
     plugin,
     addr: str,
@@ -175,41 +213,40 @@ def _enrich_douban_ids(
     request_utils_cls=None,
     settings_obj=None,
 ) -> None:
-    """按 RSS 顺序和唯一标题严格补回豆瓣 subject id。"""
+    """Fill missing IDs by unique title, never by position in a filtered feed."""
     collection = _douban_collection_from_addr(addr)
     pending = [item for item in items if isinstance(item, dict) and not item.get("doubanid")]
     if not collection or not pending:
         return
-    count = min(max(len(items), 1), _DOUBAN_REXXAR_MAX_ITEMS)
+    # A filtered RSS subset does not tell us how far down the source list to look.
     remote_items = _rexxar_items(
         plugin,
         collection,
-        count,
+        _DOUBAN_REXXAR_MAX_ITEMS,
         request_utils_cls=request_utils_cls,
         settings_obj=settings_obj,
     )
     if not remote_items:
         return
 
-    rss_counts = Counter(_strict_title(item.get("title")) for item in items if item.get("title"))
+    rss_counts = Counter(
+        _strict_title(item.get("title")) for item in items if isinstance(item, dict) and item.get("title")
+    )
     remote_counts = Counter(_strict_title(_rexxar_item_title(item)) for item in remote_items)
+    remote_by_title = {
+        _strict_title(_rexxar_item_title(item)): item
+        for item in remote_items
+        if remote_counts[_strict_title(_rexxar_item_title(item))] == 1
+    }
     used_ids = {
         str(item.get("doubanid"))
         for item in items
         if isinstance(item, dict) and item.get("doubanid")
     }
-    for index, item in enumerate(items[:count]):
-        if not isinstance(item, dict) or item.get("doubanid") or index >= len(remote_items):
-            continue
-        rss_title = _strict_title(item.get("title"))
-        remote_item = remote_items[index]
-        remote_title = _strict_title(_rexxar_item_title(remote_item))
-        if (
-            not rss_title
-            or rss_title != remote_title
-            or rss_counts[rss_title] != 1
-            or remote_counts[remote_title] != 1
-        ):
+    for item in pending:
+        title = _strict_title(item.get("title"))
+        remote_item = remote_by_title.get(title)
+        if not title or rss_counts[title] != 1 or remote_item is None or not _metadata_agrees(item, remote_item):
             continue
         subject_id = _rexxar_item_id(remote_item)
         if subject_id and subject_id not in used_ids:
