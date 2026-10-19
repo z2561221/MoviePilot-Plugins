@@ -292,7 +292,13 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
         subscribe_failed = False
         subscribe_reason = ""
         try:
-            result = subscriber(self, mediainfo, rank_key=WISH_RANK_KEY, rank_name=WISH_RANK_NAME, source_link=link)
+            meta = MetaInfo(_wish_recognize_title(title))
+            if year:
+                meta.year = str(year)
+            result = subscriber(
+                self, mediainfo, meta=meta, record_title=title,
+                rank_key=WISH_RANK_KEY, rank_name=WISH_RANK_NAME, source_link=link,
+            )
         except Exception as err:
             result = None
             subscribe_failed = True
