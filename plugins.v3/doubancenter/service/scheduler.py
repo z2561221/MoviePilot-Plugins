@@ -22,7 +22,7 @@ def get_services(plugin, run_all: Callable[[], None], run_wish: Optional[Callabl
                 "kwargs": {},
             }
         )
-    if plugin._enabled and plugin._folio_enabled and plugin._wish_enabled and plugin._wish_cron and run_wish:
+    if plugin._enabled and plugin._wish_enabled and plugin._wish_cron and run_wish:
         services.append(
             {
                 "id": "DoubanCenterWish",
