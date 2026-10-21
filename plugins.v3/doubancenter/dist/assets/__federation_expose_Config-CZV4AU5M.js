@@ -658,6 +658,7 @@ return (_ctx, _cache) => {
   const _component_VCol = _resolveComponent$1("VCol");
   const _component_VCronField = _resolveComponent$1("VCronField");
   const _component_VRow = _resolveComponent$1("VRow");
+  const _component_VSelect = _resolveComponent$1("VSelect");
   const _component_VTextField = _resolveComponent$1("VTextField");
   const _component_VAlert = _resolveComponent$1("VAlert");
   const _component_VIcon = _resolveComponent$1("VIcon");
@@ -665,7 +666,6 @@ return (_ctx, _cache) => {
   const _component_VBtn = _resolveComponent$1("VBtn");
   const _component_VCheckbox = _resolveComponent$1("VCheckbox");
   const _component_VChip = _resolveComponent$1("VChip");
-  const _component_VSelect = _resolveComponent$1("VSelect");
   const _component_VCombobox = _resolveComponent$1("VCombobox");
   const _component_VCardTitle = _resolveComponent$1("VCardTitle");
   const _component_VCardText = _resolveComponent$1("VCardText");
@@ -677,7 +677,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock$1(), _createElementBlock$1(_Fragment$1, null, [
     _withDirectives$1(_createElementVNode$1("div", _hoisted_1$1, [
-      _cache[9] || (_cache[9] = _createElementVNode$1("div", { class: "dc-section-title" }, "基础设置", -1)),
+      _cache[11] || (_cache[11] = _createElementVNode$1("div", { class: "dc-section-title" }, "基础设置", -1)),
       _createVNode$1(_component_VRow, null, {
         default: _withCtx$1(() => [
           _createVNode$1(_component_VCol, {
@@ -717,11 +717,51 @@ return (_ctx, _cache) => {
       }),
       _createVNode$1(_component_VRow, { class: "mt-2" }, {
         default: _withCtx$1(() => [
+          _createVNode$1(_component_VCol, {
+            cols: "12",
+            md: "4"
+          }, {
+            default: _withCtx$1(() => [
+              _createVNode$1(_component_VSwitch, {
+                modelValue: __props.config.form.notify,
+                "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((__props.config.form.notify) = $event)),
+                color: "info",
+                inset: "",
+                "hide-details": "",
+                label: "发送观察通知"
+              }, null, 8, ["modelValue"])
+            ]),
+            _: 1
+          }),
+          _createVNode$1(_component_VCol, {
+            cols: "12",
+            md: "8"
+          }, {
+            default: _withCtx$1(() => [
+              _createVNode$1(_component_VSelect, {
+                modelValue: __props.config.form.notification_type,
+                "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((__props.config.form.notification_type) = $event)),
+                items: __props.config.notificationTypeOptions,
+                label: "通知类型",
+                disabled: !__props.config.form.notify,
+                density: "compact",
+                variant: "outlined",
+                "hide-details": ""
+              }, null, 8, ["modelValue", "items", "disabled"])
+            ]),
+            _: 1
+          })
+        ]),
+        _: 1
+      }),
+      _cache[12] || (_cache[12] = _createElementVNode$1("div", { class: "text-caption text-medium-emphasis mt-2" }, "新条目进入观察区时通知，同一观察期不重复发送。Telegram 支持立即订阅或移除；其他渠道可打开观察区处理。", -1)),
+      _createVNode$1(_component_VRow, { class: "mt-2" }, {
+        default: _withCtx$1(() => [
           _createVNode$1(_component_VCol, { cols: "12" }, {
             default: _withCtx$1(() => [
               _createVNode$1(_component_VTextField, {
                 modelValue: __props.config.form.rsshub_domain,
-                "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((__props.config.form.rsshub_domain) = $event)),
+                "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((__props.config.form.rsshub_domain) = $event)),
                 label: "RSSHub 域名",
                 density: "compact",
                 variant: "outlined",
@@ -748,7 +788,7 @@ return (_ctx, _cache) => {
     _withDirectives$1(_createElementVNode$1("div", _hoisted_2$1, [
       _createElementVNode$1("div", _hoisted_3$1, [
         _createElementVNode$1("div", null, [
-          _cache[10] || (_cache[10] = _createElementVNode$1("div", { class: "dc-section-title mb-1" }, "榜单列表", -1)),
+          _cache[13] || (_cache[13] = _createElementVNode$1("div", { class: "dc-section-title mb-1" }, "榜单列表", -1)),
           _createElementVNode$1("div", _hoisted_4$1, "已启用 " + _toDisplayString$1(__props.config.enabledRankCount) + " 个 · 自定义 " + _toDisplayString$1(__props.config.customRankCount) + " 个", 1)
         ]),
         _createVNode$1(_component_VBtn, {
@@ -768,7 +808,7 @@ return (_ctx, _cache) => {
               activator: "parent",
               location: "top"
             }, {
-              default: _withCtx$1(() => [...(_cache[11] || (_cache[11] = [
+              default: _withCtx$1(() => [...(_cache[14] || (_cache[14] = [
                 _createTextVNode$1("新增自定义榜单", -1)
               ]))]),
               _: 1
@@ -839,7 +879,7 @@ return (_ctx, _cache) => {
                         color: "primary",
                         variant: "tonal"
                       }, {
-                        default: _withCtx$1(() => [...(_cache[12] || (_cache[12] = [
+                        default: _withCtx$1(() => [...(_cache[15] || (_cache[15] = [
                           _createTextVNode$1("自定义", -1)
                         ]))]),
                         _: 1
@@ -883,7 +923,7 @@ return (_ctx, _cache) => {
                           activator: "parent",
                           location: "top"
                         }, {
-                          default: _withCtx$1(() => [...(_cache[13] || (_cache[13] = [
+                          default: _withCtx$1(() => [...(_cache[16] || (_cache[16] = [
                             _createTextVNode$1("删除自定义榜单", -1)
                           ]))]),
                           _: 1
@@ -1063,13 +1103,13 @@ return (_ctx, _cache) => {
       _createVNode$1(_component_VDialog, {
         "model-value": __props.config.deleteDialog,
         "max-width": "420",
-        "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => (__props.config.deleteDialog = $event))
+        "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => (__props.config.deleteDialog = $event))
       }, {
         default: _withCtx$1(() => [
           _createVNode$1(_component_VCard, null, {
             default: _withCtx$1(() => [
               _createVNode$1(_component_VCardTitle, { class: "text-body-1" }, {
-                default: _withCtx$1(() => [...(_cache[14] || (_cache[14] = [
+                default: _withCtx$1(() => [...(_cache[17] || (_cache[17] = [
                   _createTextVNode$1("删除自定义榜单", -1)
                 ]))]),
                 _: 1
@@ -1085,9 +1125,9 @@ return (_ctx, _cache) => {
                   _createVNode$1(_component_VSpacer),
                   _createVNode$1(_component_VBtn, {
                     variant: "text",
-                    onClick: _cache[3] || (_cache[3] = $event => (__props.config.deleteDialog = false))
+                    onClick: _cache[5] || (_cache[5] = $event => (__props.config.deleteDialog = false))
                   }, {
-                    default: _withCtx$1(() => [...(_cache[15] || (_cache[15] = [
+                    default: _withCtx$1(() => [...(_cache[18] || (_cache[18] = [
                       _createTextVNode$1("取消", -1)
                     ]))]),
                     _: 1
@@ -1095,9 +1135,9 @@ return (_ctx, _cache) => {
                   _createVNode$1(_component_VBtn, {
                     color: "error",
                     variant: "tonal",
-                    onClick: _cache[4] || (_cache[4] = $event => (__props.config.removeCustomRank(__props.config.deleteTarget?.key)))
+                    onClick: _cache[6] || (_cache[6] = $event => (__props.config.removeCustomRank(__props.config.deleteTarget?.key)))
                   }, {
-                    default: _withCtx$1(() => [...(_cache[16] || (_cache[16] = [
+                    default: _withCtx$1(() => [...(_cache[19] || (_cache[19] = [
                       _createTextVNode$1("删除", -1)
                     ]))]),
                     _: 1
@@ -1115,7 +1155,7 @@ return (_ctx, _cache) => {
       [_vShow$1, __props.config.activeSub === 'list']
     ]),
     _withDirectives$1(_createElementVNode$1("div", _hoisted_26, [
-      _cache[17] || (_cache[17] = _createElementVNode$1("div", { class: "dc-section-title" }, "观察设置", -1)),
+      _cache[20] || (_cache[20] = _createElementVNode$1("div", { class: "dc-section-title" }, "观察设置", -1)),
       _createVNode$1(_component_VRow, null, {
         default: _withCtx$1(() => [
           _createVNode$1(_component_VCol, {
@@ -1125,7 +1165,7 @@ return (_ctx, _cache) => {
             default: _withCtx$1(() => [
               _createVNode$1(_component_VSelect, {
                 modelValue: __props.config.form.observe_rank_keys,
-                "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((__props.config.form.observe_rank_keys) = $event)),
+                "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((__props.config.form.observe_rank_keys) = $event)),
                 items: __props.config.rankDefs.map(rank => ({ title: rank.name, value: rank.key })),
                 label: "观察榜单",
                 multiple: "",
@@ -1147,7 +1187,7 @@ return (_ctx, _cache) => {
             default: _withCtx$1(() => [
               _createVNode$1(_component_VTextField, {
                 modelValue: __props.config.form.observe_days,
-                "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((__props.config.form.observe_days) = $event)),
+                "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((__props.config.form.observe_days) = $event)),
                 modelModifiers: { number: true },
                 label: "观察期（天）",
                 type: "number",
@@ -1170,7 +1210,7 @@ return (_ctx, _cache) => {
             default: _withCtx$1(() => [
               _createVNode$1(_component_VTextarea, {
                 modelValue: __props.config.form.blacklist_keywords,
-                "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((__props.config.form.blacklist_keywords) = $event)),
+                "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((__props.config.form.blacklist_keywords) = $event)),
                 label: "黑名单关键词（一行一个）",
                 rows: "3",
                 "auto-grow": "",
@@ -1194,7 +1234,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ConfigRankPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-d5135b53"]]);
+const ConfigRankPane = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-b597eceb"]]);
 
 const {computed,nextTick,reactive,ref,watch} = await importShared('vue');
 
@@ -1202,6 +1242,7 @@ const defaults = {
   enabled: false,
   cron: '0 8 * * *',
   notify: false,
+  notification_type: 'Plugin',
   proxy: false,
   onlyonce: false,
   rsshub_domain: 'https://rsshub.ddsrem.com',
@@ -1303,11 +1344,13 @@ function validCustomRoute(route) {
 
 function useConfigForm({ api, pluginId, initialConfig, emit }) {
   let overviewEpoch = 0;
+  let notificationOptionsEpoch = 0;
   const form = reactive({});
   const activeMain = ref('overview');
   const activeSub = ref('overview');
   const overview = ref(null);
   const loadingOverview = ref(false);
+  const notificationTypeOptions = ref([{ title: '插件', value: 'Plugin' }]);
   const customRankError = ref('');
   const expandedRankKeys = ref(new Set());
   const deleteTarget = ref(null);
@@ -1495,6 +1538,24 @@ function useConfigForm({ api, pluginId, initialConfig, emit }) {
     if (activeMain.value === key) return
     activeMain.value = key;
     activeSub.value = subTabs[key]?.[0]?.key || '';
+    if (key === 'rank') loadNotificationOptions();
+  }
+
+  async function loadNotificationOptions() {
+    if (!requestScope.isActive()) return
+    const owner = requestScope.capture();
+    const epoch = ++notificationOptionsEpoch;
+    try {
+      const response = await getPluginApi(api(), pluginId(), 'config');
+      if (!owner() || epoch !== notificationOptionsEpoch) return
+      if (response?.success === false) return
+      const options = (response?.data ?? response)?.notification_type_options;
+      if (Array.isArray(options) && options.length) {
+        notificationTypeOptions.value = options.filter(item => typeof item?.title === 'string' && typeof item?.value === 'string');
+      }
+    } catch (error) {
+      if (owner() && epoch === notificationOptionsEpoch) console.error('加载通知分类失败:', error);
+    }
   }
 
   async function loadOverview() {
@@ -1519,6 +1580,8 @@ function useConfigForm({ api, pluginId, initialConfig, emit }) {
 
   const requestScope = useRequestScope(pluginId, () => {
     overviewEpoch += 1;
+    notificationOptionsEpoch += 1;
+    notificationTypeOptions.value = [{ title: '插件', value: 'Plugin' }];
     loadingOverview.value = false;
   });
 
@@ -1533,6 +1596,7 @@ function useConfigForm({ api, pluginId, initialConfig, emit }) {
     activeSub,
     overview,
     loadingOverview,
+    notificationTypeOptions,
     customRankError,
     deleteTarget,
     deleteDialog,
@@ -1556,6 +1620,7 @@ function useConfigForm({ api, pluginId, initialConfig, emit }) {
     limitDashboardRanks,
     selectMain,
     loadOverview,
+    loadNotificationOptions,
   })
 }
 
