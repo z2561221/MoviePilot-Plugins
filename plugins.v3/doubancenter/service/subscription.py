@@ -3,6 +3,7 @@
 import datetime
 import threading
 from dataclasses import dataclass
+from functools import wraps
 from typing import Any, Dict, List, Optional
 
 from app.chain.subscribe import SubscribeChain
@@ -17,6 +18,15 @@ from . import observation, lifecycle
 
 
 _SUBSCRIBE_LOCK = threading.Lock()
+
+
+def serialized(callback):
+    """手动和自动订阅共用查重到写入锁，避免卡片与定时任务抢建。"""
+    @wraps(callback)
+    def run(plugin, *args, **kwargs):
+        with lifecycle.serialized(plugin, _SUBSCRIBE_LOCK):
+            return callback(plugin, *args, **kwargs)
+    return run
 
 
 @dataclass(frozen=True)

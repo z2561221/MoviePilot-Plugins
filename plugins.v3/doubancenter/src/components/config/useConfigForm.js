@@ -6,6 +6,7 @@ const defaults = {
   enabled: false,
   cron: '0 8 * * *',
   notify: false,
+  notification_type: 'Plugin',
   proxy: false,
   onlyonce: false,
   rsshub_domain: 'https://rsshub.ddsrem.com',
@@ -107,11 +108,13 @@ function validCustomRoute(route) {
 
 export function useConfigForm({ api, pluginId, initialConfig, emit }) {
   let overviewEpoch = 0
+  let notificationOptionsEpoch = 0
   const form = reactive({})
   const activeMain = ref('overview')
   const activeSub = ref('overview')
   const overview = ref(null)
   const loadingOverview = ref(false)
+  const notificationTypeOptions = ref([{ title: '插件', value: 'Plugin' }])
   const customRankError = ref('')
   const expandedRankKeys = ref(new Set())
   const deleteTarget = ref(null)
@@ -299,6 +302,24 @@ export function useConfigForm({ api, pluginId, initialConfig, emit }) {
     if (activeMain.value === key) return
     activeMain.value = key
     activeSub.value = subTabs[key]?.[0]?.key || ''
+    if (key === 'rank') loadNotificationOptions()
+  }
+
+  async function loadNotificationOptions() {
+    if (!requestScope.isActive()) return
+    const owner = requestScope.capture()
+    const epoch = ++notificationOptionsEpoch
+    try {
+      const response = await getPluginApi(api(), pluginId(), 'config')
+      if (!owner() || epoch !== notificationOptionsEpoch) return
+      if (response?.success === false) return
+      const options = (response?.data ?? response)?.notification_type_options
+      if (Array.isArray(options) && options.length) {
+        notificationTypeOptions.value = options.filter(item => typeof item?.title === 'string' && typeof item?.value === 'string')
+      }
+    } catch (error) {
+      if (owner() && epoch === notificationOptionsEpoch) console.error('加载通知分类失败:', error)
+    }
   }
 
   async function loadOverview() {
@@ -323,6 +344,8 @@ export function useConfigForm({ api, pluginId, initialConfig, emit }) {
 
   const requestScope = useRequestScope(pluginId, () => {
     overviewEpoch += 1
+    notificationOptionsEpoch += 1
+    notificationTypeOptions.value = [{ title: '插件', value: 'Plugin' }]
     loadingOverview.value = false
   })
 
@@ -337,6 +360,7 @@ export function useConfigForm({ api, pluginId, initialConfig, emit }) {
     activeSub,
     overview,
     loadingOverview,
+    notificationTypeOptions,
     customRankError,
     deleteTarget,
     deleteDialog,
@@ -360,5 +384,6 @@ export function useConfigForm({ api, pluginId, initialConfig, emit }) {
     limitDashboardRanks,
     selectMain,
     loadOverview,
+    loadNotificationOptions,
   })
 }

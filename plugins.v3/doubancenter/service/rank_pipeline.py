@@ -33,6 +33,7 @@ from . import rank_snapshot as rank_snapshot_service
 from . import rank_subscription as rank_subscription_service
 from . import rank_timing
 from . import lifecycle
+from . import rank_notifications
 from . import subscription as subscription_service
 from ..storage import records as storage
 
@@ -1024,6 +1025,7 @@ def subscribe_to_rank_snapshots(self, rank_snapshots: Dict[str, dict]) -> None:
     )
 
 
+@lifecycle.rank_locked
 def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_lines: Optional[List[str]] = None) -> None:
     """处理即将上映榜单的已识别订阅候选。"""
     cfg = _rc(self, rd["key"])
@@ -1046,7 +1048,8 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
         if not title:
             continue
         current_candidates.add(unique)
-        if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
+        if ((history_index.get(unique) or {}).get("observe_deleted")
+                or _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique))):
             _log_rank_skip(rd, title, "历史中已订阅或已存在", result_lines=result_lines)
             continue
         blacklist_description = _blacklist_description(entry, item)
@@ -1101,6 +1104,10 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
                 _log_rank_skip(rd, title, f"上映日期 {ad} 不在未来 {air_days} 天内", result_lines=result_lines)
                 continue
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
+            rank_notifications.enrich_observation(
+                history, unique, rd, item, mediainfo, meta,
+                year=year, air_date=ad, media_type="tv",
+            )
             _log_rank_skip(rd, title, "观察期规则拦截", result_lines=result_lines)
             continue
         if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
@@ -1130,8 +1137,10 @@ def _process_coming_snapshots(self, snapshots: List[dict], rd: dict, result_line
                 logger.info(f"豆瓣中心：[{rd['name']}] 已订阅《{cn_title}》")
     _drop_stale_observations(history, current_candidates)
     storage.save_rank_history(self, rd["key"], history)
+    rank_notifications.send_pending(self, rd)
 
 
+@lifecycle.rank_locked
 def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lines: Optional[List[str]] = None) -> None:
     """处理普通榜单的已识别订阅候选。"""
     cfg = _rc(self, rd["key"])
@@ -1155,7 +1164,8 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
         if not title:
             continue
         current_candidates.add(unique)
-        if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
+        if ((history_index.get(unique) or {}).get("observe_deleted")
+                or _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique))):
             _log_rank_skip(rd, title, "历史中已订阅或已存在", result_lines=result_lines)
             continue
         blacklist_description = _blacklist_description(entry, item)
@@ -1225,6 +1235,10 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
                 _log_rank_skip(rd, title, f"上映日期 {air_date} 不在{window_label} {air_days} 天内", result_lines=result_lines)
                 continue
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
+            rank_notifications.enrich_observation(
+                history, unique, rd, item, mediainfo, meta,
+                year=year, air_date=air_date, media_type=mtype,
+            )
             _log_rank_skip(rd, title, "观察期规则拦截", result_lines=result_lines)
             continue
         if _add_sub(
@@ -1264,6 +1278,7 @@ def _process_general_snapshots(self, snapshots: List[dict], rd: dict, result_lin
                 logger.info(f"豆瓣中心：[{rd['name']}] 已订阅《{cn_title}》")
     _drop_stale_observations(history, current_candidates)
     storage.save_rank_history(self, rd["key"], history)
+    rank_notifications.send_pending(self, rd)
 
 
 def _refresh_then_subscribe(self, message: str) -> None:
@@ -1289,6 +1304,7 @@ def run_scheduled(self) -> None:
     _refresh_then_subscribe(self, "豆瓣中心：定时运行开始，先刷新 RSS 榜单，再按配置执行订阅")
 
 
+@lifecycle.rank_locked
 def _process_coming(self, url: str, rd: dict) -> None:
     cfg = _rc(self, rd["key"])
     min_wish = int(cfg.get("wish_count", 0) or 0)
@@ -1307,7 +1323,8 @@ def _process_coming(self, url: str, rd: dict) -> None:
             continue
         unique = f"dc2_coming:{link or title}"
         current_candidates.add(unique)
-        if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
+        if ((history_index.get(unique) or {}).get("observe_deleted")
+                or _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique))):
             continue
         if _check_blacklist(self, title, description=_blacklist_description(item), link=link):
             continue
@@ -1357,6 +1374,10 @@ def _process_coming(self, url: str, rd: dict) -> None:
                 continue
         # 观察期：仅对选中的波动榜单延迟订阅。
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
+            rank_notifications.enrich_observation(
+                history, unique, rd, item, mediainfo, meta,
+                year=year, air_date=ad, media_type="tv",
+            )
             continue
         if _add_sub(self, mediainfo, meta, rank_key=rd["key"], rank_name=rd["name"], source_link=link):
             # 使用 TMDB 识别后的中文名替换原始标题
@@ -1382,8 +1403,10 @@ def _process_coming(self, url: str, rd: dict) -> None:
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
     _drop_stale_observations(history, current_candidates)
     storage.save_rank_history(self, rd["key"], history)
+    rank_notifications.send_pending(self, rd)
 
 
+@lifecycle.rank_locked
 def _process_general(self, url: str, rd: dict) -> None:
     cfg = _rc(self, rd["key"])
     min_vote = float(cfg.get("vote", 0) or 0)
@@ -1403,7 +1426,8 @@ def _process_general(self, url: str, rd: dict) -> None:
             continue
         unique = f"dc2_rank:{link or title}"
         current_candidates.add(unique)
-        if _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique)):
+        if ((history_index.get(unique) or {}).get("observe_deleted")
+                or _history_item_subscribed(history_index.get(unique)) or _history_item_existing(history_index.get(unique))):
             continue
         if _check_blacklist(self, title, description=_blacklist_description(item), link=link):
             continue
@@ -1463,6 +1487,10 @@ def _process_general(self, url: str, rd: dict) -> None:
                 continue
         # 观察期：仅对选中的波动榜单延迟订阅。
         if _check_observe(self, unique, history, title=title, rank_key=rd["key"]):
+            rank_notifications.enrich_observation(
+                history, unique, rd, item, mediainfo, meta,
+                year=year, air_date=air_date, media_type=mtype,
+            )
             continue
         display_title = str(item.get("display_title") or title)
         if _add_sub(
@@ -1498,6 +1526,7 @@ def _process_general(self, url: str, rd: dict) -> None:
             history_index[unique] = {"subscribed": True, "subscribed_at": subscribed_at}
     _drop_stale_observations(history, current_candidates)
     storage.save_rank_history(self, rd["key"], history)
+    rank_notifications.send_pending(self, rd)
 
 
 def _process_items(self, items: List[dict], source: str) -> None:

@@ -73,6 +73,7 @@ class ConfigPayload(FlexibleRecord):
     blacklist_keywords: str = ""
     observe_days: int = 0
     observe_rank_keys: List[str] = Field(default_factory=list)
+    notification_type_options: List[FlexibleRecord] = Field(default_factory=list)
     wish_status: FlexibleRecord = Field(default_factory=FlexibleRecord)
 
 

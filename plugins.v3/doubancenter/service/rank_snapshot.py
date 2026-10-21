@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Optional
 from app.sdk.logging import logger
 
 from ..storage import records as storage
+from . import lifecycle
 
 
 def _history_index(history: List[dict]) -> Dict[str, int]:
@@ -73,6 +74,7 @@ def _merge_existing(existing: dict, entry: dict, rank_key: str) -> dict:
     return merged
 
 
+@lifecycle.rank_locked
 def merge_rank_items(
     plugin: Any,
     rank_key: str,

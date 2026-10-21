@@ -5,6 +5,7 @@ from typing import Any, Callable, Optional
 
 from ..model.identity import identity_from_media
 from ..storage import records as storage
+from . import lifecycle
 
 DETAIL_SECTION_LIMIT = 5
 DETAIL_OVERFLOW_REASON = "超过详情页显示上限归档"
@@ -404,6 +405,7 @@ def paginate_archive_records(plugin, page: int = 1, page_size: int = 20) -> dict
     }
 
 
+@lifecycle.rank_locked
 def restore_archive_record(
     plugin,
     archive_id: str,

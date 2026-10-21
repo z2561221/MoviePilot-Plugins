@@ -12,6 +12,11 @@ defineProps({
       <VCol cols="12" md="4"><VCronField v-model="config.form.cron" label="运行周期" density="compact" variant="outlined" hide-details /></VCol>
     </VRow>
     <VRow class="mt-2">
+      <VCol cols="12" md="4"><VSwitch v-model="config.form.notify" color="info" inset hide-details label="发送观察通知" /></VCol>
+      <VCol cols="12" md="8"><VSelect v-model="config.form.notification_type" :items="config.notificationTypeOptions" label="通知类型" :disabled="!config.form.notify" density="compact" variant="outlined" hide-details /></VCol>
+    </VRow>
+    <div class="text-caption text-medium-emphasis mt-2">新条目进入观察区时通知，同一观察期不重复发送。Telegram 支持立即订阅或移除；其他渠道可打开观察区处理。</div>
+    <VRow class="mt-2">
       <VCol cols="12"><VTextField v-model="config.form.rsshub_domain" label="RSSHub 域名" density="compact" variant="outlined" hide-details hint="默认 https://rsshub.ddsrem.com，所有榜单共用" persistent-hint /></VCol>
     </VRow>
     <VAlert class="mt-3" type="info" variant="tonal" density="compact" text="订阅用户名统一为「豆瓣中心」。即将上映支持评分、地区、想看筛选；空或 0 表示不限。" />

@@ -187,6 +187,7 @@ def subscribe_from_bangumi_subject(
     source_link: str = "",
     season: Any = None,
     subscribe_oper_cls=None,
+    with_result: bool = False,
 ):
     """在媒体链识别失败时使用 Bangumi subject 信息添加订阅。"""
     if not bangumi_id or not bangumi_subject_fetcher or not bangumi_subject_title or not bangumi_subject_year:
@@ -200,7 +201,7 @@ def subscribe_from_bangumi_subject(
     if existing_state is None:
         return {"success": False, "message": "订阅状态检查失败，请稍后重试"}
     if existing_state:
-        return {"success": False, "message": "已订阅"}
+        return {"success": False, "message": "已订阅", **({"status": "existing"} if with_result else {})}
     subject = bangumi_subject_fetcher(plugin, bangumi_id)
     if not subject:
         return {"success": False, "message": "无法识别媒体信息"}
@@ -249,9 +250,10 @@ def subscribe_from_bangumi_subject(
         season=season,
         prefer_title=True,
     )
-    return {"success": True, "message": "已添加订阅"}
+    return {"success": True, "message": "已添加订阅", **({"status": "success"} if with_result else {})}
 
 
+@subscription_service.serialized
 def subscribe_from_rank(
     plugin,
     tmdb_id: Any,
@@ -274,6 +276,7 @@ def subscribe_from_rank(
     media_id: Any = None,
     season: Any = None,
     subscribe_oper_cls=None,
+    with_result: bool = False,
 ):
     """根据榜单条目执行一次手动订阅。"""
     media_chain_cls = media_chain_cls or _default_media_chain_cls()
@@ -336,6 +339,7 @@ def subscribe_from_rank(
             source_link=source_link,
             season=getattr(meta, "begin_season", None),
             subscribe_oper_cls=subscribe_oper_cls,
+            with_result=with_result,
         )
 
     existing_state = subscription_service.is_existing_media(
@@ -347,7 +351,7 @@ def subscribe_from_rank(
     if existing_state is None:
         return {"success": False, "message": "订阅状态检查失败，请稍后重试"}
     if existing_state:
-        return {"success": False, "message": "已订阅"}
+        return {"success": False, "message": "已订阅", **({"status": "existing"} if with_result else {})}
     source, resolved_id = identity_from_media(mediainfo)
     display_title = str(recognition.get("title") or title or "") if bangumi_identity_id else ""
     sid, msg = add_silent_subscription(
@@ -398,4 +402,4 @@ def subscribe_from_rank(
         season=getattr(meta, "begin_season", None),
         prefer_title=bool(display_title),
     )
-    return {"success": True, "message": "已添加订阅"}
+    return {"success": True, "message": "已添加订阅", **({"status": "success"} if with_result else {})}

@@ -177,6 +177,7 @@ def default_config() -> Dict[str, Any]:
         "enabled": False,
         "cron": DEFAULT_CRON,
         "notify": False,
+        "notification_type": "Plugin",
         "proxy": False,
         "onlyonce": False,
         "rsshub_domain": DEFAULT_RSSHUB_DOMAIN,

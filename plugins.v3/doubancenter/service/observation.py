@@ -8,6 +8,7 @@ from app.sdk.logging import logger
 from ..model import rank as rank_model
 from ..storage import records as storage
 from . import archive as archive_service
+from . import lifecycle, rank_notifications
 from .observation_metadata import enrich_log_metadata, media_snapshot
 
 DETAIL_SECTION_LIMIT = 5
@@ -213,6 +214,7 @@ def check_observe(plugin, unique: str, history: List[dict], title: str = "", ran
     for item in history:
         if item.get("unique") != unique:
             continue
+        was_observing = bool(item.get("observing"))
         if item.get("observe_deleted"):
             logger.info(f"豆瓣中心：条目《{item.get('title') or title or unique}》已从观察队列删除，跳过订阅")
             return True
@@ -225,6 +227,7 @@ def check_observe(plugin, unique: str, history: List[dict], title: str = "", ran
             item.pop("observe_dropped_reason", None)
             item.pop("observe_dropped_detail", None)
             logger.info(f"豆瓣中心：条目《{item.get('title') or title or unique}》重新进入观察期（0/{days} 天），跳过订阅")
+            rank_notifications.started(plugin, item)
             _log_observation(plugin, OBSERVE_START_REASON, item, f"需要观察 {days} 天")
             return True
         first_seen = item.get("first_seen") or item.get("time", "")
@@ -235,6 +238,8 @@ def check_observe(plugin, unique: str, history: List[dict], title: str = "", ran
                 if elapsed < days:
                     item["first_seen"] = first_seen
                     item["observing"] = True
+                    if not was_observing:
+                        rank_notifications.started(plugin, item)
                     logger.info(f"豆瓣中心：条目《{item.get('title')}》观察期未满（{elapsed}/{days} 天），跳过订阅")
                     _log_observation(plugin, OBSERVE_WAIT_REASON, item,
                                      f"已过 {elapsed} 天，需要 {days} 天")
@@ -248,6 +253,8 @@ def check_observe(plugin, unique: str, history: List[dict], title: str = "", ran
         item["time"] = now.strftime("%Y-%m-%d %H:%M:%S")
         item["first_seen"] = item["time"]
         item["observing"] = True
+        if not was_observing:
+            rank_notifications.started(plugin, item)
         return True
     observed_at = now.strftime("%Y-%m-%d %H:%M:%S")
     history.append({
@@ -259,6 +266,7 @@ def check_observe(plugin, unique: str, history: List[dict], title: str = "", ran
         "observing": True,
     })
     logger.info(f"豆瓣中心：条目《{title or unique}》首次进入观察期（0/{days} 天），跳过订阅")
+    rank_notifications.started(plugin, history[-1])
     _log_observation(plugin, OBSERVE_START_REASON, history[-1], f"需要观察 {days} 天")
     return True
 
@@ -364,6 +372,7 @@ def pending_observations(
     return {"data": items}
 
 
+@lifecycle.rank_locked
 def delete_observation(
     plugin,
     *,

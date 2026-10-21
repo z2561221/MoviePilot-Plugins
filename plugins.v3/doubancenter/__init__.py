@@ -27,6 +27,8 @@ from .service import dashboard as dash
 from .service import folio
 from .service import lifecycle
 from .service import rank_pipeline as feed
+from .service import rank_notifications
+from .service import observation_actions
 from .service import scheduler as scheduler_service
 from .service import webhook as webhook_service
 
@@ -38,7 +40,7 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "豆瓣榜单订阅 + 豆瓣时间 + 仪表盘，一站式豆瓣集成。"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "3.0.15"
+    plugin_version = "3.0.16"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
@@ -51,6 +53,7 @@ class DoubanCenter(_PluginBase):
         self._enabled = False
         self._cron = DEFAULT_CRON
         self._notify = False
+        self._notification_type = "Plugin"
         self._proxy = False
         self._onlyonce = False
         self._rsshub_domain = DEFAULT_RSSHUB_DOMAIN
@@ -86,6 +89,7 @@ class DoubanCenter(_PluginBase):
         self._scheduler = None
         self._wait_process: Optional[Dict[str, Any]] = None
         self._sync_lock = threading.Lock()
+        self._rank_lock = threading.RLock()
         self._folio_repair_plans: dict[str, Any] = {}
         lifecycle.start(self)
 
@@ -96,7 +100,8 @@ class DoubanCenter(_PluginBase):
         config = config or {}
         self._enabled = config.get("enabled", False)
         self._cron = config.get("cron") or DEFAULT_CRON
-        self._notify = config.get("notify", False)
+        self._notify = bool(config.get("notify", False))
+        self._notification_type = rank_notifications.normalize_notification_type(config.get("notification_type"))
         self._proxy = config.get("proxy", False)
         self._onlyonce = config.get("onlyonce", False)
         self._rsshub_domain = utils.normalize_rss_domain(config.get("rsshub_domain") or DEFAULT_RSSHUB_DOMAIN)
@@ -168,6 +173,7 @@ class DoubanCenter(_PluginBase):
             "enabled": self._enabled,
             "cron": self._cron,
             "notify": self._notify,
+            "notification_type": self._notification_type,
             "proxy": self._proxy,
             "onlyonce": self._onlyonce,
             "rsshub_domain": self._rsshub_domain,
@@ -400,6 +406,11 @@ class DoubanCenter(_PluginBase):
         """停止插件后台定时服务。"""
         lifecycle.stop(self)
         scheduler_service.stop_scheduler(self)
+
+    @eventmanager.register(EventType.MessageAction)
+    def handle_observation_action(self, event: Event):
+        """仅处理当前实例发出的观察通知按钮。"""
+        return observation_actions.handle_callback(self, event)
 
     @eventmanager.register(EventType.WebhookMessage)
     def sync_log(self, event: Event, played: bool = False):

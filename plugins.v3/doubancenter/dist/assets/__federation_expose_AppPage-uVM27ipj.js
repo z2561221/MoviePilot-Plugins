@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-BXTi0z9u.js';
+import Config from './__federation_expose_Config-CZV4AU5M.js';
 import Page from './__federation_expose_Page-CqtqanZ6.js';
 import { _ as _export_sfc, u as useRequestScope, g as getPluginConfig, s as savePluginConfig } from './useRequestScope-Dkqwm-Un.js';
 
