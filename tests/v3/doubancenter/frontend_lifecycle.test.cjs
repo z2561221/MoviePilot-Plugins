@@ -242,3 +242,50 @@ test('配置总览旧实例响应不得覆盖新实例或清除新 loading', asy
     assert.equal(config.loadingOverview, false)
   } finally { scope.stop() }
 })
+
+test('榜单通知默认关闭，分类按需加载且保留用户草稿', async () => {
+  const { useConfigForm } = await load('config/useConfigForm.js')
+  const scope = vue.effectScope(), pending = [], emitted = []
+  const config = scope.run(() => useConfigForm({
+    api: () => ({ get: url => new Promise(resolve => pending.push({ url, resolve })) }),
+    pluginId: () => 'DoubanCenter', initialConfig: () => ({}), emit: (...args) => emitted.push(args),
+  }))
+  try {
+    assert.equal(config.form.notify, false)
+    assert.equal(config.form.notification_type, 'Plugin')
+    assert.equal(pending.length, 0)
+    config.selectMain('rank')
+    assert.match(pending[0].url, /DoubanCenter\/config$/)
+    config.form.notify = true
+    config.form.notification_type = 'Subscribe'
+    pending[0].resolve(ok({ notification_type_options: [{ title: '订阅', value: 'Subscribe' }] }))
+    await tick()
+    assert.equal(config.notificationTypeOptions[0].value, 'Subscribe')
+    assert.equal(config.form.notify, true)
+    assert.equal(config.form.notification_type, 'Subscribe')
+    assert.equal(emitted.length, 0)
+    config.saveConfig()
+    assert.ok(emitted.some(([, value]) => value.notify === true && value.notification_type === 'Subscribe'))
+  } finally { scope.stop() }
+})
+
+test('通知分类旧请求不能覆盖新实例，失败保持安全默认项', async () => {
+  const { useConfigForm } = await load('config/useConfigForm.js')
+  const scope = vue.effectScope(), id = vue.ref('DoubanCenter'), pending = []
+  const config = scope.run(() => useConfigForm({ api: () => ({ get: () => new Promise(r => pending.push(r)) }),
+    pluginId: () => id.value, initialConfig: () => ({}), emit() {},
+  }))
+  try {
+    const old = config.loadNotificationOptions()
+    id.value = 'Clone'
+    const current = config.loadNotificationOptions()
+    pending[0](ok({ notification_type_options: [{ title: '旧分类', value: 'Old' }] })); await old
+    assert.equal(config.notificationTypeOptions[0].value, 'Plugin')
+    pending[1]({ success: false }); await current
+    assert.equal(config.notificationTypeOptions[0].value, 'Plugin')
+    const cancelled = config.loadNotificationOptions()
+    scope.stop()
+    pending[2](ok({ notification_type_options: [{ title: '无效', value: 'Invalid' }] })); await cancelled
+    assert.equal(config.notificationTypeOptions[0].value, 'Plugin')
+  } finally { scope.stop() }
+})

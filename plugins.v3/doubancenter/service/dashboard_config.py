@@ -2,6 +2,8 @@
 
 from typing import Any, Callable, Dict, List
 
+from .rank_notifications import notification_type_options
+
 
 def build_config(
     *,
@@ -43,6 +45,7 @@ def build_config(
     return {
         "dashboard_rank_keys": selected_rank_keys[:6],
         "rank_options": rank_options,
+        "notification_type_options": notification_type_options(),
         "custom_ranks": custom_ranks if isinstance(custom_ranks, list) else [],
         "blacklist_keywords": blacklist_keywords or "",
         "observe_days": int(observe_days or 0),

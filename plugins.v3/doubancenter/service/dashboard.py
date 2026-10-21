@@ -149,6 +149,7 @@ def api_subscribe_from_rank(
     rank_name="",
     source_link="",
     season=None,
+    with_result=False,
 ):
     """根据榜单条目发起订阅。"""
     from .rank_pipeline import (
@@ -173,6 +174,7 @@ def api_subscribe_from_rank(
         rank_name=rank_name,
         source_link=source_link,
         season=season,
+        **({"with_result": True} if with_result else {}),
     )
 
 

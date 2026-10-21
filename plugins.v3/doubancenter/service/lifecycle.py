@@ -3,7 +3,7 @@
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
-from threading import Event
+from threading import Event, RLock
 
 
 class RunStopped(RuntimeError):
@@ -11,6 +11,7 @@ class RunStopped(RuntimeError):
 
 
 _CURRENT_RUN = ContextVar("doubancenter_run", default=None)
+_FALLBACK_RANK_LOCK = RLock()
 
 
 def start(plugin) -> None:
@@ -99,4 +100,14 @@ def bind(plugin, callback):
                 return callback(*args, **kwargs)
         except RunStopped:
             return None
+    return run
+
+
+def rank_locked(callback):
+    """串行化榜单的完整读改存，不能只保护最后一次保存。"""
+    @wraps(callback)
+    def run(plugin, *args, **kwargs):
+        with scope(plugin):
+            with serialized(plugin, getattr(plugin, "_rank_lock", _FALLBACK_RANK_LOCK)):
+                return callback(plugin, *args, **kwargs)
     return run
