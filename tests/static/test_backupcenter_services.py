@@ -48,6 +48,11 @@ class _SystemConfigKey:
 
 
 app_module = _package("app", PLUGIN_DIR)
+_package("app.application", PLUGIN_DIR)
+_package("app.application.plugin", PLUGIN_DIR)
+management_module = ModuleType("app.application.plugin.management")
+management_module.refresh_plugin_registrations = lambda _plugin_id: None
+sys.modules["app.application.plugin.management"] = management_module
 app_core_module = _package("app.core", PLUGIN_DIR)
 app_core_config_module = ModuleType("app.core.config")
 app_core_config_module.settings = SimpleNamespace(SECRET_KEY="backupcenter-test-secret")
@@ -1194,6 +1199,44 @@ def test_plugin_reload_reports_failed_targets():
 
     assert reloaded == ["PluginA"]
     assert failed == ["PluginB"]
+
+
+def test_reload_rebinds_apis_to_restored_instance_and_reports_registration_failure(monkeypatch):
+    """Loading an instance alone does not replace HTTP and command bindings."""
+    manager = SimpleNamespace(running_plugins={})
+    bindings = {"PluginA": "old"}
+    refreshed = []
+
+    def reload_plugin(plugin_id):
+        manager.running_plugins[plugin_id] = SimpleNamespace(value="restored")
+        return "active"
+
+    def refresh(plugin_id):
+        refreshed.append(plugin_id)
+        if plugin_id == "PluginB":
+            raise RuntimeError("injected route registration failure")
+        bindings[plugin_id] = manager.running_plugins[plugin_id].value
+
+    manager.reload_plugin = reload_plugin
+    monkeypatch.setattr(management_module, "refresh_plugin_registrations", refresh)
+    reloaded, failed = restore_module.RestoreService._reload_target_plugins(
+        manager, ["PluginA", "PluginB", "PluginC"]
+    )
+    assert bindings["PluginA"] == "restored"
+    assert reloaded == ["PluginA", "PluginC"]
+    assert failed == ["PluginB"]
+    assert refreshed == ["PluginA", "PluginB", "PluginC"]
+
+
+def test_failed_runtime_status_is_not_reported_as_reloaded(monkeypatch):
+    manager = SimpleNamespace(running_plugins={"PluginA": object()})
+    manager.reload_plugin = lambda _plugin_id: "load_failed"
+    refreshed = []
+    monkeypatch.setattr(management_module, "refresh_plugin_registrations", refreshed.append)
+    assert restore_module.RestoreService._reload_target_plugins(manager, ["PluginA"]) == (
+        [], ["PluginA"]
+    )
+    assert refreshed == []
 
 
 @pytest.mark.parametrize("failure_stage", ["host", "emergency", "write"])

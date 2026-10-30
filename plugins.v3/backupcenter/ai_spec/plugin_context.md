@@ -40,6 +40,8 @@
 - 系统设置与插件配置通过宿主 `SystemConfigOper.set()` 逐项提交，以同步其内存缓存；它们不承诺跨键全局事务，失败时必须使用应急备份回退。
 - `PluginData` 只通过插件公开的 `get_data/save_data/del_data` 接口读写；恢复前保存全部目标插件快照，任何写入异常都清理半成品并补偿回滚。
 - 插件恢复前停止当时处于运行态的目标插件，完成或失败后逐个重载；重载失败项由 `reload_required` 明确返回。
+- 恢复预检绑定请求代次、API、实例及备份 ID；选择变化或卸载后旧回包不再打开确认框，提交只使用已核验预检的 ID。
+- 重载必须同时刷新动态 API、命令与任务注册，失败进入 `reload_required`。`app.application.plugin.management.refresh_plugin_registrations` 是按宿主 `338687bee8` 验证的精确兼容例外，登记于 `.github/plugin-quality-exceptions.json`；稳定 SDK 提供等价入口后移除。守护用例为 `test_reload_rebinds_apis_to_restored_instance_and_reports_registration_failure`。
 - 插件标准数据目录先复制到同卷临时目录，再逐插件原子替换；多个插件目录之间不承诺全局原子性。
 
 ## 备份包结构

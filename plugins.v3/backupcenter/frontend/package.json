@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "test": "node --test ../../../tests/v3/backupcenter/frontend-api.test.mjs"
+    "test": "node --test ../../../tests/v3/backupcenter/frontend-api.test.mjs ../../../tests/v3/backupcenter/frontend-restore.test.mjs"
   },
   "dependencies": {
     "@originjs/vite-plugin-federation": "^1.4.1",

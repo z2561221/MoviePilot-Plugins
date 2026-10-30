@@ -116,10 +116,9 @@ const _hoisted_60 = { class: "bc-guide-layout" };
 const _hoisted_61 = { class: "bc-guide-text" };
 const _hoisted_62 = { class: "bc-guide-text" };
 
-const {computed,onBeforeUnmount,onMounted,reactive,ref} = await importShared('vue');
+const {computed,onBeforeUnmount,onMounted,reactive,ref,shallowRef,watch} = await importShared('vue');
 
 const pageOverlayClass = 'bc-page-overlay';
-
 
 const _sfc_main = {
   __name: 'Page',
@@ -144,6 +143,8 @@ const overview = ref({ backups: [], installed_plugin_ids: [], plugin_options: []
 const logs = ref([]);
 const selectedBackupId = ref('');
 const preview = ref(null);
+const previewTarget = shallowRef(null);
+const restoreSubmitting = ref(false);
 const guide = ref(null);
 const createDialog = ref(false);
 const restoreDialog = ref(false);
@@ -176,6 +177,25 @@ const restoreForm = reactive({
 });
 const pageRoot = ref(null);
 let pageOverlay = null;
+let previewRevision = 0;
+let pageDisposed = false;
+
+function invalidateRestorePreview() {
+  previewRevision += 1;
+  preview.value = null;
+  previewTarget.value = null;
+  restoreDialog.value = false;
+  if (actionLoading.value.startsWith('preview:')) actionLoading.value = '';
+}
+
+function isCurrentPreview(target) {
+  return !pageDisposed && target?.revision === previewRevision
+    && target.api === props.api && target.pluginId === props.pluginId
+    && target.backupId === selectedBackupId.value
+}
+
+watch([selectedBackupId, () => props.pluginId, () => props.api], invalidateRestorePreview, { flush: 'sync' });
+
 const tabs = [
   { key: 'overview', title: '备份总览', icon: 'mdi-view-dashboard-outline' },
   { key: 'backups', title: '备份记录', icon: 'mdi-archive-outline' },
@@ -235,6 +255,8 @@ const restoreAvailable = computed(() => {
 });
 const restoreReady = computed(() => (
   Boolean(preview.value?.online_restore_allowed)
+  && isCurrentPreview(previewTarget.value)
+  && !restoreSubmitting.value
   && restoreScopeCount.value > 0
   && (!restoreNeedsPlugins.value || restoreForm.pluginIds.length > 0)
 ));
@@ -436,22 +458,36 @@ async function showGuide(backupId) {
 }
 
 async function prepareRestore(backupId) {
+  if (pageDisposed || restoreSubmitting.value) return
   selectedBackupId.value = backupId;
+  invalidateRestorePreview();
+  const target = { backupId, api: props.api, pluginId: props.pluginId, revision: previewRevision };
   actionLoading.value = `preview:${backupId}`;
   try {
-    preview.value = await getPluginApi(props.api, props.pluginId, `backups/${encodeURIComponent(backupId)}/preview`);
+    const result = await getPluginApi(target.api, target.pluginId, `backups/${encodeURIComponent(backupId)}/preview`);
+    if (!isCurrentPreview(target)) return
+    if (result?.manifest?.backup_id !== backupId) throw new Error('备份预检标识不一致，请重新预检')
+    preview.value = result;
+    previewTarget.value = target;
     restoreForm.password = '';
     restoreForm.pluginIds = [];
     Object.keys(restoreForm.selection).forEach(key => { restoreForm.selection[key] = false; });
     restoreDialog.value = true;
   } catch (error) {
+    if (!isCurrentPreview(target)) return
     notify(error.message || '恢复预检失败', 'error');
   } finally {
-    actionLoading.value = '';
+    if (isCurrentPreview(target)) actionLoading.value = '';
   }
 }
 
 async function restoreLogical() {
+  if (pageDisposed || restoreSubmitting.value) return
+  const target = previewTarget.value;
+  if (!isCurrentPreview(target) || preview.value?.manifest?.backup_id !== target.backupId) {
+    notify('备份选择已变化，请重新预检后恢复', 'warning');
+    return
+  }
   if (!preview.value?.online_restore_allowed) {
     notify('源与目标 MoviePilot 主版本不一致，在线恢复已阻断', 'error');
     return
@@ -460,12 +496,13 @@ async function restoreLogical() {
     notify('至少选择一项在线恢复内容', 'warning');
     return
   }
+  restoreSubmitting.value = true;
   actionLoading.value = 'restore';
   try {
     const scope = preview.value?.manifest?.scope || {};
     const hasPluginSelection = restoreForm.pluginIds.length > 0;
-    const result = await postPluginApi(props.api, props.pluginId, 'restore/logical', {
-      backup_id: selectedBackupId.value,
+    const result = await postPluginApi(target.api, target.pluginId, 'restore/logical', {
+      backup_id: target.backupId,
       password: restoreForm.password,
       plugin_ids: restoreForm.pluginIds,
       selection: {
@@ -475,6 +512,7 @@ async function restoreLogical() {
         plugin_files: restoreForm.selection.pluginData && hasPluginSelection && Boolean(scope.plugin_files),
       },
     });
+    if (!isCurrentPreview(target)) return
     restoreDialog.value = false;
     const reloaded = result.reloaded?.length
       ? `；已重载：${result.reloaded.join('、')}`
@@ -491,10 +529,14 @@ async function restoreLogical() {
     );
     await loadOverview();
   } catch (error) {
+    if (!isCurrentPreview(target)) return
     notify(error.message || '选择性恢复失败', 'error');
   } finally {
-    actionLoading.value = '';
-    await loadLogs({ silent: true });
+    restoreSubmitting.value = false;
+    if (!pageDisposed && target.api === props.api && target.pluginId === props.pluginId) {
+      if (actionLoading.value === 'restore') actionLoading.value = '';
+      await loadLogs({ silent: true });
+    }
   }
 }
 
@@ -513,7 +555,11 @@ onMounted(() => {
   refreshAll();
 });
 
-onBeforeUnmount(detachPageOverlay);
+onBeforeUnmount(() => {
+  pageDisposed = true;
+  invalidateRestorePreview();
+  detachPageOverlay();
+});
 
 return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent("VIcon");
@@ -1637,6 +1683,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2a268302"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-56128936"]]);
 
 export { Page as default };

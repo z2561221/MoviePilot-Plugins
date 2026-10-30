@@ -515,14 +515,21 @@ class RestoreService:
         failed: List[str] = []
         for plugin_id in plugin_ids:
             try:
-                manager.reload_plugin(plugin_id)
+                status = manager.reload_plugin(plugin_id)
+                if status is not None and getattr(status, "value", status) != "active":
+                    failed.append(plugin_id)
+                    continue
+                if plugin_id not in manager.running_plugins:
+                    failed.append(plugin_id)
+                    continue
+                # Reviewed host compatibility import; the manager alone leaves old API bindings.
+                from app.application.plugin.management import refresh_plugin_registrations
+
+                refresh_plugin_registrations(plugin_id)
             except Exception:
                 failed.append(plugin_id)
                 continue
-            if plugin_id in manager.running_plugins:
-                reloaded.append(plugin_id)
-            else:
-                failed.append(plugin_id)
+            reloaded.append(plugin_id)
         return reloaded, failed
 
     def _rollback_restore_state(
