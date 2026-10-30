@@ -1,6 +1,7 @@
 """豆瓣中心归档服务。"""
 
 import datetime
+from copy import deepcopy
 from typing import Any, Callable, Optional
 
 from ..model.identity import identity_from_media
@@ -411,14 +412,20 @@ def restore_archive_record(
     archive_id: str,
     same_record_checker: Callable[[dict, str, str, str, Any], bool],
 ) -> dict:
-    """将归档记录恢复回原数据列表。"""
+    """先保存恢复目标，再移除归档；清理失败时可幂等重试。"""
     if not archive_id:
         return {"success": False, "message": "缺少归档标识"}
-    archive = remove_archive(plugin, archive_id)
+    archives = storage.read_archive_records(plugin)
+    archive = next((
+        item for item in archives
+        if isinstance(item, dict) and item.get("id") == archive_id
+    ), None)
     if not archive:
         return {"success": False, "message": "未找到归档记录"}
     source = archive.get("source")
-    record = archive.get("record") or {}
+    record = deepcopy(archive.get("record") or {})
+    if not isinstance(record, dict):
+        return {"success": False, "message": "归档记录格式无效"}
     if source == "subscribe_history":
         records = storage.read_subscribe_records(plugin)
         exists = any(same_record_checker(
@@ -433,7 +440,9 @@ def restore_archive_record(
         storage.save_subscribe_records(plugin, records)
     elif source == "anti_cheat_log":
         logs = storage.read_anti_cheat_logs(plugin)
-        logs.append(record)
+        key = anti_cheat_log_key(record)
+        if not any(anti_cheat_log_key(item) == key for item in logs):
+            logs.append(record)
         storage.save_anti_cheat_logs(plugin, logs)
     elif source == "observation":
         rank_key = record.get("rank_key") or archive.get("rank_key") or ""
@@ -455,6 +464,7 @@ def restore_archive_record(
         storage.save_rank_history(plugin, rank_key, history)
     else:
         return {"success": False, "message": "未知归档类型"}
+    remove_archive(plugin, archive_id)
     return {"success": True, "message": "已恢复归档记录"}
 
 

@@ -1,6 +1,6 @@
 """MoviePilot 媒体库存在性适配器。"""
 
-from typing import Any, Dict, Iterable, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, Optional, Set, Tuple
 
 from app.schemas.types import MediaSource
 
@@ -10,13 +10,17 @@ from ..model.candidate import Candidate
 class LibraryAdapter:
     """按 V3 统一身份查询 MoviePilot 媒体服务器索引。"""
 
-    def __init__(self, oper: Any = None):
-        """允许测试注入 MediaServerOper。"""
-        if oper is None:
-            from app.db.oper.mediaserver import MediaServerOper
+    def __init__(self, oper: Any = None, *, oper_factory: Callable[[], Any] = None):
+        """生产代码逐次创建 Oper；保留测试的显式对象注入。"""
+        self._oper_factory = oper_factory or (
+            (lambda: oper) if oper is not None else self._create_oper
+        )
 
-            oper = MediaServerOper()
-        self._oper = oper
+    @staticmethod
+    def _create_oper():
+        from app.db.oper.mediaserver import MediaServerOper
+
+        return MediaServerOper()
 
     def exists(self, candidate: Candidate) -> bool:
         """查询单项已确认库状态；失败抛出异常供调用方保留待核验状态。"""
@@ -56,7 +60,7 @@ class LibraryAdapter:
                 candidate_map.setdefault(lookup, set()).add(candidate.candidate_id)
         for (media_source, media_id, media_type, title, year), candidate_ids in candidate_map.items():
             try:
-                state = bool(self._oper.exists(
+                state = bool(self._oper_factory().exists(
                     media_source=media_source, media_id=media_id, mtype=media_type,
                     title=title, year=year,
                 ))
