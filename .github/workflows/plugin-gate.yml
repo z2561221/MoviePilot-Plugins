@@ -24,6 +24,15 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Set up pnpm for BackupCenter tests
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+
+      - name: Install BackupCenter frontend test dependencies
+        working-directory: plugins.v3/backupcenter/frontend
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
       - name: Check frontend instance routing
         run: node --test tests/v3/*/*.test.mjs
 

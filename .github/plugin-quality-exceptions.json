@@ -1,4 +1,16 @@
 {
+  "BackupCenter": {
+    "imports": [
+      {
+        "module": "app.application.plugin.management",
+        "symbol": "refresh_plugin_registrations",
+        "reason": "SDK PluginManager reload does not refresh bound HTTP endpoints and commands after selective restore.",
+        "host_version": "338687bee8ed288644e775e408536a5e556a6252",
+        "removal_condition": "Replace with a stable SDK registration refresh once the host exports it.",
+        "test": "tests/static/test_backupcenter_services.py::test_reload_rebinds_apis_to_restored_instance_and_reports_registration_failure"
+      }
+    ]
+  },
   "AgentRank": {
     "imports": [
       {

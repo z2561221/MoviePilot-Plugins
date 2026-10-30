@@ -436,7 +436,7 @@ def test_backupcenter_python_definitions_have_chinese_docstrings():
     """生产 Python 定义保留中文文档字符串。"""
     gaps = []
     for path in PLUGIN_DIR.rglob("*.py"):
-        if "tests" in path.parts:
+        if "tests" in path.parts or "node_modules" in path.parts:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
