@@ -23,6 +23,35 @@ class RecordingOper:
         return self.result
 
 
+def test_default_library_adapter_creates_oper_per_lookup(monkeypatch):
+    created = []
+
+    def create_oper():
+        oper = RecordingOper()
+        created.append(oper)
+        return oper
+
+    monkeypatch.setattr(LibraryAdapter, "_create_oper", staticmethod(create_oper))
+    adapter = LibraryAdapter()
+    assert created == []
+    candidates = [Candidate(
+        candidate_id=f"tmdb:movie:{i}", title=f"Sample {i}", media_type="movie",
+    ) for i in (1, 2)]
+    adapter.candidate_states(candidates)
+    adapter.candidate_states(candidates)
+    assert len(created) == 4
+    assert all(len(oper.calls) == 1 for oper in created)
+
+
+def test_library_oper_factory_failure_preserves_unknown():
+    def unavailable():
+        raise RuntimeError("injected Oper initialization failure")
+
+    candidate = Candidate(candidate_id="tmdb:movie:1", title="Sample", media_type="movie")
+    adapter = LibraryAdapter(oper_factory=unavailable)
+    assert adapter.candidate_states([candidate]) == {candidate.candidate_id: None}
+
+
 def test_library_lookup_uses_tmdb_id_and_recognized_moviepilot_type():
     """媒体库联合索引需要 TMDB ID 与实际基础类型同时命中。"""
     oper = RecordingOper()
