@@ -1,11 +1,36 @@
 """Webhook event service helpers for DoubanCenter."""
 
 import threading
-from typing import Callable
+from collections.abc import Callable, Mapping
 
 from app.sdk.events import Event
 
 from . import folio, lifecycle
+
+
+def _is_played_event(event_info) -> bool:
+    """只认可服务端完播证据，不用停止事件或转码百分比猜测观看完成。"""
+    name = getattr(event_info, "event", None)
+    channel = getattr(event_info, "channel", None)
+    payload = getattr(event_info, "json_object", None)
+    payload = payload if isinstance(payload, Mapping) else {}
+    if channel == "jellyfin":
+        if name == "PlaybackStop":
+            return payload.get("PlayedToCompletion") is True
+        if name != "UserDataSaved":
+            return False
+        reason = getattr(event_info, "save_reason", None)
+        if reason == "TogglePlayed":
+            # 兼容不含 Played 的旧模板；有该字段时必须排除取消已看。
+            return "Played" not in payload or payload["Played"] is True
+        return reason == "PlaybackFinished" and payload.get("Played") is True
+    if name in {"item.markplayed", "media.scrobble"}:
+        return True
+    if channel == "emby" and name == "playback.stop":
+        playback = payload.get("PlaybackInfo")
+        return isinstance(playback, Mapping) and playback.get("PlayedToCompletion") is True
+    return False
+
 
 @lifecycle.managed
 def handle_sync_log(plugin, event: Event, played: bool = False) -> None:
@@ -35,9 +60,6 @@ def handle_sync_played(plugin, event: Event, sync_log: Callable[..., None]) -> N
     if not plugin._enabled or not plugin._folio_enabled:
         return
     event_info = event.event_data
-    played_events = {"item.markplayed", "media.scrobble"}
-    is_played = event_info.event in played_events
-    if event_info.channel == "jellyfin":
-        is_played = event_info.event == "UserDataSaved" and event_info.save_reason == "TogglePlayed"
-    if is_played and event_info.user_name in plugin._folio_user.split(","):
+    user_name = getattr(event_info, "user_name", None)
+    if user_name and user_name in (plugin._folio_user or "").split(",") and _is_played_event(event_info):
         sync_log(event=event, played=True)
