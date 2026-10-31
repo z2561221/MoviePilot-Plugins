@@ -681,9 +681,9 @@ def _process_tv_show(self, event_info, processed: Dict, played: bool = False):
     if library_context:
         episodes = origin["library_season"]["episode_numbers"]
     title = utils.format_title(title, season_id)
-    # 开始播放末集只证明在看；实际库内季的看过由明确已看事件推进。
+    # 开始播放末集只证明在看；缺少库内上下文也不能绕过明确已看事件。
     finished = bool(episodes) and episode_id == max(episodes)
-    status = "collect" if finished and (played or not library_context) else "do"
+    status = "collect" if finished and played else "do"
     _, previous = folio_record.find_record(processed, origin, title)
     if (folio_record.origin_key(previous.get("origin") or {}) == folio_record.origin_key(origin)
             and folio_record.already_synced(previous, status)):
