@@ -14,15 +14,15 @@ defineProps({
       <VCol cols="12" md="3"><VTextField v-model.number="config.form.wish_days" label="最近天数" type="number" min="0" density="compact" variant="outlined" hide-details hint="默认 7 天" persistent-hint /></VCol>
     </VRow>
     <VRow class="mt-2">
-      <VCol cols="12" md="8"><VTextField v-model="config.form.wish_user" label="豆瓣用户 ID" density="compact" variant="outlined" hide-details hint="读取该用户的动态 feed，仅处理「想看」条目" persistent-hint /></VCol>
+      <VCol cols="12" md="8"><VTextarea v-model="config.form.wish_user" label="豆瓣用户 ID（多个以逗号或换行分隔）" rows="2" auto-grow density="compact" variant="outlined" hide-details hint="逐账号读取并合并去重；留空读取 Cookie 所属账号" persistent-hint /></VCol>
       <VCol cols="12" md="4"><VSwitch v-model="config.form.wish_notify" color="info" inset hide-details label="发送通知" /></VCol>
     </VRow>
-    <VAlert class="mt-3" type="info" variant="tonal" density="compact" text="通过豆瓣动态 feed 同步，首次只建立最近天数内的基线；后续周期只处理最近天数内新增的想看。" />
+    <VAlert class="mt-3" type="info" variant="tonal" density="compact" text="登录账号读取想看页，其他账号读取动态 feed。各账号首次成功只建立最近天数内的基线；后续同步新增想看，部分账号失败不影响其他账号。" />
     <div class="dc-wish-status mt-3">
       <div class="dc-kv"><span>队列待处理</span><strong>{{ config.overview?.cards?.folio?.wish?.queue || 0 }}</strong></div>
       <div class="dc-kv"><span>失败记录</span><strong>{{ config.overview?.cards?.folio?.wish?.failed || 0 }}</strong></div>
       <div class="dc-kv"><span>最近运行</span><strong>{{ config.overview?.cards?.folio?.wish?.last_run || '尚未运行' }}</strong></div>
-      <div class="dc-kv"><span>状态错误</span><strong>{{ config.overview?.cards?.folio?.wish?.last_error || '无' }}</strong></div>
+      <div class="dc-kv"><span>状态错误</span><strong class="dc-wish-error">{{ config.overview?.cards?.folio?.wish?.last_error || '无' }}</strong></div>
     </div>
   </div>
 
@@ -47,6 +47,7 @@ defineProps({
 .dc-section-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: rgb(var(--v-theme-primary)); }
 .dc-wish-status { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 6px 10px; background: rgba(var(--v-theme-on-surface), .02); }
 .dc-wish-status strong { max-width: 70%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.dc-wish-status .dc-wish-error { white-space: normal; overflow-wrap: anywhere; }
 .dc-kv { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
 .dc-kv:last-child { border-bottom: none; }
 @media (max-width: 760px) {

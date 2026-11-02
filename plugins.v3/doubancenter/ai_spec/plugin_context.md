@@ -2,7 +2,7 @@
 
 ## 插件用途
 
-DoubanCenter 3.0.13 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
+DoubanCenter 3.0.19 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订阅、豆瓣时间同步、仪表盘概览、观察期治理和归档管理。V2 实现独立保留在 `plugins.v2/doubancenter`。
 
 ## 入口与渲染
 
@@ -34,6 +34,8 @@ DoubanCenter 3.0.13 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 - `service/rank_subscription.py`：订阅筛选策略、快照订阅和运行周期编排。
 - `service/dashboard.py`：仪表盘和详情页 API 编排，归档核心算法委托给 `service/archive.py`；根 `dashboard.py` 仅保留兼容转发。
 - `service/folio.py`：豆瓣时间同步主流程，外层事件串行化由 `service/webhook.py` 承担；根 `folio.py` 仅保留兼容转发。
+- `service/wish_accounts.py`：逐账号读取想看结果、合并同一 subject ID、维护各账号首次基线与读取错误；部分账号失败不阻断其他账号。
+- 明确填写的想看账号优先于 Cookie 默认账号；只有匹配登录账号时使用想看页，其余账号使用 feed。响应缺失按 `response is None` 判断，HTTP 错误保留真实状态码。
 - CK 请求失败通过统一客户端回调强制通知，不受插件通知开关影响；同类故障仍按 6 小时节流，发送失败不占用节流窗口。
 
 ## 最新 V3 宿主适配
@@ -58,6 +60,7 @@ DoubanCenter 3.0.13 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 - `rank_history_<rank_key>`：内置榜单历史。
 - `rank_history_custom_<sha1>`：自定义 RSS 榜单历史。
 - `folio_wish_seen` / `folio_wish_queue` / `folio_wish_processed` / `folio_wish_failed`：豆瓣想看状态记录。
+- `folio_wish_state.accounts`：按账号保存 `initialized`、`baseline_at`、`last_run` 和 `last_error`。旧单账号基线按旧 Cookie 优先逻辑承接；无法归属时保留旧记录，新账号首次成功仅建基线。队列处理不清除账号读取错误。
 
 所有 V3 新记录以完整 `media_source` 与字符串 `media_id` 为主身份。同来源旧主键字段在成功迁移后删除；跨源辅助 ID 可保留用于外链和展示。半身份、非法来源和字符串 `0` 不写入统一主身份。
 
@@ -72,13 +75,14 @@ DoubanCenter 3.0.13 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 - 分季退避：`service/folio_retry.py` 保留未到期同类失败的原期限；到期失败才递增，身份、状态或库内季事实变化可立即复核。
 - 详情 API：`controller/api.py` -> `service/dashboard.py` -> `storage/records.py` / `service/archive.py`。
 - 豆瓣时间：Webhook event -> `service/webhook.py` -> `service/folio.py` -> `adapter/douban_account.py:DoubanApi`。
+- 想看同步：`service/folio.py:run_wish_sync()` -> `service/wish_accounts.py:read_wish_accounts()` -> `adapter/douban_account.py:DoubanApi.get_wish_items()`；已有账号的新条目先处理，再保存新账号基线，避免同作品被另一账号的首次基线吞掉。
 
 ## 验收方式
 
 - V3 聚焦测试：设置 `MOVIEPILOT_BACKEND_PATH` 为固定 V3 宿主后运行 `python -m pytest tests/v3/doubancenter -q`。
 - Python 语法：`python -m compileall -q plugins.v3/doubancenter`。
 - 联邦构建：`pnpm --dir plugins.v3/doubancenter build`，并确认 `dist/assets/remoteEntry.js` 引用的资产均存在。
-- 版本门禁：核对 `package.v3.json` 的 `DoubanCenter` 条目、`plugin.json`、源码 `plugin_version` 与当前 `history`，本周期均为 `3.0.13`；不修改 V2 元数据。
+- 版本门禁：核对 `package.v3.json` 的 `DoubanCenter` 条目、`plugin.json`、源码 `plugin_version` 与当前 `history`，本周期均为 `3.0.19`；不修改 V2 元数据。
 - MP 本地闭环：使用开发技能的 `accept_local.py` 同步至可用的 MP 本地仓库；需要时从发现结果安装准确的本地来源，再执行 `POST /api/v1/plugin/reload/DoubanCenter`，回读 history、installed、overview、remotes 和静态资产。页面验收由用户完成。
 
 ## 禁止改动区
