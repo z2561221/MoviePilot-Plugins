@@ -26,7 +26,7 @@ from ..model.identity import (
     recognize_media,
 )
 from ..storage import records as storage
-from . import folio_retry, folio_watch, lifecycle
+from . import folio_retry, folio_watch, lifecycle, wish_accounts
 
 WISH_NOTIFY_THROTTLE_SECONDS = 6 * 60 * 60
 WISH_RECOGNIZE_MAX_RETRIES = 3
@@ -112,22 +112,33 @@ def run_wish_scheduled(self) -> None:
 
 
 def run_wish_sync(self, api=None, request_get=None) -> None:
-    """读取豆瓣想看列表，首跑建立基线，后续仅将新增条目入队。"""
-    dh = api if api is not None else _create_douban_api(self)
+    """逐账号读取想看，首次建立各自基线，后续将全局新增条目入队。"""
     state = storage.read_folio_wish_state(self)
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
-        items = dh.get_wish_items(
-            user_id=getattr(self, "_wish_user", "") or "",
+        dh = api if api is not None else _create_douban_api(self)
+        batch = wish_accounts.read_wish_accounts(
+            self, dh, state,
             max_pages=max(1, int(getattr(self, "_wish_max_pages", 1) or 1)),
             days=max(0, int(getattr(self, "_wish_days", 7) or 7)),
+            now=now,
             request_get=request_get,
-        ) or []
+        )
+    except lifecycle.RunStopped:
+        raise
     except Exception as err:
         state.update({"last_run": now, "last_error": f"读取想看失败：{err}"})
         storage.save_folio_wish_state(self, state)
         logger.warning(f"豆瓣想看读取失败：{err}")
         _send_wish_notification(self, f"读取想看失败：{err}", throttle_key="wish_read_failed")
+        return
+
+    read_error = "；".join(batch.errors)
+    state.update({"accounts": batch.accounts, "last_run": now, "last_error": read_error})
+    if not batch.succeeded:
+        storage.save_folio_wish_state(self, state)
+        logger.warning(f"豆瓣想看读取失败：{read_error}")
+        _send_wish_notification(self, read_error, throttle_key="wish_read_failed")
         return
 
     seen = storage.read_folio_wish_seen(self)
@@ -136,25 +147,12 @@ def run_wish_sync(self, api=None, request_get=None) -> None:
     failed = storage.read_folio_wish_failed(self)
     seen_ids = {str(r.get("subject_id")) for r in seen if r.get("subject_id")}
 
-    if not state.get("initialized"):
-        for item in items:
-            subject_id = str(item.get("subject_id") or "")
-            if subject_id and subject_id not in seen_ids:
-                seen_ids.add(subject_id)
-                seen.append(_wish_seen_record(item, now))
-        state.update({"initialized": True, "baseline_at": now, "last_run": now, "last_error": ""})
-        storage.save_folio_wish_seen(self, seen)
-        storage.save_folio_wish_queue(self, queue)
-        storage.save_folio_wish_state(self, state)
-        logger.info(f"豆瓣想看首次运行，建立基线 {len(seen)} 条，不入队")
-        return
-
     queue_ids = {str(r.get("subject_id")) for r in queue if r.get("subject_id")}
     processed_ids = {str(r.get("subject_id")) for r in processed if r.get("subject_id")}
     retryable_failed = _latest_retryable_wish_failures(failed)
     added = 0
     recovered = 0
-    for item in items:
+    for item in batch.items:
         subject_id = str(item.get("subject_id") or "")
         if not subject_id:
             continue
@@ -186,12 +184,28 @@ def run_wish_sync(self, api=None, request_get=None) -> None:
             queue_ids.add(subject_id)
             queue.append(_wish_queue_record(item, now))
             added += 1
-    state.update({"last_run": now, "last_error": ""})
+    # 已初始化账号的新条目先处理，不能被另一个新账号的基线覆盖。
+    baselined = 0
+    for item in batch.baseline_items:
+        subject_id = str(item.get("subject_id") or "")
+        if subject_id and subject_id not in seen_ids:
+            seen_ids.add(subject_id)
+            seen.append(_wish_seen_record(item, now))
+            baselined += 1
+    state["initialized"] = True
+    if not state.get("baseline_at"):
+        state["baseline_at"] = now
     storage.save_folio_wish_seen(self, seen)
     storage.save_folio_wish_queue(self, queue)
     storage.save_folio_wish_failed(self, failed)
     storage.save_folio_wish_state(self, state)
-    logger.info(f"豆瓣想看同步完成，新增入队 {added} 条，恢复重试 {recovered} 条")
+    logger.info(
+        f"豆瓣想看同步完成，成功读取 {batch.succeeded} 个账号，"
+        f"建立基线 {baselined} 条，新增入队 {added} 条，恢复重试 {recovered} 条"
+    )
+    if read_error:
+        logger.warning(f"豆瓣想看部分账号读取失败：{read_error}")
+        _send_wish_notification(self, read_error, throttle_key="wish_read_failed")
 
 
 WISH_RANK_KEY = "douban_wish"
@@ -317,7 +331,7 @@ def process_wish_queue(self, recognize=None, subscribe=None) -> None:
     storage.save_folio_wish_queue(self, remaining)
     storage.save_folio_wish_processed(self, processed)
     storage.save_folio_wish_failed(self, failed)
-    state.update({"last_run": now, "last_processed": len(processed), "last_failed": len(failed), "last_error": ""})
+    state.update({"last_run": now, "last_processed": len(processed), "last_failed": len(failed)})
     storage.save_folio_wish_state(self, state)
     logger.info(f"豆瓣想看队列处理完成，处理 {len(processed)} 条，失败 {len(failed)} 条")
 

@@ -5,7 +5,7 @@ from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from http.cookies import SimpleCookie
 from typing import Tuple
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import quote, unquote, urljoin, urlparse
 from xml.etree import ElementTree
 
 # MoviePilot V3 da51ff1a5feea9c22451968e4b86bc8f32011925 仍未将 CookieCloudHelper
@@ -20,6 +20,14 @@ from bs4 import BeautifulSoup
 
 class DoubanCookieError(RuntimeError):
     """豆瓣 Cookie 或登录态异常。"""
+
+
+def normalize_wish_user_ids(value: str = "") -> list[str]:
+    """按逗号或换行拆分想看账号，保留顺序并移除空项和重复项。"""
+    return list(dict.fromkeys(
+        user_id.strip() for user_id in re.split(r"[,，\r\n]+", str(value or ""))
+        if user_id.strip()
+    ))
 
 
 class _WishListParser(HTMLParser):
@@ -376,8 +384,8 @@ class DoubanApi:
                 f"?start={start}&sort=time&rating=all&filter=all&mode=grid"
             )
             response = getter(url)
-            if not response:
-                raise DoubanCookieError("读取豆瓣想看页失败：无响应")
+            if response is None:
+                raise RuntimeError("读取豆瓣想看页失败：无响应")
             status_code = getattr(response, "status_code", 0)
             if status_code != 200:
                 if status_code in {401, 403}:
@@ -393,9 +401,10 @@ class DoubanApi:
         return _filter_wish_items_by_days(items, days=days, now=now)
 
     def get_wish_items(self, user_id: str = "", max_pages: int = 1, days: int = 7, request_get=None, now=None) -> list:
-        """优先通过登录 Cookie 读取想看页，无法定位账号时回退到用户 feed。"""
+        """读取指定账号；匹配登录账号时用想看页，其余账号使用动态 feed。"""
         cookie_user_id = self.get_cookie_user_id()
-        if cookie_user_id:
+        user_id = str(user_id or "").strip() or cookie_user_id
+        if cookie_user_id and user_id == cookie_user_id:
             return self._get_wish_items_from_pages(
                 cookie_user_id,
                 max_pages=max_pages,
@@ -409,8 +418,8 @@ class DoubanApi:
         getter = request_get
         if getter is None:
             getter = lambda url: self._request_utils(headers=self.headers).get_res(url)
-        response = getter(f"https://www.douban.com/feed/people/{user_id}/interests")
-        if not response:
+        response = getter(f"https://www.douban.com/feed/people/{quote(user_id, safe='')}/interests")
+        if response is None:
             raise RuntimeError("读取豆瓣想看 feed 失败：无响应")
         status_code = getattr(response, "status_code", 0)
         if status_code != 200:
