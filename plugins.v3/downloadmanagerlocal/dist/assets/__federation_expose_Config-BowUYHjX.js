@@ -294,12 +294,12 @@ const mainTabs = [
   { key: 'rename', title: '命名补刀', icon: 'mdi-rename-box', desc: '转移后自动根据 TMDB 信息命名种子，并支持失败补刀。' },
   { key: 'tag', title: '站点标签', icon: 'mdi-tag-multiple', desc: '转移后自动根据 tracker 域名打站点标签。' },
   { key: 'seed', title: '做种校验', icon: 'mdi-check-circle-outline', desc: '统一控制跳过校验和自动开始做种，按需触发。' },
-  { key: 'sync_delete', title: '同步删除', icon: 'mdi-delete-sync-outline', desc: '接收 Emby 删除通知，同步清理媒体、源文件和本插件关联种子。' },
+  { key: 'sync_delete', title: '同步删除', icon: 'mdi-delete-outline', desc: '接收 Emby 删除通知，同步清理媒体、源文件和本插件关联种子。' },
   { key: 'upload', title: '上传限速', icon: 'mdi-upload-network-outline', desc: '设置下载器全局上传上限，并按需限制指定站点的合计上传速度。' },
 ];
 
 const subTabs = {
-  sync_delete: [{ key: 'sync_delete_basic', title: '基础设置', icon: 'mdi-delete-sync-outline' }],
+  sync_delete: [{ key: 'sync_delete_basic', title: '基础设置', icon: 'mdi-delete-outline' }],
   overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
   upload: [
     { key: 'upload_basic', title: '基础设置', icon: 'mdi-tune-variant' },
@@ -3422,6 +3422,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-044c09b5"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-60004b43"]]);
 
 export { Config as default };

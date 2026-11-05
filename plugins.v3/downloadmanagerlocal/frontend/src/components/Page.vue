@@ -49,7 +49,7 @@ const tabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' },
   { key: 'history', title: '命名历史', icon: 'mdi-history' },
   { key: 'archive', title: '归档记录', icon: 'mdi-archive-outline' },
-  { key: 'sync_delete', title: '同步删除', icon: 'mdi-delete-sync-outline' },
+  { key: 'sync_delete', title: '同步删除', icon: 'mdi-delete-outline' },
   { key: 'diagnostics', title: '运行诊断', icon: 'mdi-stethoscope' },
 ]
 
