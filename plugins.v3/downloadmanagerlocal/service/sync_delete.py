@@ -228,6 +228,11 @@ def build_plan(plugin, event: dict, config: dict, adapter=None, *, preview=False
             else:
                 targets = [dict(item, status="pending") for item in adapter.media_targets(
                     scope["storage"], target, scope["target"], strm=file_scope)]
+                if not file_scope:
+                    identity_tag = "tmdbid" if event.get("media_source") == "themoviedb" else ""
+                    if not identity_tag or not re.search(
+                            rf"\[{identity_tag}={re.escape(event['media_id'])}\]", PurePosixPath(target).name):
+                        raise DeleteRejected("无整理记录的目录需要明确媒体身份标记，不能扩大清理范围")
                 if not targets:
                     raise DeleteRejected("无整理记录且未找到唯一云端实体，保留待确认")
             for item in targets:

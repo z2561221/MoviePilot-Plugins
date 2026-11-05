@@ -431,3 +431,22 @@ def test_cloud_absence_requires_mapping_root_and_uses_uncached_root_walk():
     adapter.children = lambda *_: []
     with pytest.raises(DeleteRejected, match='根目录'):
         adapter.lookup('115网盘Plus', '/media/missing.mkv', '/media')
+
+
+def test_stop_during_file_lookup_prevents_following_delete():
+    from app.plugins.downloadmanagerlocal.adapter.sync_delete import SyncDeleteAdapter
+    plugin = Plugin()
+    runtime = service.DeleteRuntime(plugin)
+    plugin._sync_delete_runtime = runtime
+    adapter = object.__new__(SyncDeleteAdapter)
+    adapter.plugin, adapter.config = plugin, service.config_for(plugin)
+    target = {'storage': '115网盘Plus', 'path': '/media/A.mkv', 'root': '/media', 'type': 'file', 'identity': ['a', 1]}
+    def lookup(*_):
+        runtime.stop.set()
+        return dict(target)
+    adapter.lookup = lookup
+    calls = []
+    adapter.chain = SimpleNamespace(delete_file=lambda *_: calls.append('delete'))
+    with pytest.raises(DeleteRejected, match='停止'):
+        adapter.delete_file(target)
+    assert calls == []

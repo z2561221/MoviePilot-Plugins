@@ -53,6 +53,12 @@ class SyncDeleteAdapter:
         self.config = config
         self.chain = StorageChain()
 
+    def check_write(self) -> None:
+        """网络核验结束后、每次外部写入前再检查停止与配置代次。"""
+        runtime = getattr(self.plugin, "_sync_delete_runtime", None)
+        if runtime is not None:
+            runtime.check(self.config)
+
     def servers(self) -> list[str]:
         """读取启用的 Emby 服务名称，用于旧通知的单服务器归属判断。"""
         return list(MediaServerHelper().get_services(type_filter="emby"))
@@ -104,12 +110,14 @@ class SyncDeleteAdapter:
         if any(text(current.get(key)) != text(record.get(key)) for key in (
                 "src", "dest", "src_storage", "dest_storage", "download_hash", "media_source", "media_id")):
             raise DeleteRejected("整理记录身份已变化")
+        self.check_write()
         TransferHistoryOper().delete(record["id"])
         if get_transfer_history(record["id"]) is not None:
             raise DeleteRejected("整理记录删除未确认")
 
     def mark_source_deleted(self, path: str) -> None:
         """实体已经核验删除后更新下载文件状态，不广播整包删除事件。"""
+        self.check_write()
         DownloadHistoryOper().delete_file_by_fullpath(path)
 
     def source_root(self, path: str) -> str:
@@ -236,6 +244,7 @@ class SyncDeleteAdapter:
             raise DeleteRejected("文件身份已变化，停止旧删除任务")
         if path == root:
             raise DeleteRejected("不能删除允许目录本身")
+        self.check_write()
         if storage == "local":
             os.unlink(path)
         else:
@@ -259,9 +268,12 @@ class SyncDeleteAdapter:
         torrent = normalize_torrent(response[0][0], downloader, service.type)
         # 使用实际任务字段与宿主的路径反向映射，不使用当前默认目录猜测。
         save_path = torrent.save_path
-        normalize = getattr(service.instance, "normalize_return_path", None)
-        if normalize:
-            save_path = normalize(save_path)
+        mappings = getattr(getattr(service, "config", None), "path_mapping", None) or []
+        for storage_path, downloader_path in sorted(mappings, key=lambda pair: len(pair[1]), reverse=True):
+            downloader_path = str(downloader_path).rstrip("/")
+            if save_path == downloader_path or save_path.startswith(downloader_path + "/"):
+                save_path = str(storage_path).rstrip("/") + save_path[len(downloader_path):]
+                break
         save_path = save_path.removeprefix("local:")
         save_path = path_text(save_path)
         files = service.instance.get_files(torrent_id)
@@ -291,6 +303,7 @@ class SyncDeleteAdapter:
             if parent.is_symlink() or not parent.resolve().is_relative_to(root.resolve()):
                 raise DeleteRejected("空目录清理发现软链接越界")
             try:
+                self.check_write()
                 parent.rmdir()
             except FileNotFoundError:
                 pass
@@ -306,6 +319,7 @@ class SyncDeleteAdapter:
             return
         if current["identity"] != task["identity"]:
             raise DeleteRejected("下载任务已被重建或移动")
+        self.check_write()
         self.plugin.service_info(task["downloader"]).instance.stop_torrents(ids=[task["id"]])
         for delay in (0, 0.3, 0.7):
             runtime = getattr(self.plugin, "_sync_delete_runtime", None)
@@ -327,6 +341,7 @@ class SyncDeleteAdapter:
             return
         if current["identity"] != task["identity"]:
             raise DeleteRejected("下载任务身份变化")
+        self.check_write()
         self.plugin.service_info(task["downloader"]).instance.delete_torrents(ids=[task["id"]], delete_file=False)
         if self.torrent(task["downloader"], task["id"]) is not None:
             raise DeleteRejected("下载任务移除后仍存在")
