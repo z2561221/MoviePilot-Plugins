@@ -20,7 +20,12 @@ from ..utils.tracker import parse_tracker_mappings
 
 def initialize_runtime_config(plugin, config: dict = None) -> dict:
     """根据插件配置初始化运行时字段并返回可继续持久化的配置。"""
+    from copy import deepcopy
+    from ..model.sync_delete import DEFAULTS as SYNC_DELETE_DEFAULTS
+
     config = config or {}
+    for key, default in SYNC_DELETE_DEFAULTS.items():
+        setattr(plugin, "_" + key, deepcopy(config.get(key, default)))
     plugin.downloader_helper = create_downloader_helper()
 
     default_mappings = (

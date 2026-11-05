@@ -1,5 +1,7 @@
 """下载中心 API 路由声明。"""
 
+from .sync_delete import routes as sync_delete_routes
+
 from functools import partial
 from typing import Any, Dict, List
 
@@ -35,7 +37,7 @@ from .handlers import (
 
 def build_api_routes(plugin) -> List[Dict[str, Any]]:
     """构造插件 API 路由声明，保持前端调用契约不变。"""
-    return [
+    return sync_delete_routes(plugin) + [
         {
             "path": "/downloaders",
             "endpoint": plugin.api_downloaders,

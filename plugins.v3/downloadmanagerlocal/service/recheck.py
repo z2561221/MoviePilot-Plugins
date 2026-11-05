@@ -11,6 +11,7 @@ from app.sdk.logging import logger
 from ..adapter.moviepilot import get_downloader_service
 from ..model.state import SEED_RECHECK_QUEUE_KEY
 from ..utils.torrent_adapter import get_hash, get_label
+from .sync_delete import coordinated, task_blocked
 
 
 def _queue_lock(plugin) -> threading.RLock:
@@ -194,6 +195,7 @@ def _merge_processed_queue(plugin, before: dict, after: dict) -> None:
         plugin.save_data(SEED_RECHECK_QUEUE_KEY, current)
 
 
+@coordinated
 def process_seed_recheck_once(plugin, queue, stop_event=None):
     """处理一次做种校验队列并返回队列是否发生变化。"""
     changed = False
@@ -237,6 +239,10 @@ def process_seed_recheck_once(plugin, queue, stop_event=None):
                     queue.pop(queue_key, None)
                     changed = True
                     logger.info(f"做种校验：{hash_text} 在下载器中未找到，已移出队列")
+                continue
+            if task_blocked(plugin, downloader_name, task, downloader_type):
+                queue.pop(queue_key, None)
+                changed = True
                 continue
             state = task.get("state") if downloader_type == "qbittorrent" else task.status
             if seed_is_timeout(item, plugin._seed_max_wait_minutes):
@@ -310,6 +316,7 @@ def seed_is_timeout(item, max_wait_minutes):
     return elapsed > item.get("max_wait_minutes", max_wait_minutes)
 
 
+@coordinated
 def run_recheck_cycle(plugin) -> None:
     """执行一次定时做种校验循环并兜底扫描可自动开始的暂停任务。"""
     if plugin._is_recheck_running:
@@ -339,6 +346,7 @@ def sweep_paused_seed_tasks(plugin, check_services: list[Any]) -> None:
         try:
             downloader = service.instance
             torrents, _ = downloader.get_torrents()
+            torrents = [t for t in torrents or [] if not task_blocked(plugin, service.name, t, service.type)]
             if not torrents:
                 continue
             ready_hashes, source_counts = _collect_ready_seed_hashes(
@@ -411,6 +419,7 @@ def _process_legacy_recheck_queue(plugin, check_services: list[Any]) -> None:
         )
         downloader = service.instance
         torrents, _ = downloader.get_torrents(ids=recheck_torrents)
+        torrents = [t for t in torrents or [] if not task_blocked(plugin, service.name, t, service.type)]
         if torrents:
             ready_hashes, source_counts = _collect_ready_seed_hashes(
                 plugin=plugin,
@@ -489,9 +498,8 @@ def _resolve_seed_source(
     return None
 
 __all__ = (
-    "ensure_seed_recheck_worker",
-    "stop_seed_recheck_worker",
     "can_seed_paused_torrent",
+    "ensure_seed_recheck_worker",
     "load_seed_recheck_queue",
     "process_seed_recheck_once",
     "register_seed_recheck",
@@ -503,5 +511,6 @@ __all__ = (
     "seed_is_timeout",
     "seed_recheck_loop",
     "seed_should_remove_missing",
+    "stop_seed_recheck_worker",
     "sweep_paused_seed_tasks",
 )

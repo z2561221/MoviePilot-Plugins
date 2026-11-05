@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi, p as postPluginJsonApi } from './_plugin-vue_export-helper-ClrE55wh.js';
+import { _ as _export_sfc, S as SyncDeletePane, g as getPluginApi, p as postPluginJsonApi } from './SyncDeletePane-CTXOggxr.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,createBlock:_createBlock,createCommentVNode:_createCommentVNode,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -167,7 +167,11 @@ const _hoisted_103 = { class: "text-caption text-medium-emphasis" };
 const _hoisted_104 = ["title"];
 const _hoisted_105 = { class: "dm-cleanup-actions" };
 const _hoisted_106 = { class: "text-caption text-medium-emphasis" };
-const _hoisted_107 = { class: "dm-pane" };
+const _hoisted_107 = {
+  key: 0,
+  class: "dm-pane"
+};
+const _hoisted_108 = { class: "dm-pane" };
 
 const {reactive,ref,computed,watch,onMounted,onBeforeUnmount} = await importShared('vue');
 
@@ -245,6 +249,11 @@ onMounted(async () => {
 });
 
 const defaults = {
+  sync_delete_enabled: false, sync_delete_servers: [], sync_delete_local_paths: '',
+  sync_delete_cloud_paths: '', sync_delete_storage: '115网盘Plus', sync_delete_source_paths: '',
+  sync_delete_exclude_paths: '', sync_delete_source: true, sync_delete_torrents: true,
+  sync_delete_cloud: true, sync_delete_records: true, sync_delete_force_cloud: false,
+  sync_delete_notify: true, sync_delete_library_deleted: false,
   enabled: false, transfer_enabled: true, delay_minutes: 25, onlyonce: false, notify: false,
   transfer_fallback_enabled: true, transfer_fallback_interval_minutes: 60,
   fromdownloader: '', todownloader: '', frompath: '', topath: '',
@@ -285,10 +294,12 @@ const mainTabs = [
   { key: 'rename', title: '命名补刀', icon: 'mdi-rename-box', desc: '转移后自动根据 TMDB 信息命名种子，并支持失败补刀。' },
   { key: 'tag', title: '站点标签', icon: 'mdi-tag-multiple', desc: '转移后自动根据 tracker 域名打站点标签。' },
   { key: 'seed', title: '做种校验', icon: 'mdi-check-circle-outline', desc: '统一控制跳过校验和自动开始做种，按需触发。' },
+  { key: 'sync_delete', title: '同步删除', icon: 'mdi-delete-sync-outline', desc: '接收 Emby 删除通知，同步清理媒体、源文件和本插件关联种子。' },
   { key: 'upload', title: '上传限速', icon: 'mdi-upload-network-outline', desc: '设置下载器全局上传上限，并按需限制指定站点的合计上传速度。' },
 ];
 
 const subTabs = {
+  sync_delete: [{ key: 'sync_delete_basic', title: '基础设置', icon: 'mdi-delete-sync-outline' }],
   overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
   upload: [
     { key: 'upload_basic', title: '基础设置', icon: 'mdi-tune-variant' },
@@ -493,6 +504,7 @@ watch(() => props.initialConfig, v => {
   uploadSiteRulesRevision++;
   Object.keys(form).forEach(k => delete form[k]);
   Object.assign(form, defaults, v || {});
+  form.sync_delete_servers = [...(v?.sync_delete_servers || [])];
   form.speed_monitor_downloaders = [...(v?.speed_monitor_downloaders || [])];
   form.speed_monitor_manual_speed_bps = { ...(v?.speed_monitor_manual_speed_bps || {}) };
   form.speed_monitor_floor_speed_bps = { ...(v?.speed_monitor_floor_speed_bps || {}) };
@@ -508,6 +520,7 @@ watch(() => props.pluginId, () => {
 function saveConfig() {
   emit('save', {
     ...form,
+    sync_delete_servers: [...(form.sync_delete_servers || [])],
     speed_monitor_downloaders: [...(form.speed_monitor_downloaders || [])],
     speed_monitor_manual_speed_bps: { ...(form.speed_monitor_manual_speed_bps || {}) },
     speed_monitor_floor_speed_bps: { ...(form.speed_monitor_floor_speed_bps || {}) },
@@ -3074,7 +3087,17 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'tag_cleanup']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_107, [
+              (activeSub.value === 'sync_delete_basic')
+                ? (_openBlock(), _createElementBlock("div", _hoisted_107, [
+                    _createVNode(SyncDeletePane, {
+                      api: props.api,
+                      "plugin-id": props.pluginId,
+                      form: form,
+                      mode: "config"
+                    }, null, 8, ["api", "plugin-id", "form"])
+                  ]))
+                : _createCommentVNode("", true),
+              _withDirectives(_createElementVNode("div", _hoisted_108, [
                 _cache[139] || (_cache[139] = _createElementVNode("div", { class: "dm-section-title" }, "做种校验设置", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
@@ -3399,6 +3422,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-29f6e6a3"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-044c09b5"]]);
 
 export { Config as default };

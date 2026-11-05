@@ -24,6 +24,7 @@ from .speed_worker import (
     stop_speed_monitor_worker,
 )
 from .transfer import validate_config
+from .sync_delete import start_runtime as start_sync_delete, stop_runtime as stop_sync_delete
 from .upload_limit_worker import (
     start_upload_limit_worker,
     stop_upload_limit_worker,
@@ -69,6 +70,7 @@ def initialize_plugin(plugin, config: dict = None) -> None:
 
     if getattr(plugin, "_enabled", False) and load_seed_recheck_queue(plugin):
         ensure_seed_recheck_worker(plugin)
+    start_sync_delete(plugin)
 
 
 def _disable_invalid_transfer_config(plugin, config: dict) -> None:
@@ -122,6 +124,7 @@ def _start_scheduler_if_needed(plugin, print_jobs: bool = False) -> None:
 
 def stop_plugin_service(plugin) -> None:
     """发出退出信号并停止后台调度器，旧批次通过代次识别停止。"""
+    stop_sync_delete(plugin)
     plugin._transfer_stop_generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) + 1
     event = getattr(plugin, "_event", None)
     if event is not None:

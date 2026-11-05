@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { getPluginApi, postPluginApi } from './api'
+import SyncDeletePane from './SyncDeletePane.vue'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -12,6 +13,7 @@ const getApi = (path, options = {}) => getPluginApi(props.api, props.pluginId, p
 const postApi = (path, payload = {}, options = {}) => postPluginApi(props.api, props.pluginId, path, payload, options)
 
 const activeTab = ref('overview')
+const syncDeletePane = ref(null)
 const overview = ref(null)
 const diagnostics = ref(null)
 const records = ref([])
@@ -47,6 +49,7 @@ const tabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' },
   { key: 'history', title: '命名历史', icon: 'mdi-history' },
   { key: 'archive', title: '归档记录', icon: 'mdi-archive-outline' },
+  { key: 'sync_delete', title: '同步删除', icon: 'mdi-delete-sync-outline' },
   { key: 'diagnostics', title: '运行诊断', icon: 'mdi-stethoscope' },
 ]
 
@@ -314,6 +317,7 @@ async function selectTab(key) {
 }
 
 async function refreshActive() {
+  if (activeTab.value === 'sync_delete') return syncDeletePane.value?.refresh()
   if (activeTab.value === 'overview') return loadOverview()
   if (activeTab.value === 'history') return loadHistory()
   if (activeTab.value === 'archive') return loadArchive()
@@ -697,6 +701,10 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </section>
+        </section>
+
+        <section v-else-if="activeTab === 'sync_delete'" class="dm-pane">
+          <SyncDeletePane ref="syncDeletePane" :api="props.api" :plugin-id="props.pluginId" />
         </section>
 
         <section v-else-if="activeTab === 'history'" class="dm-pane">

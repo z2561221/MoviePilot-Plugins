@@ -2,6 +2,8 @@
 
 from copy import deepcopy
 
+from ..model.sync_delete import DEFAULTS as SYNC_DELETE_CONFIG_DEFAULTS
+
 
 SPEED_MONITOR_CONFIG_DEFAULTS = {
     "speed_monitor_enabled": False,
@@ -76,6 +78,7 @@ PLUGIN_CONFIG_DEFAULTS = {
     "iyuu_clearcache": False,
     **SPEED_MONITOR_CONFIG_DEFAULTS,
     **UPLOAD_LIMIT_CONFIG_DEFAULTS,
+    **SYNC_DELETE_CONFIG_DEFAULTS,
 }
 
 SPEED_MONITOR_DELETE_FILE = True
@@ -338,4 +341,5 @@ def is_plugin_active(plugin) -> bool:
         or is_iyuu_active(plugin)
         or is_speed_monitor_active(plugin)
         or is_upload_limit_active(plugin)
+        or (getattr(plugin, "_enabled", False) and getattr(plugin, "_sync_delete_enabled", False))
     )

@@ -2,11 +2,11 @@ const currentImports = {};
       const exportSet = new Set(['Module', '__esModule', 'default', '_export_sfc']);
       let moduleMap = {
 "./Config":()=>{
-      dynamicLoadingCss(["__federation_expose_Config-DoBpj9bf.css"], false, './Config');
-      return __federation_import('./__federation_expose_Config-1aOU411_.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["__federation_expose_Config-BuEfUnp4.css","SyncDeletePane-3NhjXFTD.css"], false, './Config');
+      return __federation_import('./__federation_expose_Config-BOrxPqiI.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Page":()=>{
-      dynamicLoadingCss(["__federation_expose_Page-Bi21cvKB.css"], false, './Page');
-      return __federation_import('./__federation_expose_Page-0saWLKjp.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      dynamicLoadingCss(["__federation_expose_Page-DXSeX1fI.css","SyncDeletePane-3NhjXFTD.css"], false, './Page');
+      return __federation_import('./__federation_expose_Page-3z8DxbSt.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;

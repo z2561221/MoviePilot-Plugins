@@ -8,27 +8,25 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from app import schemas
-from app.schemas.types import MediaSource, MediaType
 from app.plugins.downloadmanagerlocal import DownloadManagerLocal
 from app.plugins.downloadmanagerlocal.adapter import moviepilot as moviepilot_adapter
 from app.plugins.downloadmanagerlocal.controller import handlers
 from app.plugins.downloadmanagerlocal.iyuu_helper import IyuuHelper
 from app.plugins.downloadmanagerlocal.model.api import HashActionResult, OverviewResult
 from app.plugins.downloadmanagerlocal.service import rename as rename_service
-
+from app.schemas.types import MediaSource, MediaType
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[3] / "plugins.v3/downloadmanagerlocal"
 
 
 def test_all_plugin_routes_declare_concrete_v3_models() -> None:
-    """20 条普通 JSON 路由必须使用 bearer 和具体响应模型。"""
+    """所有普通 JSON 路由必须使用 bearer 和具体响应模型。"""
     plugin = object.__new__(DownloadManagerLocal)
 
     routes = plugin.get_api()
 
-    assert len(routes) == 20
+    assert len(routes) == 24
     assert {route["path"] for route in routes} == {
         "/downloaders",
         "/rename_history",
@@ -50,11 +48,17 @@ def test_all_plugin_routes_declare_concrete_v3_models() -> None:
         "/sites",
         "/tag_cleanup_scan",
         "/tag_cleanup_execute",
+        "/sync_delete/options",
+        "/sync_delete/preview",
+        "/sync_delete/history",
+        "/sync_delete/retry",
     }
     for route in routes:
         assert route["auth"] == "bear"
         assert route.get("response_model") not in {None, dict, list}
     bare_paths = {
+        "/sync_delete/options",
+        "/sync_delete/history",
         "/downloaders",
         "/rename_history",
         "/overview",
@@ -77,6 +81,8 @@ def test_json_post_routes_use_pydantic_request_models() -> None:
     """接收 JSON 的 POST 路由必须拒绝裸 dict 请求体。"""
     plugin = object.__new__(DownloadManagerLocal)
     json_paths = {
+        "/sync_delete/preview",
+        "/sync_delete/retry",
         "/reset_speed_monitor_baseline",
         "/upload_limit_reallocate",
         "/upload_limit_site_tags",
@@ -158,7 +164,6 @@ def test_rename_history_passes_only_complete_media_identity(
         def recognize_media(**kwargs):
             """记录一次识别调用并返回未命中。"""
             calls.append(kwargs)
-            return None
 
     plugin = SimpleNamespace(
         _rename_exclude_dirs="",
