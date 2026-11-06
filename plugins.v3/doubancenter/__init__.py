@@ -37,10 +37,10 @@ class DoubanCenter(_PluginBase):
     """整合豆瓣榜单订阅、豆瓣时间和仪表盘的 MoviePilot 插件入口。"""
 
     plugin_name = "豆瓣中心"
-    plugin_desc = "豆瓣榜单订阅 + 豆瓣时间 + 仪表盘，一站式豆瓣集成。"
+    plugin_desc = "「未来道具研究所」出品 · EL PSY CONGROO！"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "3.0.19"
+    plugin_version = "3.0.20"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
