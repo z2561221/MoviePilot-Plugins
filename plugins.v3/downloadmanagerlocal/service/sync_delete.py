@@ -209,8 +209,8 @@ def _matching_histories(adapter, target, storage, event, file_scope):
     return result
 
 
-def _bridge_file(adapter, row, scope):
-    """通过明确整理目录映射云端实体，并以双方及历史大小验证内容身份。"""
+def _bridge_file(adapter, row, scope, *, cloud_enabled=True):
+    """按明确目录和历史核验副本，仅开启网盘处理时读取云端实体。"""
     local_path = path_text(row["dest"])
     if not within(local_path, scope["library"], strict=True):
         raise DeleteRejected("本地整理副本越过映射范围")
@@ -224,9 +224,9 @@ def _bridge_file(adapter, row, scope):
                       "type": "file", "identity": None, "status": "absent"}
     else:
         local_file = _snapshot_file(adapter, "local", local_path, library_root)
-    cloud_file = _snapshot_file(adapter, scope["storage"], cloud_path, scope["target"])
+    cloud_file = _snapshot_file(adapter, scope["storage"], cloud_path, scope["target"]) if cloud_enabled else None
     sizes = []
-    if cloud_file["status"] != "absent":
+    if cloud_file is not None and cloud_file["status"] != "absent":
         sizes.append(cloud_file.get("size"))
     if local_file["status"] != "absent":
         sizes.append(local_file.get("size"))
@@ -236,11 +236,12 @@ def _bridge_file(adapter, row, scope):
     source_size = (row.get("src_fileitem") or {}).get("size")
     if source_size is not None:
         sizes.append(source_size)
-    both_absent = local_file["status"] == cloud_file["status"] == "absent"
-    if (len(sizes) < 2 or (both_absent and historical_size is None)
+    no_current_file = local_file["status"] == "absent" and (cloud_file is None or cloud_file["status"] == "absent")
+    if (len(sizes) < 2 or (no_current_file and historical_size is None)
             or any(not isinstance(size, int) or size <= 0 for size in sizes) or len(set(sizes)) != 1):
-        raise DeleteRejected("网盘与本地整理副本大小无法一致核验，保留关联待确认")
-    return local_file, cloud_file
+        label = "网盘与本地整理副本" if cloud_enabled else "本地整理副本与历史"
+        raise DeleteRejected(f"{label}大小无法一致核验，保留关联待确认")
+    return local_file, cloud_path, cloud_file
 
 
 def build_plan(plugin, event: dict, config: dict, adapter=None, *, preview=False) -> dict:
@@ -267,18 +268,22 @@ def build_plan(plugin, event: dict, config: dict, adapter=None, *, preview=False
         if not file_scope and not (event.get("media_source") and event.get("media_id")):
             raise DeleteRejected("目录删除通知缺少完整媒体身份")
         found = _matching_histories(adapter, target, scope["storage"], event, file_scope)
-        bridge_targets = {}
+        bridge_targets, bridge_paths = {}, {}
         if scope.get("library"):
             bridged = _matching_histories(adapter, scope["library_path"], "local", event, file_scope)
             if not found and not bridged:
                 raise DeleteRejected("显式映射的本地整理目录没有对应记录")
             for row in bridged:
-                local_file, cloud_file = _bridge_file(adapter, row, scope)
+                local_file, cloud_path, cloud_file = _bridge_file(
+                    adapter, row, scope, cloud_enabled=config["sync_delete_cloud"],
+                )
                 if config["sync_delete_source"]:
                     library_files[local_file["path"]] = local_file
-                bridge_targets[row["id"]] = cloud_file
+                bridge_paths[row["id"]] = cloud_path
+                if cloud_file is not None:
+                    bridge_targets[row["id"]] = cloud_file
             found.extend(bridged)
-        targets_by_record = {row["id"]: bridge_targets[row["id"]]["path"] if row["id"] in bridge_targets else row["dest"] for row in found}
+        targets_by_record = {row["id"]: bridge_paths.get(row["id"], row["dest"]) for row in found}
         if file_scope and len(set(targets_by_record.values())) > 1:
             raise DeleteRejected("删除路径对应多个版本，需明确具体目标")
         for row in found:

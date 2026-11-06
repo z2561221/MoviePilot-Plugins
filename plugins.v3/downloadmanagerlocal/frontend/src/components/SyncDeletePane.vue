@@ -148,7 +148,7 @@ defineExpose({ refresh: load })
         <VSwitch v-model="form.sync_delete_enabled" color="success" inset hide-details label="启用" />
       </div>
       <VSelect v-model="form.sync_delete_servers" :items="servers" multiple chips label="Emby 服务器" density="compact" variant="outlined" hide-details class="my-4" />
-      <VAlert type="info" variant="tonal" density="compact" class="mb-4">使用现有神医深度删除通知。合集仅删除部分文件时，关联种子保持暂停，其余集数保留。相同目录请只启用一个同步删除功能。</VAlert>
+      <VAlert type="info" variant="tonal" density="compact" class="mb-4">使用现有神医深度删除通知。合集仅删除部分文件时，关联种子保持暂停，其余集数保留。相同文件只交给一个执行方删除；网盘由 Muvyo 等服务处理时，关闭“删除网盘文件”。</VAlert>
       <div class="dm-sync-switches">
         <VSwitch v-model="form.sync_delete_cloud" color="success" inset hide-details label="删除网盘文件" />
         <VSwitch v-model="form.sync_delete_source" color="success" inset hide-details label="删除下载源文件" />
@@ -156,6 +156,7 @@ defineExpose({ refresh: load })
         <VSwitch v-model="form.sync_delete_records" color="success" inset hide-details label="清理整理记录" />
         <VSwitch v-model="form.sync_delete_notify" color="success" inset hide-details label="发送结果通知" />
       </div>
+      <VAlert v-if="!form.sync_delete_cloud" type="info" variant="tonal" density="compact" class="mt-3">本插件不查询或删除网盘，只处理已关联的本地文件、种子和整理记录。路径映射仍用于关联；网盘删除结果由外部服务负责。</VAlert>
       <div class="text-caption text-medium-emphasis mt-2">删除下载源文件同时清理下方明确映射的本地整理副本；关闭时两者均保留。</div>
       <VBtnToggle v-model="mappingMode" mandatory density="compact" color="primary" class="my-4"><VBtn value="text" size="small">批量填写</VBtn><VBtn value="fields" size="small">分列填写</VBtn></VBtnToggle>
       <VTextarea v-if="mappingMode === 'text'" v-model="form.sync_delete_local_paths" label="本地媒体库路径映射" rows="2" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="Emby路径#MP媒体库路径（一行一条）" />
@@ -184,7 +185,7 @@ defineExpose({ refresh: load })
       <div class="text-caption text-medium-emphasis mb-3">先整理到本地再上传网盘时，可填写对应的本地整理目录以关联整理记录和下载源；三段映射仍可继续使用。</div>
       <VTextarea v-model="form.sync_delete_source_paths" label="允许删除的下载源目录" rows="3" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="填写 MP 容器内的真实下载目录，一行一个" />
       <VTextarea v-model="form.sync_delete_exclude_paths" label="保护目录（可选）" rows="2" density="compact" variant="outlined" hide-details class="my-4" placeholder="一行一个路径，匹配到的文件保留" />
-      <VSwitch v-model="form.sync_delete_force_cloud" color="warning" inset hide-details label="没有整理记录时，也按映射删除网盘文件" />
+      <VSwitch v-model="form.sync_delete_force_cloud" :disabled="!form.sync_delete_cloud" color="warning" inset hide-details label="没有整理记录时，也按映射删除网盘文件" />
       <div class="text-caption text-medium-emphasis mb-3">仍需唯一确认网盘实体；不会凭片名猜测下载器任务。</div>
       <VSwitch v-model="form.sync_delete_library_deleted" color="warning" inset hide-details label="同时处理普通 Emby 删除通知" />
       <VDivider class="my-4" />
