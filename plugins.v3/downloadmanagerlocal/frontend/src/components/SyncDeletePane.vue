@@ -156,6 +156,7 @@ defineExpose({ refresh: load })
         <VSwitch v-model="form.sync_delete_records" color="success" inset hide-details label="清理整理记录" />
         <VSwitch v-model="form.sync_delete_notify" color="success" inset hide-details label="发送结果通知" />
       </div>
+      <div class="text-caption text-medium-emphasis mt-2">删除下载源文件同时清理下方明确映射的本地整理副本；关闭时两者均保留。</div>
       <VBtnToggle v-model="mappingMode" mandatory density="compact" color="primary" class="my-4"><VBtn value="text" size="small">批量填写</VBtn><VBtn value="fields" size="small">分列填写</VBtn></VBtnToggle>
       <VTextarea v-if="mappingMode === 'text'" v-model="form.sync_delete_local_paths" label="本地媒体库路径映射" rows="2" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="Emby路径#MP媒体库路径（一行一条）" />
       <div v-else class="my-4">
@@ -168,17 +169,19 @@ defineExpose({ refresh: load })
         <VBtn size="small" variant="text" prepend-icon="mdi-plus" class="mt-2" @click="addMapping('sync_delete_local_paths', 2)">添加本地映射</VBtn>
       </div>
       <VSelect v-model="form.sync_delete_storage" :items="['115网盘Plus']" label="网盘存储" density="compact" variant="outlined" hide-details />
-      <VTextarea v-if="mappingMode === 'text'" v-model="form.sync_delete_cloud_paths" label="网盘媒体库路径映射" rows="3" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="Emby路径#MP本地STRM路径#网盘目录（一行一条）" />
+      <VTextarea v-if="mappingMode === 'text'" v-model="form.sync_delete_cloud_paths" label="网盘媒体库路径映射" rows="3" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="Emby路径#MP本地STRM路径#网盘目录#本地整理目录（最后一段可选，一行一条）" />
       <div v-else class="my-4">
         <strong>网盘媒体库路径映射</strong>
         <div v-for="(row, index) in cloudMappings" :key="index" class="dm-sync-mapping dm-sync-mapping-cloud mt-3">
           <VTextField :model-value="row[0]" label="Emby 路径" density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 0, $event)" />
           <VTextField :model-value="row[1]" label="MP STRM 路径" density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 1, $event)" />
           <VTextField :model-value="row[2]" label="网盘目录" density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 2, $event)" />
+          <VTextField :model-value="row[3]" label="本地整理目录（可选）" density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 3, $event)" />
           <VBtn icon="mdi-close" size="small" variant="text" aria-label="移除此映射" @click="removeMapping('sync_delete_cloud_paths', index)" />
         </div>
-        <VBtn size="small" variant="text" prepend-icon="mdi-plus" class="mt-2" @click="addMapping('sync_delete_cloud_paths', 3)">添加网盘映射</VBtn>
+        <VBtn size="small" variant="text" prepend-icon="mdi-plus" class="mt-2" @click="addMapping('sync_delete_cloud_paths', 4)">添加网盘映射</VBtn>
       </div>
+      <div class="text-caption text-medium-emphasis mb-3">先整理到本地再上传网盘时，可填写对应的本地整理目录以关联整理记录和下载源；三段映射仍可继续使用。</div>
       <VTextarea v-model="form.sync_delete_source_paths" label="允许删除的下载源目录" rows="3" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="填写 MP 容器内的真实下载目录，一行一个" />
       <VTextarea v-model="form.sync_delete_exclude_paths" label="保护目录（可选）" rows="2" density="compact" variant="outlined" hide-details class="my-4" placeholder="一行一个路径，匹配到的文件保留" />
       <VSwitch v-model="form.sync_delete_force_cloud" color="warning" inset hide-details label="没有整理记录时，也按映射删除网盘文件" />
@@ -233,7 +236,7 @@ defineExpose({ refresh: load })
 .dm-sync-preview { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 12px; }
 .dm-sync summary { cursor: pointer; }
 .dm-sync-mapping { display: grid; grid-template-columns: 1fr 1fr auto; align-items: center; gap: 8px; }
-.dm-sync-mapping-cloud { grid-template-columns: 1fr 1fr 1fr auto; }
+.dm-sync-mapping-cloud { grid-template-columns: repeat(4, minmax(0, 1fr)) auto; }
 @media (max-width: 760px) { .dm-sync-mapping, .dm-sync-mapping-cloud { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .dm-sync-switches { grid-template-columns: 1fr; } }
 </style>

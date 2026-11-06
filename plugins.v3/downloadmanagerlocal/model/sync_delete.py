@@ -78,21 +78,25 @@ def fingerprint(config: dict) -> str:
 
 
 def mappings(config: dict) -> list[dict]:
-    """解析两段本地映射及三段网盘映射，拒绝重复来源和根目录。"""
+    """解析本地两段、网盘三段或带整理目录的四段映射。"""
     result = []
     for field, count in (("sync_delete_local_paths", 2), ("sync_delete_cloud_paths", 3)):
         for line in lines(config.get(field)):
             parts = line.split("#")
+            library = ""
+            if count == 3 and len(parts) == 4:
+                optional_root = text(parts.pop())
+                library = path_text(optional_root) if optional_root else ""
             if len(parts) != count:
                 raise DeleteRejected(f"路径映射需要 {count} 段，以 # 分隔")
             parts = [path_text(part) for part in parts]
-            if any(part == "/" for part in parts):
+            if any(part == "/" for part in parts) or library == "/":
                 raise DeleteRejected("映射不能使用存储根目录")
             if any(item["emby"] == parts[0] for item in result):
                 raise DeleteRejected("同一 Emby 路径有重复映射")
             result.append({"emby": parts[0], "local": parts[1],
                            "storage": text(config.get("sync_delete_storage")) if count == 3 else "local",
-                           "target": parts[-1], "cloud": count == 3})
+                           "target": parts[-1], "cloud": count == 3, "library": library})
     return sorted(result, key=lambda item: len(item["emby"]), reverse=True)
 
 
@@ -107,9 +111,11 @@ def mapped_scope(path: str, config: dict) -> dict:
             result = dict(item, emby_path=path)
             result["local_path"] = str(PurePosixPath(item["local"]) / relative)
             result["target_path"] = str(PurePosixPath(item["target"]) / relative)
+            if item["library"]:
+                result["library_path"] = str(PurePosixPath(item["library"]) / relative)
             for excluded in lines(config.get("sync_delete_exclude_paths")):
                 excluded = path_text(excluded)
-                if any(within(result[key], excluded) for key in ("emby_path", "local_path", "target_path")):
+                if any(within(result[key], excluded) for key in ("emby_path", "local_path", "target_path", "library_path") if key in result):
                     raise DeleteRejected("目标位于排除目录")
             return result
     raise DeleteRejected("事件路径没有匹配到配置的媒体库映射")

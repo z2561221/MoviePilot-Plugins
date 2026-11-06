@@ -365,6 +365,7 @@ return (_ctx, _cache) => {
               label: "发送结果通知"
             }, null, 8, ["modelValue"])
           ]),
+          _cache[28] || (_cache[28] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mt-2" }, "删除下载源文件同时清理下方明确映射的本地整理副本；关闭时两者均保留。", -1)),
           _createVNode(_component_VBtnToggle, {
             modelValue: mappingMode.value,
             "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((mappingMode).value = $event)),
@@ -475,7 +476,7 @@ return (_ctx, _cache) => {
                 variant: "outlined",
                 "hide-details": "",
                 class: "my-4",
-                placeholder: "Emby路径#MP本地STRM路径#网盘目录（一行一条）"
+                placeholder: "Emby路径#MP本地STRM路径#网盘目录#本地整理目录（最后一段可选，一行一条）"
               }, null, 8, ["modelValue"]))
             : (_openBlock(), _createElementBlock("div", _hoisted_5, [
                 _cache[26] || (_cache[26] = _createElementVNode("strong", null, "网盘媒体库路径映射", -1)),
@@ -508,6 +509,14 @@ return (_ctx, _cache) => {
                       "hide-details": "",
                       "onUpdate:modelValue": $event => (editMapping('sync_delete_cloud_paths', index, 2, $event))
                     }, null, 8, ["model-value", "onUpdate:modelValue"]),
+                    _createVNode(_component_VTextField, {
+                      "model-value": row[3],
+                      label: "本地整理目录（可选）",
+                      density: "compact",
+                      variant: "outlined",
+                      "hide-details": "",
+                      "onUpdate:modelValue": $event => (editMapping('sync_delete_cloud_paths', index, 3, $event))
+                    }, null, 8, ["model-value", "onUpdate:modelValue"]),
                     _createVNode(_component_VBtn, {
                       icon: "mdi-close",
                       size: "small",
@@ -522,7 +531,7 @@ return (_ctx, _cache) => {
                   variant: "text",
                   "prepend-icon": "mdi-plus",
                   class: "mt-2",
-                  onClick: _cache[12] || (_cache[12] = $event => (addMapping('sync_delete_cloud_paths', 3)))
+                  onClick: _cache[12] || (_cache[12] = $event => (addMapping('sync_delete_cloud_paths', 4)))
                 }, {
                   default: _withCtx(() => [...(_cache[25] || (_cache[25] = [
                     _createTextVNode("添加网盘映射", -1)
@@ -530,6 +539,7 @@ return (_ctx, _cache) => {
                   _: 1
                 })
               ])),
+          _cache[29] || (_cache[29] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-3" }, "先整理到本地再上传网盘时，可填写对应的本地整理目录以关联整理记录和下载源；三段映射仍可继续使用。", -1)),
           _createVNode(_component_VTextarea, {
             modelValue: __props.form.sync_delete_source_paths,
             "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((__props.form.sync_delete_source_paths) = $event)),
@@ -561,7 +571,7 @@ return (_ctx, _cache) => {
             "hide-details": "",
             label: "没有整理记录时，也按映射删除网盘文件"
           }, null, 8, ["modelValue"]),
-          _cache[28] || (_cache[28] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-3" }, "仍需唯一确认网盘实体；不会凭片名猜测下载器任务。", -1)),
+          _cache[30] || (_cache[30] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-3" }, "仍需唯一确认网盘实体；不会凭片名猜测下载器任务。", -1)),
           _createVNode(_component_VSwitch, {
             modelValue: __props.form.sync_delete_library_deleted,
             "onUpdate:modelValue": _cache[16] || (_cache[16] = $event => ((__props.form.sync_delete_library_deleted) = $event)),
@@ -571,8 +581,8 @@ return (_ctx, _cache) => {
             label: "同时处理普通 Emby 删除通知"
           }, null, 8, ["modelValue"]),
           _createVNode(_component_VDivider, { class: "my-4" }),
-          _cache[29] || (_cache[29] = _createElementVNode("strong", null, "匹配预览", -1)),
-          _cache[30] || (_cache[30] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-3" }, "先保存配置，再填写 Emby 中某个媒体文件的完整路径。预览只读取关联，不执行清理。", -1)),
+          _cache[31] || (_cache[31] = _createElementVNode("strong", null, "匹配预览", -1)),
+          _cache[32] || (_cache[32] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mb-3" }, "先保存配置，再填写 Emby 中某个媒体文件的完整路径。预览只读取关联，不执行清理。", -1)),
           _createVNode(_component_VTextField, {
             modelValue: previewPath.value,
             "onUpdate:modelValue": _cache[17] || (_cache[17] = $event => ((previewPath).value = $event)),
@@ -616,7 +626,7 @@ return (_ctx, _cache) => {
       : (_openBlock(), _createElementBlock(_Fragment, { key: 3 }, [
           _createElementVNode("div", _hoisted_8, [
             _createElementVNode("div", null, [
-              _cache[31] || (_cache[31] = _createElementVNode("strong", null, "同步删除历史", -1)),
+              _cache[33] || (_cache[33] = _createElementVNode("strong", null, "同步删除历史", -1)),
               _createElementVNode("div", _hoisted_9, _toDisplayString(enabled.value ? '同步删除已启用' : '同步删除未启用') + " · 共 " + _toDisplayString(total.value) + " 条", 1)
             ]),
             _createVNode(_component_VBtn, {
@@ -665,7 +675,7 @@ return (_ctx, _cache) => {
                       ? (_openBlock(), _createElementBlock("div", _hoisted_13, _toDisplayString(job.error), 1))
                       : _createCommentVNode("", true),
                     _createElementVNode("details", _hoisted_14, [
-                      _cache[32] || (_cache[32] = _createElementVNode("summary", null, "查看关联明细", -1)),
+                      _cache[34] || (_cache[34] = _createElementVNode("summary", null, "查看关联明细", -1)),
                       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList([...(job.plan?.cloud_files || []), ...(job.plan?.source_files || [])], (file) => {
                         return (_openBlock(), _createElementBlock("div", {
                           key: `${file.storage}:${file.path}`,
@@ -691,7 +701,7 @@ return (_ctx, _cache) => {
                           disabled: !enabled.value || Boolean(retryId.value),
                           onClick: $event => (retry(job))
                         }, {
-                          default: _withCtx(() => [...(_cache[33] || (_cache[33] = [
+                          default: _withCtx(() => [...(_cache[35] || (_cache[35] = [
                             _createTextVNode("核验后重试", -1)
                           ]))]),
                           _: 1
@@ -723,6 +733,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const SyncDeletePane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-12b37882"]]);
+const SyncDeletePane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ae90afb1"]]);
 
 export { SyncDeletePane as S, _export_sfc as _, postPluginApi as a, getPluginApi as g, isApiRequestCancellation as i, postPluginJsonApi as p };
