@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, i as isApiRequestCancellation, S as SyncDeletePane, g as getPluginApi, p as postPluginJsonApi } from './SyncDeletePane-CzhD0aIC.js';
+import { _ as _export_sfc, i as isApiRequestCancellation, S as SyncDeletePane, g as getPluginApi, p as postPluginJsonApi } from './SyncDeletePane-z6GXr22b.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,createBlock:_createBlock,createCommentVNode:_createCommentVNode,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -549,8 +549,13 @@ watch(() => [props.pluginId, props.api], () => {
 }, { flush: 'sync' });
 
 function saveConfig() {
+  const mappings = value => String(value || '').split('\n').filter(line => line.split('#').some(part => part.trim())).join('\n');
   emit('save', {
     ...form,
+    sync_delete_force_cloud: false,
+    sync_delete_library_deleted: false,
+    sync_delete_local_paths: mappings(form.sync_delete_local_paths),
+    sync_delete_cloud_paths: mappings(form.sync_delete_cloud_paths),
     sync_delete_servers: [...(form.sync_delete_servers || [])],
     speed_monitor_downloaders: [...(form.speed_monitor_downloaders || [])],
     speed_monitor_manual_speed_bps: { ...(form.speed_monitor_manual_speed_bps || {}) },
@@ -3490,6 +3495,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0afd9bcf"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6db67443"]]);
 
 export { Config as default };

@@ -14,31 +14,32 @@ const total = ref(0)
 const page = ref(1)
 const enabled = ref(false)
 const loading = ref(false)
-const previewLoading = ref(false)
 const error = ref('')
 const notice = ref('')
-const previewPath = ref('')
-const previewPlan = ref(null)
 const retryId = ref('')
-const mappingMode = ref('text')
-const cloudMappings = computed(() => String(props.form?.sync_delete_cloud_paths || '').split('\n').filter(Boolean).map(line => line.split('#')))
-const localMappings = computed(() => String(props.form?.sync_delete_local_paths || '').split('\n').filter(Boolean).map(line => line.split('#')))
+const mappingRows = (value, columns) => {
+  const rows = String(value || '').split('\n').filter(line => line.trim()).map(line => line.split('#'))
+  return rows.length ? rows : [Array(columns).fill('')]
+}
+const cloudMappings = computed(() => mappingRows(props.form?.sync_delete_cloud_paths, 4))
+const localMappings = computed(() => mappingRows(props.form?.sync_delete_local_paths, 2))
+const sourceRoots = computed(() => String(props.form?.sync_delete_source_paths || '').split('\n').map(line => line.trim()).filter(Boolean))
 function editMapping(field, index, column, value) {
-  const rows = String(props.form[field] || '').split('\n').filter(Boolean).map(line => line.split('#'))
-  rows[index][column] = String(value || '')
+  const rows = mappingRows(props.form[field], field === 'sync_delete_cloud_paths' ? 4 : 2)
+  rows[index][column] = String(value || '').replace(/[\r\n]/g, '')
   props.form[field] = rows.map(row => row.join('#')).join('\n')
 }
 function addMapping(field, columns) {
-  const rows = String(props.form[field] || '').split('\n').filter(Boolean)
-  rows.push(Array(columns).fill('').join('#'))
-  props.form[field] = rows.join('\n')
+  const rows = mappingRows(props.form[field], columns)
+  rows.push(Array(columns).fill(''))
+  props.form[field] = rows.map(row => row.join('#')).join('\n')
 }
 function removeMapping(field, index) {
-  props.form[field] = String(props.form[field] || '').split('\n').filter(Boolean).filter((_, i) => i !== index).join('\n')
+  const rows = mappingRows(props.form[field], field === 'sync_delete_cloud_paths' ? 4 : 2)
+  props.form[field] = rows.filter((_, i) => i !== index).map(row => row.join('#')).join('\n')
 }
 let revision = 0
 let loadRevision = 0
-let previewRevision = 0
 let retryRevision = 0
 let disposed = false
 const pages = computed(() => Math.max(1, Math.ceil(total.value / 15)))
@@ -74,26 +75,6 @@ async function load() {
   }
 }
 
-async function preview() {
-  const ticket = revision
-  const request = ++previewRevision
-  const id = props.pluginId
-  const owns = () => current(ticket, id) && request === previewRevision
-  previewLoading.value = true
-  error.value = ''
-  previewPlan.value = null
-  try {
-    const result = await postPluginJsonApi(props.api, id, 'sync_delete/preview', {
-      path: previewPath.value.trim(), server: props.form?.sync_delete_servers?.[0] || '',
-    }, { feedback: 'silent' })
-    if (owns()) previewPlan.value = result?.plan || null
-  } catch (cause) {
-    if (owns() && !isApiRequestCancellation(cause)) error.value = cause?.message || '无法匹配该路径'
-  } finally {
-    if (owns()) previewLoading.value = false
-  }
-}
-
 async function retry(job) {
   if (retryId.value) return
   const ticket = revision
@@ -123,17 +104,10 @@ watch(() => [props.pluginId, props.mode, props.api], () => {
   servers.value = []
   total.value = 0
   enabled.value = false
-  previewPlan.value = null
-  previewLoading.value = false
   notice.value = ''
   retryId.value = ''
   load()
 }, { immediate: true, flush: 'sync' })
-watch(() => [props.form, previewPath.value], () => {
-  previewRevision++
-  previewLoading.value = false
-  previewPlan.value = null
-}, { deep: true, flush: 'sync' })
 onBeforeUnmount(() => { disposed = true; revision++ })
 defineExpose({ refresh: load })
 </script>
@@ -144,11 +118,11 @@ defineExpose({ refresh: load })
     <VAlert v-if="notice" type="info" variant="tonal" density="compact" class="mb-3">{{ notice }}</VAlert>
     <template v-if="mode === 'config' && form">
       <div class="dm-sync-heading">
-        <div><strong>同步删除</strong><div class="text-caption text-medium-emphasis">在 Emby 删除媒体后，联动网盘、源文件、整理记录和关联种子。</div></div>
+        <div><strong>同步删除</strong><div class="text-caption text-medium-emphasis">在 Emby 删除本地媒体或 STRM 后，清理关联文件、种子和整理记录。</div></div>
         <VSwitch v-model="form.sync_delete_enabled" color="success" inset hide-details label="启用" />
       </div>
       <VSelect v-model="form.sync_delete_servers" :items="servers" multiple chips label="Emby 服务器" density="compact" variant="outlined" hide-details class="my-4" />
-      <VAlert type="info" variant="tonal" density="compact" class="mb-4">使用现有神医深度删除通知。合集仅删除部分文件时，关联种子保持暂停，其余集数保留。相同文件只交给一个执行方删除；网盘由 Muvyo 等服务处理时，关闭“删除网盘文件”。</VAlert>
+      <VAlert type="info" variant="tonal" density="compact" class="mb-4">使用现有神医深度删除通知。合集还有其它集数时，种子暂停保留。</VAlert>
       <div class="dm-sync-switches">
         <VSwitch v-model="form.sync_delete_cloud" color="success" inset hide-details label="删除网盘文件" />
         <VSwitch v-model="form.sync_delete_source" color="success" inset hide-details label="删除下载源文件" />
@@ -156,49 +130,33 @@ defineExpose({ refresh: load })
         <VSwitch v-model="form.sync_delete_records" color="success" inset hide-details label="清理整理记录" />
         <VSwitch v-model="form.sync_delete_notify" color="success" inset hide-details label="发送结果通知" />
       </div>
-      <VAlert v-if="!form.sync_delete_cloud" type="info" variant="tonal" density="compact" class="mt-3">本插件不查询或删除网盘，只处理已关联的本地文件、种子和整理记录。路径映射仍用于关联；网盘删除结果由外部服务负责。</VAlert>
-      <div class="text-caption text-medium-emphasis mt-2">删除下载源文件同时清理下方明确映射的本地整理副本；关闭时两者均保留。</div>
-      <VBtnToggle v-model="mappingMode" mandatory density="compact" color="primary" class="my-4"><VBtn value="text" size="small">批量填写</VBtn><VBtn value="fields" size="small">分列填写</VBtn></VBtnToggle>
-      <VTextarea v-if="mappingMode === 'text'" v-model="form.sync_delete_local_paths" label="本地媒体库路径映射" rows="2" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="Emby路径#MP媒体库路径（一行一条）" />
-      <div v-else class="my-4">
-        <strong>本地媒体库路径映射</strong>
+      <div class="text-caption text-medium-emphasis mt-2">删除下载源文件时，同时清理明确映射的本地整理副本。</div>
+      <div class="mt-5"><strong>本地整理到本地</strong></div>
+      <div class="my-3">
         <div v-for="(row, index) in localMappings" :key="index" class="dm-sync-mapping mt-3">
-          <VTextField :model-value="row[0]" label="Emby 路径" density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_local_paths', index, 0, $event)" />
-          <VTextField :model-value="row[1]" label="MP 媒体库路径" density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_local_paths', index, 1, $event)" />
-          <VBtn icon="mdi-close" size="small" variant="text" aria-label="移除此映射" @click="removeMapping('sync_delete_local_paths', index)" />
+          <VTextarea :model-value="row[0]" label="Emby 媒体目录" rows="2" auto-grow density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_local_paths', index, 0, $event)" />
+          <VTextarea :model-value="row[1]" label="MP 本地媒体目录" rows="2" auto-grow density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_local_paths', index, 1, $event)" />
+          <VBtn class="dm-sync-remove" size="small" variant="text" prepend-icon="mdi-close" @click="removeMapping('sync_delete_local_paths', index)">移除此映射</VBtn>
         </div>
         <VBtn size="small" variant="text" prepend-icon="mdi-plus" class="mt-2" @click="addMapping('sync_delete_local_paths', 2)">添加本地映射</VBtn>
       </div>
-      <VTextarea v-if="mappingMode === 'text'" v-model="form.sync_delete_cloud_paths" label="网盘媒体库路径映射" rows="3" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="Emby路径#MP本地STRM路径#网盘目录#本地整理目录（最后一段可选，一行一条）" />
-      <div v-else class="my-4">
-        <strong>网盘媒体库路径映射</strong>
-        <div v-for="(row, index) in cloudMappings" :key="index" class="dm-sync-mapping dm-sync-mapping-cloud mt-3">
-          <VTextField :model-value="row[0]" label="Emby 路径" density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 0, $event)" />
-          <VTextField :model-value="row[1]" label="MP STRM 路径" density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 1, $event)" />
-          <VTextField :model-value="row[2]" label="网盘目录" density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 2, $event)" />
-          <VTextField :model-value="row[3]" label="本地整理目录（可选）" density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 3, $event)" />
-          <VBtn icon="mdi-close" size="small" variant="text" aria-label="移除此映射" @click="removeMapping('sync_delete_cloud_paths', index)" />
+      <div class="mt-4"><strong>本地整理到网盘（STRM）</strong></div>
+      <div class="my-3">
+        <div v-for="(row, index) in cloudMappings" :key="index" class="dm-sync-mapping mt-3">
+          <VTextarea :model-value="row[0]" label="Emby STRM 目录" rows="2" auto-grow density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 0, $event)" />
+          <VTextarea :model-value="row[1]" label="MP STRM 目录" rows="2" auto-grow density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 1, $event)" />
+          <VTextarea :model-value="row[3]" label="本地整理目录" rows="2" auto-grow density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 3, $event)" />
+          <VTextarea :model-value="row[2]" label="网盘目录" rows="2" auto-grow density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 2, $event)" />
+          <VBtn class="dm-sync-remove" size="small" variant="text" prepend-icon="mdi-close" @click="removeMapping('sync_delete_cloud_paths', index)">移除此映射</VBtn>
         </div>
         <VBtn size="small" variant="text" prepend-icon="mdi-plus" class="mt-2" @click="addMapping('sync_delete_cloud_paths', 4)">添加网盘映射</VBtn>
       </div>
-      <div class="text-caption text-medium-emphasis mb-3">先整理到本地再上传网盘时，可填写对应的本地整理目录以关联整理记录和下载源；三段映射仍可继续使用。</div>
-      <VTextarea v-model="form.sync_delete_source_paths" label="允许删除的下载源目录" rows="3" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="填写 MP 容器内的真实下载目录，一行一个" />
-      <VTextarea v-model="form.sync_delete_exclude_paths" label="保护目录（可选）" rows="2" density="compact" variant="outlined" hide-details class="my-4" placeholder="一行一个路径，匹配到的文件保留" />
-      <template v-if="form.sync_delete_cloud">
-        <VSwitch v-model="form.sync_delete_force_cloud" color="warning" inset hide-details label="没有整理记录时，也按映射删除网盘文件" />
-        <div class="text-caption text-medium-emphasis mb-3">网盘删除使用 115网盘Plus；仍需唯一确认网盘文件，不会凭片名猜测下载器任务。</div>
-      </template>
-      <VSwitch v-model="form.sync_delete_library_deleted" color="warning" inset hide-details label="同时处理普通 Emby 删除通知" />
-      <VDivider class="my-4" />
-      <strong>匹配预览</strong>
-      <div class="text-caption text-medium-emphasis mb-3">先保存配置，再填写 Emby 中某个媒体文件的完整路径。预览只读取关联，不执行清理。</div>
-      <VTextField v-model="previewPath" label="Emby 媒体路径" density="compact" variant="outlined" hide-details />
-      <VBtn class="mt-3" color="primary" variant="tonal" prepend-icon="mdi-eye-outline" :loading="previewLoading" :disabled="!previewPath.trim()" @click="preview">预览关联</VBtn>
-      <div v-if="previewPlan" class="dm-sync-preview mt-4">
-        <div class="mb-2">网盘文件 {{ previewPlan.cloud_files.length }} · 源文件 {{ previewPlan.source_files.length }} · 关联种子 {{ previewPlan.tasks.length }} · 整理记录 {{ previewPlan.records.length }}</div>
-        <div v-for="file in [...previewPlan.cloud_files, ...previewPlan.source_files]" :key="`${file.storage}:${file.path}`" class="dm-sync-path">{{ file.storage }} · {{ file.path }}</div>
-        <div v-for="task in previewPlan.tasks" :key="`${task.downloader}:${task.id}`" class="dm-sync-path">{{ task.downloader }} · {{ task.id }} · {{ task.action === 'remove' ? '移除任务' : `暂停，保留 ${task.remaining} 个媒体文件` }}</div>
-      </div>
+      <details class="my-4">
+        <summary>高级设置 · 删除范围<span v-if="sourceRoots.length">（{{ sourceRoots.length }} 个源目录）</span><span v-else-if="form.sync_delete_source || form.sync_delete_torrents" class="text-warning">（请填写源目录）</span></summary>
+        <div class="text-caption text-medium-emphasis mt-3">源文件和种子仅在允许的目录内处理，保护目录中的文件保留。</div>
+        <VTextarea v-model="form.sync_delete_source_paths" label="允许删除的下载源目录" rows="3" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="填写 MP 容器内的真实下载目录，一行一个" />
+        <VTextarea v-model="form.sync_delete_exclude_paths" label="保护目录（可选）" rows="2" density="compact" variant="outlined" hide-details class="my-4" placeholder="一行一个路径，匹配到的文件保留" />
+      </details>
     </template>
     <template v-else>
       <div class="dm-sync-heading mb-3">
@@ -235,10 +193,9 @@ defineExpose({ refresh: load })
 .dm-sync-switches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; }
 .dm-sync-job { background: transparent !important; }
 .dm-sync-path { overflow-wrap: anywhere; font-size: 12px; }
-.dm-sync-preview { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 12px; }
 .dm-sync summary { cursor: pointer; }
-.dm-sync-mapping { display: grid; grid-template-columns: 1fr 1fr auto; align-items: center; gap: 8px; }
-.dm-sync-mapping-cloud { grid-template-columns: repeat(4, minmax(0, 1fr)) auto; }
-@media (max-width: 760px) { .dm-sync-mapping, .dm-sync-mapping-cloud { grid-template-columns: 1fr; } }
+.dm-sync-mapping { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
+.dm-sync-mapping :deep(textarea) { overflow-wrap: anywhere; }
+.dm-sync-remove { justify-self: end; }
 @media (max-width: 760px) { .dm-sync-switches { grid-template-columns: 1fr; } }
 </style>

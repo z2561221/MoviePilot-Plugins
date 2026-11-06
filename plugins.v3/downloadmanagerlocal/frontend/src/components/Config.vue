@@ -370,8 +370,13 @@ watch(() => [props.pluginId, props.api], () => {
 }, { flush: 'sync' })
 
 function saveConfig() {
+  const mappings = value => String(value || '').split('\n').filter(line => line.split('#').some(part => part.trim())).join('\n')
   emit('save', {
     ...form,
+    sync_delete_force_cloud: false,
+    sync_delete_library_deleted: false,
+    sync_delete_local_paths: mappings(form.sync_delete_local_paths),
+    sync_delete_cloud_paths: mappings(form.sync_delete_cloud_paths),
     sync_delete_servers: [...(form.sync_delete_servers || [])],
     speed_monitor_downloaders: [...(form.speed_monitor_downloaders || [])],
     speed_monitor_manual_speed_bps: { ...(form.speed_monitor_manual_speed_bps || {}) },

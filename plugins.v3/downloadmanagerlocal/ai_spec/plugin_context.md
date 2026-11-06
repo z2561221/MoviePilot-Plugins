@@ -37,6 +37,8 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - `sync_delete_jobs` 保存当前实例的执行快照与历史；`sync_delete_blocks` 绑定下载器/hash/创建时间，阻止旧任务被校验或辅种重新启动。完成历史最多 1000 条、30 天，未解决记录受单独上限保护。
 - `deep.delete` 为默认通知；普通 `library.deleted` 默认关闭。旧 hash-only 清理入口不再整包删除，必须解析到具体媒体范围。
 - `/sync_delete/options`、`/sync_delete/history` 返回裸模型；`/sync_delete/preview`、`/sync_delete/retry` 返回标准 Response。预览和重试验证超管身份，重试只接受服务端任务 ID。
+- 配置页分本地与 STRM 两组，目录使用全宽自动增高输入框，无批量/分列模式切换。网盘处理继续由 `sync_delete_cloud` 独立开关控制，填写或改动目录不会自动启用；三段、四段路径格式及后端关联规则保持兼容。
+- 普通通知、手动预览、无记录强删入口从配置页移除；保存时将 `sync_delete_library_deleted`、`sync_delete_force_cloud` 置 false，并丢弃全空映射行。后端旧字段及诊断预览 API 继续兼容。源目录、保护目录收在默认折叠的“高级设置 · 删除范围”，折叠不清空配置或放宽边界。
 - 新增宿主兼容例外：`DownloadHistoryOper.get_files_by_hash/get_files_by_fullpath/delete_file_by_fullpath` 和 `TransferHistoryOper.delete`。当前部署 v3.2.4 的查询 SDK 不覆盖下载文件状态及整理记录删除，故在 adapter 内按次创建 Oper，返回普通字典并不缓存 Session；不导入宿主 ORM Model。宿主提供等价稳定 SDK 后移除这些兼容调用。相关测试以替身验证实体成功后才更新记录。
 - 115 自动删除限定已核验的 P115Disk 3.0.3 提供方：直接 `StorageChain.list_files` 的异常返回 None，与空列表区分；不用普通 REST 的空数组判定不存在。从固定网盘根 ID 逐层目录回读，避免路径/文件 ID 缓存命中已移动目标。若提供方语义变化则重新核验。
 - 转种、辅种批次和做种校验与同步删除使用实例互斥；IYUU 原有重叠触发跳过逻辑保留。配置修改/停用使旧执行器停止，重载未决任务留待重试，不自动执行删除。
@@ -52,7 +54,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - 规划格式 `PLAN_VERSION=2` 拒绝重放升级前的旧清单，保留原进度与记录；不能把旧文件范围重新标记为新版本后继续执行。
 - `coordinated` 在等待实例锁前捕获停止代次，支持有界等待和停止退出；校验读取回包后复验代次。下载器查询失败保留校验队列。
 - 转移配置错误只关闭转移能力；空配置重置旧开关和认证字段。配置初始化复制输入，不回写调用者快照。
-- 前端选项、预览、重试请求分别维护归属；预览路径变化作废旧结果。配置页排队操作在每次等待后核对原实例，详情页操作离开原页面后停止回写；取消请求不显示成业务失败。
+- 前端选项、重试请求分别维护归属。配置页排队操作在每次等待后核对原实例，详情页操作离开原页面后停止回写；取消请求不显示成业务失败。
 - 守护用例：`tests/v3/downloadmanagerlocal/test_sync_delete_review.py`、`test_sync_delete_requests.py` 与 `test_frontend_api.py`。测试仅使用隔离替身和组件脚本，不执行真实删除。
 
 ## 2026-10-04 全局审查修复

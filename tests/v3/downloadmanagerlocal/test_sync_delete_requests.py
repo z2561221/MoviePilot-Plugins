@@ -4,8 +4,8 @@ import subprocess
 from pathlib import Path
 
 
-def test_sync_delete_options_preview_and_retry_have_independent_ownership():
-    """配置编辑不吞选项，旧预览不覆盖新输入，刷新不吞重试受理回执。"""
+def test_sync_delete_options_and_retry_have_independent_ownership():
+    """配置编辑不吞选项，刷新不吞重试受理回执。"""
     frontend = Path(__file__).resolve().parents[3] / "plugins.v3/downloadmanagerlocal/frontend"
     script = r"""
 const assert = require('node:assert/strict');
@@ -24,7 +24,7 @@ function setup(mode) {
     getPluginApi:request, postPluginJsonApi:request,
     isApiRequestCancellation:error=>error?.code==='ERR_CANCELED', console, Date};
   vm.createContext(context);
-  vm.runInContext(code+'\nglobalThis.test={load,preview,retry,servers,rows,error,notice,loading,previewPath,previewPlan,retryId,total,enabled};',context);
+  vm.runInContext(code+'\nglobalThis.test={load,retry,servers,rows,error,notice,loading,retryId,total,enabled,editMapping,removeMapping,cloudMappings};',context);
   return {...context.test,props,pending,close:()=>cleanups.forEach(fn=>fn())};
 }
 const settle = async()=>{await vue.nextTick();await Promise.resolve();await Promise.resolve()};
@@ -35,11 +35,16 @@ const settle = async()=>{await vue.nextTick();await Promise.resolve();await Prom
   config.pending[0].resolve({servers:['Emby']});
   await settle();
   assert.equal(config.servers.value[0],'Emby','editing a setting must not discard server options');
-  config.previewPath.value='/emby/old.strm';await vue.nextTick();
-  const preview=config.preview();
-  config.previewPath.value='/emby/new.strm';await vue.nextTick();
-  config.pending[1].resolve({plan:{marker:'old'}});await preview;
-  assert.equal(config.previewPlan.value,null,'old path preview must not label the new path');
+  config.props.form.sync_delete_cloud_paths='/emby#/strm#/media#/library';
+  config.props.form.sync_delete_cloud=false;
+  config.editMapping('sync_delete_cloud_paths',0,2,'/new-media');
+  assert.equal(config.props.form.sync_delete_cloud_paths,'/emby#/strm#/new-media#/library');
+  assert.equal(config.props.form.sync_delete_cloud,false,'path editing must not enable cloud deletion');
+  config.editMapping('sync_delete_cloud_paths',0,3,'/new library');
+  assert.equal(config.cloudMappings.value[0][2],'/new-media','local path edits must preserve the cloud mapping');
+  config.props.form.sync_delete_cloud_paths=' \n'+config.props.form.sync_delete_cloud_paths;
+  config.removeMapping('sync_delete_cloud_paths',0);
+  assert.equal(config.props.form.sync_delete_cloud_paths,'');
   config.close();
   const history=setup('history');
   history.pending[0].resolve({items:[{id:'job'}],total:1,enabled:true});await settle();
@@ -59,6 +64,54 @@ const settle = async()=>{await vue.nextTick();await Promise.resolve();await Prom
   console.log('request ownership cases passed');
 })().catch(error=>{console.error(error);process.exitCode=1});
 """
-    result = subprocess.run(["node", "-e", script], cwd=frontend, capture_output=True, text=True)
+    result = subprocess.run(["node", "-e", script], cwd=frontend, capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     assert "request ownership cases passed" in result.stdout
+
+
+def test_saving_supported_scenarios_keeps_paths_and_disables_retired_options():
+    """三种流程保存路径和删除分工，但不能带出隐藏的旧删除选项。"""
+    frontend = Path(__file__).resolve().parents[3] / "plugins.v3/downloadmanagerlocal/frontend"
+    script = r"""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const code = fs.readFileSync('src/components/Config.vue', 'utf8')
+  .match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '');
+const build = new Function('reactive','ref','computed','watch','onMounted','onBeforeUnmount',
+  'defineProps','defineEmits','getPluginApi','postPluginJsonApi','isApiRequestCancellation',
+  code+'\nreturn {form,saveConfig};');
+for (const scenario of [
+  {sync_delete_local_paths:'/emby-local#/library',sync_delete_cloud_paths:'',sync_delete_cloud:false},
+  {sync_delete_local_paths:'',sync_delete_cloud_paths:'/emby-strm#/strm#/media',sync_delete_cloud:true},
+  {sync_delete_local_paths:'/emby-local#/library',sync_delete_cloud_paths:'/emby-strm#/strm#/media#/library-cloud',sync_delete_cloud:false},
+]) {
+  const initialConfig = {...scenario,sync_delete_servers:['Emby'],sync_delete_source_paths:'/downloads',
+    sync_delete_exclude_paths:'/downloads/keep',sync_delete_force_cloud:true,sync_delete_library_deleted:true,
+    sync_delete_source:true,sync_delete_torrents:true,sync_delete_records:true,unrelated_setting:'keep'};
+  const props = {api:{},pluginId:'A',initialConfig};
+  const before = JSON.stringify(initialConfig);
+  const emitted = [];
+  const noRequest = () => {throw new Error('saving a draft must not issue a deletion request')};
+  const state = build(value=>value,value=>({value}),get=>({get value(){return get()}}),
+    (source,cb,options)=>{if(options?.immediate)cb(source())},()=>{},()=>{},()=>props,
+    ()=>(...args)=>emitted.push(args),noRequest,noRequest,()=>false);
+  state.saveConfig();
+  assert.equal(emitted.length,1);
+  assert.equal(emitted[0][0],'save');
+  assert.deepEqual(emitted[0][1],{...state.form,sync_delete_force_cloud:false,sync_delete_library_deleted:false});
+  for (const [key,value] of Object.entries(scenario)) assert.equal(emitted[0][1][key],value);
+  assert.equal(emitted[0][1].sync_delete_source_paths,'/downloads');
+  assert.equal(emitted[0][1].sync_delete_exclude_paths,'/downloads/keep');
+  assert.equal(emitted[0][1].unrelated_setting,'keep');
+  assert.equal(JSON.stringify(initialConfig),before,'saving must not modify the supplied config');
+  state.form.sync_delete_cloud_paths+='\n###';
+  state.form.sync_delete_local_paths+='\n#';
+  state.saveConfig();
+  assert.equal(emitted[1][1].sync_delete_cloud_paths,scenario.sync_delete_cloud_paths,'unused empty inputs must not create invalid mappings');
+  assert.equal(emitted[1][1].sync_delete_local_paths,scenario.sync_delete_local_paths);
+}
+console.log('supported scenario save cases passed');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=frontend, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert "supported scenario save cases passed" in result.stdout
