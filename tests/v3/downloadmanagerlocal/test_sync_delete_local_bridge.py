@@ -102,3 +102,17 @@ def test_uploaded_move_uses_recorded_size_when_local_copy_is_absent():
     adapter.records[0]["dest_fileitem"] = {}
     with pytest.raises(DeleteRejected, match="大小"):
         service.build_plan(plugin, event(), service.config_for(plugin), adapter)
+
+
+def test_cloud_deleted_before_notification_still_cleans_exact_source():
+    """实体先被其它同步链删除时，完整历史身份允许幂等续办本集关联。"""
+    plugin, adapter = bridge_case()
+    adapter.records[0]["src_fileitem"] = {"size": 100}
+    adapter.items.pop(("local", "/library/A.mkv"))
+    adapter.items.pop(("115网盘Plus", "/media/A.mkv"))
+    runtime, job = queued(plugin)
+    runtime.execute(job, adapter)
+    assert job["state"] == "completed" and not adapter.records
+    assert job["plan"]["cloud_files"][0]["status"] == "absent"
+    assert ("file", "115网盘Plus", "/media/A.mkv") not in adapter.calls
+    assert ("file", "local", "/downloads/A.mkv") in adapter.calls

@@ -225,13 +225,20 @@ def _bridge_file(adapter, row, scope):
     else:
         local_file = _snapshot_file(adapter, "local", local_path, library_root)
     cloud_file = _snapshot_file(adapter, scope["storage"], cloud_path, scope["target"])
-    sizes = [cloud_file.get("size")]
+    sizes = []
+    if cloud_file["status"] != "absent":
+        sizes.append(cloud_file.get("size"))
     if local_file["status"] != "absent":
         sizes.append(local_file.get("size"))
     historical_size = (row.get("dest_fileitem") or {}).get("size")
     if historical_size is not None:
         sizes.append(historical_size)
-    if len(sizes) < 2 or any(not isinstance(size, int) or size <= 0 for size in sizes) or len(set(sizes)) != 1:
+    source_size = (row.get("src_fileitem") or {}).get("size")
+    if source_size is not None:
+        sizes.append(source_size)
+    both_absent = local_file["status"] == cloud_file["status"] == "absent"
+    if (len(sizes) < 2 or (both_absent and historical_size is None)
+            or any(not isinstance(size, int) or size <= 0 for size in sizes) or len(set(sizes)) != 1):
         raise DeleteRejected("网盘与本地整理副本大小无法一致核验，保留关联待确认")
     return local_file, cloud_file
 
