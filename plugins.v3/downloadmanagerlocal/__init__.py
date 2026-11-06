@@ -40,7 +40,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件名称
     plugin_name = "下载中心"
     # 插件描述
-    plugin_desc = "转移做种 + IYUU辅种 + 种子重命名 + 站点标签，一站式下载管理。"
+    plugin_desc = "「未来道具研究所」出品 · EL PSY CONGROO！"
     # 插件图标
     plugin_icon = "download.png"
     # 插件颜色
