@@ -127,8 +127,10 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
   TorrentHelper，插件仍需下载种子内容；2026-08-30 更新后的宿主已将该能力从
   `app.application.torrent` 包根迁入 `download` 子模块，旧的
   `app.services.torrent` 回退路径也已删除。实际运行态复核在同步/reload 阶段完成。
-  SDK 提供等价出口后移除此例外；聚焦守护为
-  `test_v3_internal_imports_match_symbol_allowlist`。
+  2026-11-06 在实际 v3.2.4 宿主复核 SDK 仍无等价出口，已登记
+  `.github/plugin-quality-exceptions.json`。SDK 提供等价出口后移除此例外；聚焦守护为
+  `test_v3_internal_imports_match_symbol_allowlist` 与
+  `test_torrent_download_adapter_preserves_host_contract`。
 - 宿主数据访问例外（按 MoviePilot V3 `1f3d2b7f` 复核）：
   - 下载历史 hash 查询优先使用 `app.sdk.queries.list_download_history`，返回脱离 ORM 的
     `DownloadHistorySnapshot`；旧 V3 镜像缺少该 SDK 时才回退

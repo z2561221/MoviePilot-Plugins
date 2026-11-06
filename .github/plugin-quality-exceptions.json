@@ -23,6 +23,18 @@
       }
     ]
   },
+  "DownloadManagerLocal": {
+    "imports": [
+      {
+        "module": "app.application.torrent.download",
+        "symbol": "TorrentHelper",
+        "reason": "已核验当前宿主 SDK 未导出种子内容下载接口，下载中心通过适配层委托宿主处理站点认证及种子下载。",
+        "host_version": "v3.2.4 (2026-11-06 runtime source verified)",
+        "removal_condition": "宿主稳定 SDK 提供等价的种子内容下载接口后迁移并移除此例外。",
+        "test": "tests/v3/downloadmanagerlocal/test_v3_contract.py::test_torrent_download_adapter_preserves_host_contract"
+      }
+    ]
+  },
   "DoubanCenter": {
     "imports": [
       {

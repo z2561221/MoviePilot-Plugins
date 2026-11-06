@@ -428,6 +428,31 @@ def test_v3_internal_imports_match_symbol_allowlist() -> None:
 
     assert actual == allowed
 
+    import json
+
+    exceptions = json.loads((PLUGIN_ROOT.parents[1] / ".github/plugin-quality-exceptions.json").read_text(encoding="utf-8"))
+    entries = exceptions["DownloadManagerLocal"]["imports"]
+    assert {(entry["module"], entry["symbol"]) for entry in entries} == allowed
+    assert all(entry.get(field) for entry in entries for field in ("reason", "host_version", "removal_condition", "test"))
+
+
+def test_torrent_download_adapter_preserves_host_contract(monkeypatch) -> None:
+    """必要兼容入口透传认证参数与宿主结果，不自行联网或重新解析种子。"""
+    calls = []
+    result = ("fixture.torrent", b"fixture", "folder", ["A.mkv"], "")
+
+    class FakeTorrentHelper:
+        """隔离真实站点访问的下载适配替身。"""
+
+        def download_torrent(self, **kwargs):
+            """记录参数并返回宿主五项结果。"""
+            calls.append(kwargs)
+            return result
+
+    monkeypatch.setattr(moviepilot_adapter, "TorrentHelper", FakeTorrentHelper)
+    assert moviepilot_adapter.download_torrent_content("https://example.invalid/file", cookie="fixture", ua="test", proxy=False) is result
+    assert calls == [{"url": "https://example.invalid/file", "cookie": "fixture", "ua": "test", "proxy": False}]
+
 
 def test_frontend_uses_injected_plugin_instance_id() -> None:
     """Vue 联邦组件必须使用宿主注入的实例 ID，不得硬编码源插件路径。"""
