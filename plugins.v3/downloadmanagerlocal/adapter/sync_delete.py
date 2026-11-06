@@ -321,8 +321,10 @@ class SyncDeleteAdapter:
         if current["identity"] != task["identity"]:
             raise DeleteRejected("下载任务已被重建或移动")
         self.check_write()
+        if text(current["state"]).lower().startswith(("paused", "stopped")):
+            return
         self.plugin.service_info(task["downloader"]).instance.stop_torrents(ids=[task["id"]])
-        for delay in (0, 0.3, 0.7):
+        for delay in (0, 0.5, 1, 2, 3, 3):
             runtime = getattr(self.plugin, "_sync_delete_runtime", None)
             if delay and runtime and runtime.stop.wait(delay):
                 raise DeleteRejected("同步删除已停止")

@@ -2,6 +2,7 @@
 
 import runpy
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from app.plugins.downloadmanagerlocal.model.sync_delete import DeleteRejected, mapped_scope, mappings
@@ -116,3 +117,34 @@ def test_cloud_deleted_before_notification_still_cleans_exact_source():
     assert job["plan"]["cloud_files"][0]["status"] == "absent"
     assert ("file", "115网盘Plus", "/media/A.mkv") not in adapter.calls
     assert ("file", "local", "/downloads/A.mkv") in adapter.calls
+
+
+def test_pause_allows_delayed_downloader_state_without_unbounded_wait():
+    """下载器接受暂停后延迟更新状态，有限重查成功后才允许后续删除。"""
+    from app.plugins.downloadmanagerlocal.adapter.sync_delete import SyncDeleteAdapter
+
+    task = {"downloader": "QB", "id": "a", "identity": ["a", 1, "/downloads"], "state": "stalledUP"}
+    waits, writes, states = [], [], iter(["stalledUP"] * 4 + ["stoppedUP"])
+    adapter = object.__new__(SyncDeleteAdapter)
+    adapter.plugin = SimpleNamespace(
+        _sync_delete_runtime=SimpleNamespace(stop=SimpleNamespace(wait=lambda delay: waits.append(delay) or False)),
+        service_info=lambda _: SimpleNamespace(instance=SimpleNamespace(stop_torrents=lambda **_: writes.append(True))),
+    )
+    adapter.check_write = lambda: None
+    adapter.torrent = lambda *_: dict(task, state=next(states))
+    adapter.pause(task)
+    assert writes == [True] and 1 < sum(waits) <= 10
+
+
+def test_already_paused_torrent_does_not_send_another_stop():
+    """旧任务已确认暂停时继续核验，不再重复发送暂停请求。"""
+    from app.plugins.downloadmanagerlocal.adapter.sync_delete import SyncDeleteAdapter
+
+    task = {"downloader": "QB", "id": "a", "identity": ["a", 1, "/downloads"], "state": "stoppedUP"}
+    adapter = object.__new__(SyncDeleteAdapter)
+    writes = []
+    adapter.plugin = SimpleNamespace(service_info=lambda _: SimpleNamespace(instance=SimpleNamespace(stop_torrents=lambda **_: writes.append(True))))
+    adapter.torrent = lambda *_: dict(task)
+    adapter.check_write = lambda: None
+    adapter.pause(task)
+    assert writes == []
