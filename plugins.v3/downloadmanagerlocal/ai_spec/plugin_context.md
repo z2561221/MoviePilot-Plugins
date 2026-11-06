@@ -42,6 +42,17 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - 转种、辅种批次和做种校验与同步删除使用实例互斥；IYUU 原有重叠触发跳过逻辑保留。配置修改/停用使旧执行器停止，重载未决任务留待重试，不自动执行删除。
 - 核心流程参考神医媒体文件同步删除及 115 STRM 助手的使用方式；实现为下载中心原生模块，不依赖它们的数据空间或执行器。
 
+### 同周期审查修正
+
+- 多媒体删除的相对文件名按各自关联种子链匹配，不能跨不相关下载任务扩展文件清单。
+- 删除下载源和移除种子独立门禁；只移除种子不写下载文件已删除状态。完成后退出无其它保留关系的 IYUU 母种反查，暂停合集及并发新增关系继续保留。
+- 旧任务重试前复验全部文件身份、已移除任务是否重建及新增整理引用；执行每个源文件操作前再次检查保留引用。
+- 规划格式 `PLAN_VERSION=2` 拒绝重放升级前的旧清单，保留原进度与记录；不能把旧文件范围重新标记为新版本后继续执行。
+- `coordinated` 在等待实例锁前捕获停止代次，支持有界等待和停止退出；校验读取回包后复验代次。下载器查询失败保留校验队列。
+- 转移配置错误只关闭转移能力；空配置重置旧开关和认证字段。配置初始化复制输入，不回写调用者快照。
+- 前端选项、预览、重试请求分别维护归属；预览路径变化作废旧结果。配置页排队操作在每次等待后核对原实例，详情页操作离开原页面后停止回写；取消请求不显示成业务失败。
+- 守护用例：`tests/v3/downloadmanagerlocal/test_sync_delete_review.py`、`test_sync_delete_requests.py` 与 `test_frontend_api.py`。测试仅使用隔离替身和组件脚本，不执行真实删除。
+
 ## 2026-10-04 全局审查修复
 
 - 转种目标查询失败、校验失败或源删除失败时保留 `stopped_after_add`，不会虚报完成。
@@ -173,7 +184,9 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 | `/tag_cleanup_scan` | POST | 扫描下载器标签并清理临时标签 | `api_tag_cleanup_scan` |
 | `/tag_cleanup_execute` | POST | 按扫描快照清理标签 | `api_tag_cleanup_execute` |
 
-其中 7 条 GET 查询路由返回声明的裸业务模型，其余 13 条操作路由显式返回严格
+另有 `/sync_delete/options`、`/sync_delete/history` 两条 GET，以及
+`/sync_delete/preview`、`/sync_delete/retry` 两条 POST，详见同步删除章节。
+共 9 条 GET 查询路由返回声明的裸业务模型，其余 15 条操作路由显式返回严格
 `schemas.Response[T]`。Vue helper 仅在顶层字段恰好为
 `success/message/data` 且 `success` 为布尔值时解包；裸业务模型及带额外字段的
 自定义 payload 原样返回。这样既符合当前 V3 动态路由合同，也兼容旧镜像曾经提供
@@ -181,7 +194,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 守护测试：
 
-- `tests/static/test_downloadmanagerlocal_backend_contract.py`
+- `tests/v3/downloadmanagerlocal/test_v3_contract.py`
 
 ## 服务与事件
 
@@ -381,7 +394,7 @@ V3 使用已核验的宿主 checkout、工作区共享测试解释器和已安�
 ```powershell
 Remove-Item Env:CONFIG_DIR -ErrorAction SilentlyContinue
 $env:DB_TYPE = 'sqlite'
-$pluginTestPython = 'D:\AIGC\MoviePilot\.venv-test\Scripts\python.exe'
+$pluginTestPython = 'D:\AIGC\All In Docker\MoviePilot\.venv-test\Scripts\python.exe'
 
 & $pluginTestPython -m pytest tests/v3/downloadmanagerlocal -q
 & $pluginTestPython -m compileall -q plugins.v3/downloadmanagerlocal
@@ -400,7 +413,7 @@ Vue/API 契约完成验证。运行验收前必须先取得目标 MoviePilot 实
 ## 已知环境注意事项
 
 - Windows PATH 中的 `python` 指向 Microsoft Store alias，不可用于验证。
-- Codex bundled Python 初始没有 `pytest`，本执行分支已通过 `python -m pip install pytest` 安装到 bundled runtime。
+- 使用项目已核验的共享测试解释器及宿主 checkout；不以历史 bundled Python 安装记录判断当前环境。
 - 直接 `python -m pytest tests/static/...` 会触发根 `tests/conftest.py` 的代际检查而失败；static 测试需使用 `--confcutdir=tests/static`。
 - 正式 v1/v2 插件测试仍应遵守 `tests/run.py` 与 `tests/README.md`，不要把 static 测试入口误用于完整插件测试。
 

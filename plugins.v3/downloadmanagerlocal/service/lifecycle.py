@@ -53,12 +53,11 @@ def initialize_plugin(plugin, config: dict = None) -> None:
     if plugin._transfer_active or plugin._onlyonce:
         if not validate_config(plugin):
             _disable_invalid_transfer_config(plugin, config)
-            return
-
-        plugin._scheduler = BackgroundScheduler(timezone=settings.TZ)
-        restore_transfer_schedule(plugin)
-        _schedule_transfer_once(plugin, config)
-        _start_scheduler_if_needed(plugin, print_jobs=True)
+        else:
+            plugin._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            restore_transfer_schedule(plugin)
+            _schedule_transfer_once(plugin, config)
+            _start_scheduler_if_needed(plugin, print_jobs=True)
 
     if plugin._iyuu_enabled and plugin._iyuu_token and plugin._iyuu_downloaders:
         plugin.iyuu_helper = IyuuHelper(token=plugin._iyuu_token)
@@ -74,10 +73,10 @@ def initialize_plugin(plugin, config: dict = None) -> None:
 
 
 def _disable_invalid_transfer_config(plugin, config: dict) -> None:
-    """在转移配置无效时按旧逻辑关闭转移开关并持久化。"""
-    plugin._enabled = False
+    """转移配置无效只关闭该能力，保留其它能力及总开关。"""
+    plugin._transfer_enabled = False
     plugin._onlyonce = False
-    config["enabled"] = plugin._enabled
+    config["transfer_enabled"] = plugin._transfer_enabled
     config["onlyonce"] = plugin._onlyonce
     plugin.update_config(config=config)
 
@@ -124,11 +123,11 @@ def _start_scheduler_if_needed(plugin, print_jobs: bool = False) -> None:
 
 def stop_plugin_service(plugin) -> None:
     """发出退出信号并停止后台调度器，旧批次通过代次识别停止。"""
-    stop_sync_delete(plugin)
     plugin._transfer_stop_generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) + 1
     event = getattr(plugin, "_event", None)
     if event is not None:
         event.set()
+    stop_sync_delete(plugin)
     clear_transfer_schedule(plugin)
     try:
         if not plugin._scheduler:

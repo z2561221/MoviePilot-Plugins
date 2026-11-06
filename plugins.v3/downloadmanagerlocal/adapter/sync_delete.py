@@ -49,6 +49,7 @@ class SyncDeleteAdapter:
     """隔离所有外部影响，测试以同一接口的内存替身验证执行顺序。"""
 
     def __init__(self, plugin, config: dict):
+        """绑定实例和配置快照，存储连接由实际查询按需获取。"""
         self.plugin = plugin
         self.config = config
         self.chain = StorageChain()

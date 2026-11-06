@@ -13,6 +13,7 @@ def handle_webhook_message_event(plugin, event):
 
 
 def _empty_result(trigger=""):
+    """返回无精确媒体范围时的保留回执，不执行 hash 级删除。"""
     return {"trigger": trigger, "source_hash": "", "transfer_deleted": 0,
             "iyuu_deleted": 0, "skipped": True}
 

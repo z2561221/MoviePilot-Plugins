@@ -1,5 +1,7 @@
 """下载中心配置初始化服务。"""
 
+from copy import deepcopy
+
 from app.sdk.logging import logger
 
 from ..adapter.moviepilot import create_downloader_helper, list_builtin_sites
@@ -9,6 +11,7 @@ from ..model.state import (
     IYUU_PERMANENT_ERROR_CACHES_KEY,
     IYUU_SUCCESS_CACHES_KEY,
 )
+from ..model.sync_delete import DEFAULTS as SYNC_DELETE_DEFAULTS
 from ..utils.config import (
     PLUGIN_CONFIG_DEFAULTS,
     normalize_speed_monitor_config,
@@ -20,10 +23,7 @@ from ..utils.tracker import parse_tracker_mappings
 
 def initialize_runtime_config(plugin, config: dict = None) -> dict:
     """根据插件配置初始化运行时字段并返回可继续持久化的配置。"""
-    from copy import deepcopy
-    from ..model.sync_delete import DEFAULTS as SYNC_DELETE_DEFAULTS
-
-    config = config or {}
+    config = deepcopy(config) if isinstance(config, dict) else {}
     for key, default in SYNC_DELETE_DEFAULTS.items():
         setattr(plugin, "_" + key, deepcopy(config.get(key, default)))
     plugin.downloader_helper = create_downloader_helper()
@@ -42,9 +42,6 @@ def initialize_runtime_config(plugin, config: dict = None) -> dict:
     upload_limit_config = normalize_upload_limit_config(config)
     for key, value in upload_limit_config.items():
         setattr(plugin, f"_{key}", value)
-
-    if not config:
-        return config
 
     config.update(monitor_config)
     config.update(upload_limit_config)

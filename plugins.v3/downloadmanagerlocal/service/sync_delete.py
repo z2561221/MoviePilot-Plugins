@@ -26,6 +26,7 @@ from ..model.sync_delete import (
     MAX_PENDING,
     MAX_TARGETS,
     MEDIA_EXTENSIONS,
+    PLAN_VERSION,
     SIDECAR_EXTENSIONS,
     DeleteRejected,
     config_for,
@@ -51,13 +52,34 @@ def operation_lock(plugin):
         return plugin._sync_delete_operation_lock
 
 
+def operation_stopped(plugin, generation: int) -> bool:
+    """共享停止判定用于在途查询回包后的写入门禁。"""
+    event = getattr(plugin, "_event", None)
+    return (int(getattr(plugin, "_transfer_stop_generation", 0) or 0) != generation
+            or (event is not None and event.is_set()))
+
+
 def coordinated(function):
     """为已有批次入口提供同实例互斥，不改变普通执行结果。"""
     @wraps(function)
     def wrapper(plugin, *args, **kwargs):
-        with operation_lock(plugin):
+        """等锁前固定停止代次，取消后不进入业务，嵌套调用恢复外层快照。"""
+        generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
+        guard = operation_lock(plugin)
+        while not operation_stopped(plugin, generation):
+            if guard.acquire(timeout=0.2):
+                break
+        else:
+            return None
+        previous = getattr(plugin, "_sync_delete_block_snapshot", None)
+        try:
+            if operation_stopped(plugin, generation):
+                return None
             plugin._sync_delete_block_snapshot = (plugin.get_data(BLOCKS_KEY) or {}) if hasattr(plugin, "get_data") else {}
             return function(plugin, *args, **kwargs)
+        finally:
+            plugin._sync_delete_block_snapshot = previous
+            guard.release()
     return wrapper
 
 
@@ -145,6 +167,7 @@ def related_nodes(records: dict, initial: set[tuple[str, str]]) -> set[tuple[str
 
 
 def _dest_matches(dest: str, target: str, file_scope: bool) -> bool:
+    """仅匹配明确文件或目录边界内的实体，不按名称模糊扩展。"""
     if not file_scope:
         return within(dest, target, strict=True)
     if dest == target:
@@ -156,6 +179,7 @@ def _dest_matches(dest: str, target: str, file_scope: bool) -> bool:
 
 
 def _snapshot_file(adapter, storage, path, root):
+    """保存精确文件身份或已核验不存在状态。"""
     item = adapter.lookup(storage, path, root)
     if item is None:
         return {"storage": storage, "path": path, "root": root, "identity": None,
@@ -178,7 +202,7 @@ def build_plan(plugin, event: dict, config: dict, adapter=None, *, preview=False
     if not selected or server not in selected or server not in available:
         raise DeleteRejected("通知来源未在同步删除服务器范围内")
     scopes = [mapped_scope(path, config) for path in event["paths"]]
-    plan = {"server": server, "event": event, "config_fingerprint": fingerprint(config),
+    plan = {"version": PLAN_VERSION, "server": server, "event": event, "config_fingerprint": fingerprint(config),
             "cloud_files": [], "source_files": [], "tasks": [], "records": [], "sources": []}
     records, cloud = {}, {}
     for scope in scopes:
@@ -241,9 +265,9 @@ def build_plan(plugin, event: dict, config: dict, adapter=None, *, preview=False
             raise DeleteRejected("没有对应的整理记录")
     plan["records"] = list(records.values())
     plan["cloud_files"] = list(cloud.values())
-    source_paths, roots, known_roots = {}, set(), {}
+    source_paths, roots, known_roots, source_nodes = {}, set(), {}, {}
     relationships = relation_records(plugin)
-    if config["sync_delete_source"]:
+    if config["sync_delete_source"] or config["sync_delete_torrents"]:
         for row in plan["records"]:
             src = text(row.get("src"))
             if not src:
@@ -265,35 +289,40 @@ def build_plan(plugin, event: dict, config: dict, adapter=None, *, preview=False
                 identity = current_file.get("identity") or []
                 if stamp and len(identity) == 4 and int(stamp) != identity[3]:
                     raise DeleteRejected("源文件修改时间已变化")
-            plan["sources"].append(src)
+            if config["sync_delete_source"]:
+                plan["sources"].append(src)
+            row_roots = set()
             if row.get("downloader") and row.get("download_hash"):
-                roots.add((text(row["downloader"]), text(row["download_hash"])))
+                row_roots.add((text(row["downloader"]), text(row["download_hash"])))
             for entry in adapter.download_files(path=src):
                 if entry.get("downloader") and entry.get("download_hash"):
                     node = (text(entry["downloader"]), text(entry["download_hash"]))
-                    roots.add(node)
+                    row_roots.add(node)
                     if entry.get("savepath"):
                         known_roots[node] = path_text(entry["savepath"])
             if row.get("download_hash"):
                 torrent_hash = text(row["download_hash"])
                 for key, value in relationships.items():
                     if isinstance(value, dict) and value.get("to_download") and key.endswith("-" + torrent_hash):
-                        roots.add((key[:-(len(torrent_hash) + 1)], torrent_hash))
-                if not any(node[1] == torrent_hash for node in roots):
+                        row_roots.add((key[:-(len(torrent_hash) + 1)], torrent_hash))
+                if not any(node[1] == torrent_hash for node in row_roots):
                     for entry in adapter.download_files(torrent_hash=torrent_hash):
                         if entry.get("downloader"):
                             node = (text(entry["downloader"]), torrent_hash)
-                            roots.add(node)
+                            row_roots.add(node)
                             if entry.get("savepath"):
                                 known_roots[node] = path_text(entry["savepath"])
-                if not any(node[1] == torrent_hash for node in roots):
+                if not any(node[1] == torrent_hash for node in row_roots):
                     raise DeleteRejected("有下载 hash 但无法确认源下载器，保留关联待核验")
+            roots.update(row_roots)
+            source_nodes.setdefault(src, set()).update(row_roots)
     if roots:
         nodes = related_nodes(relationships, roots)
         hashes = {node[1] for node in nodes}
         plan["relations"] = {
             key: value for key, value in relationships.items()
             if (key.startswith("iyuu_") and key[5:] in hashes)
+            or (key.startswith("iyuu_source_") and key[len("iyuu_source_"):] in hashes)
             or (isinstance(value, dict) and (text(value.get("to_download")), text(value.get("to_download_id"))) in nodes)
         }
         tasks = []
@@ -302,16 +331,22 @@ def build_plan(plugin, event: dict, config: dict, adapter=None, *, preview=False
             if task:
                 tasks.append(task)
                 known_roots[(name, torrent_id)] = task["save_path"]
-        relative_paths = set()
-        for source in source_paths:
-            for node in roots:
+        relative_paths, exact_paths = {}, {}
+        for source, origin_nodes in source_nodes.items():
+            group = related_nodes(relationships, origin_nodes)
+            relative = set()
+            for node in origin_nodes:
                 save_root = known_roots.get(node)
                 if save_root and within(source, save_root, strict=True):
-                    relative_paths.add(str(PurePosixPath(source).relative_to(save_root)))
+                    relative.add(str(PurePosixPath(source).relative_to(save_root)))
+            for node in group:
+                relative_paths.setdefault(node, set()).update(relative)
+                exact_paths.setdefault(node, set()).add(source)
         for task in tasks:
-            matching = {path for path in task["files"] if path in source_paths}
+            node = (task["downloader"], task["id"])
+            matching = {path for path in task["files"] if path in exact_paths.get(node, set())}
             matching.update(path for path in task["files"]
-                            if str(PurePosixPath(path).relative_to(task["save_path"])) in relative_paths)
+                            if str(PurePosixPath(path).relative_to(task["save_path"])) in relative_paths.get(node, set()))
             if not matching:
                 raise DeleteRejected("关联种子的文件路径无法与本次删除对应")
             for path in matching:
@@ -328,7 +363,7 @@ def build_plan(plugin, event: dict, config: dict, adapter=None, *, preview=False
                         status="pending", remaining=len(remaining))
             plan["tasks"].append(task)
     # 只删除同名字幕/NFO，保留影片共用海报等无法确定归属的文件。
-    for source in list(source_paths):
+    for source in list(source_paths) if config["sync_delete_source"] else []:
         parent = adapter.lookup("local", str(PurePosixPath(source).parent), source_paths[source]["root"])
         if parent:
             stem = PurePosixPath(source).stem
@@ -337,7 +372,7 @@ def build_plan(plugin, event: dict, config: dict, adapter=None, *, preview=False
                 if (child["type"] == "file" and PurePosixPath(child_path).suffix.lower() in SIDECAR_EXTENSIONS
                         and PurePosixPath(child_path).stem == stem):
                     source_paths[child_path] = _snapshot_file(adapter, "local", child_path, source_paths[source]["root"])
-    plan["source_files"] = list(source_paths.values())
+    plan["source_files"] = list(source_paths.values()) if config["sync_delete_source"] else []
     if len(plan["cloud_files"]) + len(plan["source_files"]) > MAX_TARGETS:
         raise DeleteRejected("待删除文件超过单次上限")
     return plan
@@ -367,12 +402,28 @@ def retire_relations(plugin, plan):
                     plugin.save_data(key, remaining)
                 else:
                     plugin.del_data(key)
+    for key, original in plan.get("relations", {}).items():
+        if not key.startswith("iyuu_source_") or not isinstance(original, str):
+            continue
+        seed_hash = key[len("iyuu_source_"):]
+        if not any(torrent_id == seed_hash for _, torrent_id in removed):
+            continue
+        if any(task["id"] == seed_hash and task["status"] != "removed" for task in plan["tasks"]):
+            continue
+        # 反查按 hash 保存，另一下载器仍保留同 hash 时不能清掉共享反查。
+        remaining = relation_records(plugin)
+        if any(seed_hash in (row.get("torrents") or [])
+               for value in remaining.values() if isinstance(value, list) for row in value):
+            continue
+        if plugin.get_data(key) == original:
+            plugin.del_data(key)
 
 
 class DeleteRuntime:
     """单实例串行执行队列；重启后的未决任务保留为待重试，不自动重放。"""
 
     def __init__(self, plugin):
+        """创建当前实例专属的锁、停止信号与有界队列。"""
         self.plugin = plugin
         self.lock = RLock()
         self.stop = Event()
@@ -380,12 +431,14 @@ class DeleteRuntime:
         self.thread = None
 
     def jobs(self):
+        """读取持久任务，损坏的数据不解释为空历史。"""
         value = self.plugin.get_data(JOBS_KEY) or {}
         if not isinstance(value, dict):
             raise DeleteRejected("同步删除历史损坏，停止执行")
         return value
 
     def save(self, job):
+        """持久化任务并核对回读，只裁剪已经完成的历史。"""
         with self.lock:
             jobs = self.jobs()
             jobs[job["id"]] = deepcopy(job)
@@ -400,12 +453,14 @@ class DeleteRuntime:
                 raise DeleteRejected("删除意图保存未确认")
 
     def check(self, config):
+        """写入前确认当前实例、开关和执行配置仍然有效。"""
         if (self.stop.is_set() or not getattr(self.plugin, "_enabled", False)
                 or not getattr(self.plugin, "_sync_delete_enabled", False)
                 or fingerprint(config_for(self.plugin)) != fingerprint(config)):
             raise DeleteRejected("同步删除已停止或配置发生变化")
 
     def submit(self, event, *, job_id=None):
+        """先记录删除意图，再将新事件或可重试任务加入队列。"""
         with self.lock:
             config = config_for(self.plugin)
             self.check(config)
@@ -414,6 +469,8 @@ class DeleteRuntime:
                 job = deepcopy(jobs.get(job_id))
                 if not job or job["state"] in {"queued", "running", "completed"}:
                     raise DeleteRejected("该记录不能重试")
+                if job.get("plan") and job["plan"].get("version") != PLAN_VERSION:
+                    raise DeleteRejected("旧版本删除计划需人工核验，不能直接重试")
                 if job.get("plan") and job["plan"]["config_fingerprint"] != fingerprint(config):
                     raise DeleteRejected("配置已变化，旧任务不能直接重试")
             else:
@@ -436,6 +493,7 @@ class DeleteRuntime:
             return job["id"]
 
     def execute(self, job, adapter=None):
+        """按文件和任务快照逐阶段执行，成功后才清理历史关系。"""
         config = config_for(self.plugin)
         adapter = adapter or SyncDeleteAdapter(self.plugin, config)
         self.check(config)
@@ -443,6 +501,8 @@ class DeleteRuntime:
         if not job.get("plan"):
             job["plan"] = build_plan(self.plugin, job["event"], config, adapter)
         plan = job["plan"]
+        if plan.get("version") != PLAN_VERSION:
+            raise DeleteRejected("旧版本删除计划需人工核验，不能直接重试")
         if plan["config_fingerprint"] != fingerprint(config):
             raise DeleteRejected("任务配置快照与当前配置不同")
         self.save(job)
@@ -452,9 +512,18 @@ class DeleteRuntime:
                 raise DeleteRejected("媒体库路径重新出现，停止旧删除任务")
         # 断点恢复时先核查已完成文件没有重现，不借旧快照删除新下载对象的记录。
         for target in plan["cloud_files"] + plan["source_files"]:
-            if target["status"] in {"deleted", "absent"} and adapter.lookup(
-                    target["storage"], target["path"], target["root"]) is not None:
+            current = adapter.lookup(target["storage"], target["path"], target["root"])
+            if target["status"] in {"deleted", "absent"} and current is not None:
                 raise DeleteRejected("已处理路径出现新文件，停止旧任务重试")
+            if current is not None and current.get("identity") != target.get("identity"):
+                raise DeleteRejected("文件身份已变化，停止旧删除任务")
+        record_ids = {record["id"] for record in plan["records"]}
+        for target in plan["source_files"]:
+            if any(row["id"] not in record_ids for row in adapter.histories(source=target["path"])):
+                raise DeleteRejected("源文件已有其它整理记录引用，停止旧任务重试")
+        for task in plan["tasks"]:
+            if task["status"] == "removed" and adapter.torrent(task["downloader"], task["id"]) is not None:
+                raise DeleteRejected("已移除的下载任务被重建，停止旧任务重试")
         blocks = self.plugin.get_data(BLOCKS_KEY) or {}
         for task in plan["tasks"]:
             blocks[task["downloader"] + "::" + task["id"]] = {
@@ -470,6 +539,9 @@ class DeleteRuntime:
             for target in plan[key]:
                 self.check(config)
                 if target["status"] not in {"deleted", "absent"}:
+                    if key == "source_files" and any(
+                            row["id"] not in record_ids for row in adapter.histories(source=target["path"])):
+                        raise DeleteRejected("源文件已有其它整理记录引用，停止删除")
                     adapter.delete_file(target)
                     target["status"] = "deleted"
                     self.save(job)
@@ -515,6 +587,7 @@ class DeleteRuntime:
         self.save(job)
 
     def run(self):
+        """串行消费删除任务并保留故障阶段，停止时退出后续操作。"""
         while not self.stop.is_set():
             try:
                 job_id = self.queue.get(timeout=0.5)

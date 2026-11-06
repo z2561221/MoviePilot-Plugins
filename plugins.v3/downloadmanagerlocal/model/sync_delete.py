@@ -28,6 +28,7 @@ BLOCKS_KEY = "sync_delete_blocks"
 MAX_TARGETS = 5000
 MAX_JOBS = 1000
 MAX_PENDING = 100
+PLAN_VERSION = 2
 MEDIA_EXTENSIONS = {
     ".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".iso",
     ".mpg", ".mpeg", ".flv", ".webm", ".m4v", ".rmvb", ".strm",
@@ -117,6 +118,7 @@ def mapped_scope(path: str, config: dict) -> dict:
 def event_snapshot(data) -> dict:
     """保留删除所需字段，不持久化含会话或凭据的完整 Webhook 报文。"""
     def get(key, default=None):
+        """兼容宿主字典与事件对象的字段读取。"""
         return data.get(key, default) if isinstance(data, dict) else getattr(data, key, default)
     raw = get("json_object") or {}
     item = raw.get("Item") or {}
