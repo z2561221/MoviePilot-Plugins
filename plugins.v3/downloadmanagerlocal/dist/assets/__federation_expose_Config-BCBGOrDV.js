@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, S as SyncDeletePane, g as getPluginApi, p as postPluginJsonApi } from './SyncDeletePane-CTXOggxr.js';
+import { _ as _export_sfc, i as isApiRequestCancellation, S as SyncDeletePane, g as getPluginApi, p as postPluginJsonApi } from './SyncDeletePane-BKyaTRiU.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,createBlock:_createBlock,createCommentVNode:_createCommentVNode,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -224,18 +224,43 @@ let uploadSiteScanTail = Promise.resolve();
 let configDraftRevision = 0;
 let configDisposed = false;
 
+function configRequestScope() {
+  const revision = configDraftRevision;
+  const pluginId = props.pluginId;
+  const api = props.api;
+  return () => !configDisposed && revision === configDraftRevision
+    && pluginId === props.pluginId && api === props.api
+}
+
+function resetConfigRequests() {
+  uploadActionRunning.value = '';
+  uploadScanningSites.value = false;
+  uploadMessage.value = '';
+  cleanupScanning.value = false;
+  cleanupExecuting.value = false;
+  cleanupDialog.value = false;
+  cleanupScan.value = null;
+  cleanupMessage.value = '';
+  monitorResetting.value = '';
+  monitorMessage.value = '';
+}
+
 async function refreshOverview() {
+  const owns = configRequestScope();
   const response = await getApi('overview');
+  if (!owns()) return
   if (response?.code === 0 || response?.cards) overview.value = response;
 }
 
 onMounted(async () => {
+  const owns = configRequestScope();
   try {
     const [dlResp, siteResp, overviewResp] = await Promise.all([
       getApi('downloaders', { feedback: 'silent' }),
       getApi('sites', { feedback: 'silent' }),
       getApi('overview', { feedback: 'silent' }),
     ]);
+    if (!owns()) return
     if (dlResp) {
       downloaderItems.value = dlResp;
     }
@@ -244,6 +269,8 @@ onMounted(async () => {
     }
     if (overviewResp?.code === 0 || overviewResp?.cards) overview.value = overviewResp;
   } catch (e) {
+    if (isApiRequestCancellation(e)) return
+    if (!owns()) return
     console.error('获取列表失败:', e);
   }
 });
@@ -502,6 +529,7 @@ const runtimeFlows = [
 watch(() => props.initialConfig, v => {
   configDraftRevision++;
   uploadSiteRulesRevision++;
+  resetConfigRequests();
   Object.keys(form).forEach(k => delete form[k]);
   Object.assign(form, defaults, v || {});
   form.sync_delete_servers = [...(v?.sync_delete_servers || [])];
@@ -511,11 +539,14 @@ watch(() => props.initialConfig, v => {
   form.upload_limit_downloaders = [...(v?.upload_limit_downloaders || [])];
   form.upload_limit_downloader_limits_kib = { ...(v?.upload_limit_downloader_limits_kib || {}) };
   form.upload_limit_site_rules = Object.fromEntries(Object.entries(v?.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]));
-}, { immediate: true, deep: true });
-watch(() => props.pluginId, () => {
+}, { immediate: true, deep: true, flush: 'sync' });
+watch(() => [props.pluginId, props.api], () => {
   configDraftRevision++;
   uploadSiteRulesRevision++;
-});
+  resetConfigRequests();
+  overview.value = null;
+  uploadSiteItems.value = [];
+}, { flush: 'sync' });
 
 function saveConfig() {
   emit('save', {
@@ -600,6 +631,7 @@ function queueUploadSiteRulesSave(rules) {
     }
     return response
   }).catch(error => {
+    if (isApiRequestCancellation(error)) throw error
     if (!ownsDraft()) return null
     if (revision === uploadSiteRulesRevision) {
       uploadMessageStatus.value = 'error';
@@ -633,21 +665,25 @@ function removeUploadSiteRule(siteName) {
 }
 
 async function clearUploadSiteRules() {
+  const owns = configRequestScope();
   uploadActionRunning.value = 'site-rules';
   uploadMessage.value = '';
   const previousRules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]));
   form.upload_limit_site_rules = {};
   try {
     const response = await queueUploadSiteRulesSave({});
+    if (!owns() || !response) return
     form.upload_limit_site_rules = {};
     uploadMessageStatus.value = 'success';
     uploadMessage.value = '站点策略已清空并立即生效；所有任务仅受下载器全局上限约束';
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     form.upload_limit_site_rules = previousRules;
     uploadMessageStatus.value = 'error';
     uploadMessage.value = error?.message || '站点策略清空失败';
   } finally {
-    uploadActionRunning.value = '';
+    if (owns()) uploadActionRunning.value = '';
   }
 }
 
@@ -657,6 +693,7 @@ function applyUploadStatus(response) {
 }
 
 async function refreshUploadLimitStatus({ silent = false } = {}) {
+  const owns = configRequestScope();
   if (!silent) {
     uploadActionRunning.value = 'refresh';
     uploadMessage.value = '';
@@ -666,15 +703,18 @@ async function refreshUploadLimitStatus({ silent = false } = {}) {
       'upload_limit_status',
       silent ? { feedback: 'silent' } : {},
     );
+    if (!owns()) return
     applyUploadStatus(response);
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     if (silent) console.error('上传限速状态自动刷新失败:', error);
     else {
       uploadMessageStatus.value = 'error';
       uploadMessage.value = error?.message || '状态刷新失败';
     }
   } finally {
-    if (!silent) uploadActionRunning.value = '';
+    if (!silent && owns()) uploadActionRunning.value = '';
   }
 }
 
@@ -722,6 +762,7 @@ onBeforeUnmount(() => {
 });
 
 async function scanUploadSites() {
+  const owns = configRequestScope();
   uploadMessage.value = '';
   if (!form.upload_limit_downloaders?.length) {
     uploadMessageStatus.value = 'warning';
@@ -731,6 +772,7 @@ async function scanUploadSites() {
   uploadScanningSites.value = true;
   const scanOperation = (async () => {
     await flushUploadSiteRulesSave();
+    if (!owns()) return null
     return postJsonApi('upload_limit_site_tags', {
       downloaders: form.upload_limit_downloaders,
       rules: cloneUploadSiteRules(),
@@ -739,52 +781,65 @@ async function scanUploadSites() {
   uploadSiteScanTail = scanOperation;
   try {
     const response = await scanOperation;
+    if (!owns()) return
     uploadSiteItems.value = response?.items || [];
     form.upload_limit_site_rules = response?.rules || form.upload_limit_site_rules || {};
     uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error');
     uploadMessage.value = response?.msg || `扫描到 ${uploadSiteItems.value.length} 个站点标签，策略已立即生效`;
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     uploadMessageStatus.value = 'error';
     uploadMessage.value = error?.message || '站点扫描失败';
   } finally {
     if (uploadSiteScanTail === scanOperation) uploadSiteScanTail = Promise.resolve();
-    uploadScanningSites.value = false;
+    if (owns()) uploadScanningSites.value = false;
   }
 }
 
 async function reallocateUploadLimits() {
+  const owns = configRequestScope();
   uploadActionRunning.value = 'reallocate';
   uploadMessage.value = '';
   try {
     await uploadSiteScanTail;
     await flushUploadSiteRulesSave();
+    if (!owns()) return
     const response = await postJsonApi('upload_limit_reallocate', {});
+    if (!owns()) return
     applyUploadStatus(response);
     uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error');
     uploadMessage.value = response?.msg || '上传额度已重新分配';
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     uploadMessageStatus.value = 'error';
     uploadMessage.value = error?.message || '重新分配失败';
   } finally {
-    uploadActionRunning.value = '';
+    if (owns()) uploadActionRunning.value = '';
   }
 }
 
 async function disableAndRestoreUploadLimits() {
+  const owns = configRequestScope();
   uploadActionRunning.value = 'restore';
   uploadMessage.value = '';
   try {
     const response = await postJsonApi('upload_limit_disable_restore', {});
+    if (!owns()) return
     form.upload_limit_enabled = false;
     uploadRestoreDialog.value = false;
     await refreshUploadLimitStatus();
+    if (!owns()) return
     uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error');
     uploadMessage.value = response?.msg || '上传限速已停用并恢复';
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     uploadMessageStatus.value = 'error';
     uploadMessage.value = error?.message || '停用恢复失败';
   } finally {
-    uploadActionRunning.value = '';
+    if (owns()) uploadActionRunning.value = '';
   }
 }
 
@@ -797,18 +852,22 @@ function dispositionLabel(action) {
 }
 
 async function resetMonitorBaseline(downloaderId) {
+  const owns = configRequestScope();
   monitorResetting.value = downloaderId;
   monitorMessage.value = '';
   try {
     const response = await postJsonApi('reset_speed_monitor_baseline', { downloader_id: downloaderId });
+    if (!owns()) return
     monitorMessageStatus.value = response?.code === 0 ? 'success' : 'error';
     monitorMessage.value = response?.msg || (response?.code === 0 ? '速度基准已重置' : '重置失败');
     if (response?.code === 0) await refreshOverview();
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     monitorMessageStatus.value = 'error';
     monitorMessage.value = error?.message || '重置失败';
   } finally {
-    monitorResetting.value = '';
+    if (owns()) monitorResetting.value = '';
   }
 }
 
@@ -844,6 +903,7 @@ function cleanupKindMeta(kind) {
 }
 
 async function scanCleanupTags() {
+  const owns = configRequestScope();
   cleanupMessage.value = '';
   if (!cleanupDownloaders.value.length) {
     cleanupStatus.value = 'warning';
@@ -853,6 +913,7 @@ async function scanCleanupTags() {
   cleanupScanning.value = true;
   try {
     const response = await postJsonApi('tag_cleanup_scan', { downloaders: cleanupDownloaders.value });
+    if (!owns()) return
     cleanupScan.value = response || null;
     resetCleanupKeep(response?.downloaders || []);
     const errorCount = response?.errors?.length || 0;
@@ -861,10 +922,12 @@ async function scanCleanupTags() {
       ? `扫描完成 · 自动清理 ${response?.auto_removed?.length || 0} 个临时标签`
       : (response?.msg || '扫描失败');
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     cleanupStatus.value = 'error';
     cleanupMessage.value = error?.message || '扫描失败';
   } finally {
-    cleanupScanning.value = false;
+    if (owns()) cleanupScanning.value = false;
   }
 }
 
@@ -878,18 +941,23 @@ function previewCleanupTags() {
 }
 
 async function executeCleanupTags() {
+  const owns = configRequestScope();
   cleanupExecuting.value = true;
   try {
     const response = await postJsonApi('tag_cleanup_execute', { removals: cleanupRemovals.value });
+    if (!owns()) return
     cleanupDialog.value = false;
     await scanCleanupTags();
+    if (!owns()) return
     cleanupStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error');
     cleanupMessage.value = response?.msg || '清理完成';
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     cleanupStatus.value = 'error';
     cleanupMessage.value = error?.message || '清理失败';
   } finally {
-    cleanupExecuting.value = false;
+    if (owns()) cleanupExecuting.value = false;
   }
 }
 
@@ -3422,6 +3490,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-60004b43"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0afd9bcf"]]);
 
 export { Config as default };

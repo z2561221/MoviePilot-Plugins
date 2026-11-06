@@ -8,6 +8,7 @@ function isStandardEnvelope(response) {
     && keys[1] === 'message'
     && keys[2] === 'success'
     && typeof response.success === 'boolean'
+    && typeof response.message === 'string'
 }
 
 function pluginPath(pluginId, path = '') {
@@ -19,8 +20,18 @@ function pluginPath(pluginId, path = '') {
 
 function unwrapResponse(response) {
   if (!isStandardEnvelope(response)) return response
-  if (!response.success) throw new Error(response.message || '请求失败')
+  if (!response.success) {
+    const error = new Error(response.message || '请求失败');
+    error.name = 'PluginApiError';
+    error.payload = response;
+    throw error
+  }
   return response.data
+}
+function isApiRequestCancellation(reason) {
+  if (!reason || typeof reason !== 'object') return false
+  return Boolean(reason.__CANCEL__) || reason.code === 'ERR_CANCELED'
+    || reason.name === 'AbortError' || reason.name === 'CanceledError'
 }
 async function postPluginApi(api, pluginId, path, payload = {}, options = {}) {
   if (!api?.post) throw new Error('MoviePilot 插件 API 未就绪')
@@ -106,6 +117,7 @@ const total = ref(0);
 const page = ref(1);
 const enabled = ref(false);
 const loading = ref(false);
+const previewLoading = ref(false);
 const error = ref('');
 const notice = ref('');
 const previewPath = ref('');
@@ -128,6 +140,9 @@ function removeMapping(field, index) {
   props.form[field] = String(props.form[field] || '').split('\n').filter(Boolean).filter((_, i) => i !== index).join('\n');
 }
 let revision = 0;
+let loadRevision = 0;
+let previewRevision = 0;
+let retryRevision = 0;
 let disposed = false;
 const pages = computed(() => Math.max(1, Math.ceil(total.value / 15)));
 const labels = { queued: '等待执行', running: '处理中', failed: '待处理', completed: '完成', pending: '待执行', deleted: '已删除', absent: '已不存在', removed: '已移除', paused: '保留并暂停' };
@@ -137,75 +152,91 @@ const dateText = stamp => stamp ? new Date(stamp * 1000).toLocaleString() : '—
 const current = (ticket, id) => !disposed && revision === ticket && props.pluginId === id;
 
 async function load() {
-  const ticket = ++revision;
+  const ticket = revision;
+  const request = ++loadRevision;
   const id = props.pluginId;
+  const owns = () => current(ticket, id) && request === loadRevision;
   loading.value = true;
   error.value = '';
   try {
     if (props.mode === 'config') {
       const result = await getPluginApi(props.api, id, 'sync_delete/options', { feedback: 'silent' });
-      if (current(ticket, id)) servers.value = result?.servers || [];
+      if (owns()) servers.value = result?.servers || [];
     } else {
       const result = await getPluginApi(props.api, id, `sync_delete/history?page=${page.value}&page_size=15`, { feedback: 'silent' });
-      if (current(ticket, id)) {
+      if (owns()) {
         rows.value = result?.items || [];
         total.value = result?.total || 0;
         enabled.value = Boolean(result?.enabled);
       }
     }
   } catch (cause) {
-    if (current(ticket, id)) error.value = cause?.message || '读取失败，请重试';
+    if (owns() && !isApiRequestCancellation(cause)) error.value = cause?.message || '读取失败，请重试';
   } finally {
-    if (current(ticket, id)) loading.value = false;
+    if (owns()) loading.value = false;
   }
 }
 
 async function preview() {
-  const ticket = ++revision;
+  const ticket = revision;
+  const request = ++previewRevision;
   const id = props.pluginId;
-  loading.value = true;
+  const owns = () => current(ticket, id) && request === previewRevision;
+  previewLoading.value = true;
   error.value = '';
   previewPlan.value = null;
   try {
     const result = await postPluginJsonApi(props.api, id, 'sync_delete/preview', {
       path: previewPath.value.trim(), server: props.form?.sync_delete_servers?.[0] || '',
     }, { feedback: 'silent' });
-    if (current(ticket, id)) previewPlan.value = result?.plan || null;
+    if (owns()) previewPlan.value = result?.plan || null;
   } catch (cause) {
-    if (current(ticket, id)) error.value = cause?.message || '无法匹配该路径';
+    if (owns() && !isApiRequestCancellation(cause)) error.value = cause?.message || '无法匹配该路径';
   } finally {
-    if (current(ticket, id)) loading.value = false;
+    if (owns()) previewLoading.value = false;
   }
 }
 
 async function retry(job) {
-  const ticket = ++revision;
+  if (retryId.value) return
+  const ticket = revision;
+  const request = ++retryRevision;
   const id = props.pluginId;
+  const owns = () => current(ticket, id) && request === retryRevision;
   retryId.value = job.id;
   error.value = '';
   notice.value = '';
   try {
     const result = await postPluginJsonApi(props.api, id, 'sync_delete/retry', { job_id: job.id }, { feedback: 'silent' });
-    if (current(ticket, id) && result?.accepted) {
+    if (owns() && result?.accepted) {
       notice.value = '已加入执行队列，请刷新查看实际结果。';
       await load();
     }
   } catch (cause) {
-    if (current(ticket, id)) error.value = cause?.message || '重试未受理';
+    if (owns() && !isApiRequestCancellation(cause)) error.value = cause?.message || '重试未受理';
   } finally {
-    if (!disposed && props.pluginId === id) retryId.value = '';
+    if (owns()) retryId.value = '';
   }
 }
 
-watch(() => [props.pluginId, props.mode], () => {
+watch(() => [props.pluginId, props.mode, props.api], () => {
+  revision++;
   page.value = 1;
   rows.value = [];
+  servers.value = [];
+  total.value = 0;
+  enabled.value = false;
   previewPlan.value = null;
+  previewLoading.value = false;
   notice.value = '';
   retryId.value = '';
   load();
-}, { immediate: true });
-watch(() => props.form, () => { revision++; loading.value = false; previewPlan.value = null; }, { deep: true });
+}, { immediate: true, flush: 'sync' });
+watch(() => [props.form, previewPath.value], () => {
+  previewRevision++;
+  previewLoading.value = false;
+  previewPlan.value = null;
+}, { deep: true, flush: 'sync' });
 onBeforeUnmount(() => { disposed = true; revision++; });
 __expose({ refresh: load });
 
@@ -555,7 +586,7 @@ return (_ctx, _cache) => {
             color: "primary",
             variant: "tonal",
             "prepend-icon": "mdi-eye-outline",
-            loading: loading.value,
+            loading: previewLoading.value,
             disabled: !previewPath.value.trim(),
             onClick: preview
           }, {
@@ -692,6 +723,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const SyncDeletePane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5659bbab"]]);
+const SyncDeletePane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-12b37882"]]);
 
-export { SyncDeletePane as S, _export_sfc as _, postPluginApi as a, getPluginApi as g, postPluginJsonApi as p };
+export { SyncDeletePane as S, _export_sfc as _, postPluginApi as a, getPluginApi as g, isApiRequestCancellation as i, postPluginJsonApi as p };
