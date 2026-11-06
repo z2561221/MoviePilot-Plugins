@@ -15,10 +15,10 @@ class AgentRank(_PluginBase):
     """根据用户订阅与发现候选生成 Agent 个性化榜单。"""
 
     plugin_name = "Agent榜单中心"
-    plugin_desc = "调用内置Agent，从MoviePilot发现候选中生成个性化前5名榜单。"
+    plugin_desc = "「未来道具研究所」出品 · EL PSY CONGROO！"
     plugin_icon = "agentresourceofficer.png"
     plugin_color = "#7C4DFF"
-    plugin_version = "3.0.11"
+    plugin_version = "3.0.12"
     plugin_label = "智能推荐,发现"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
