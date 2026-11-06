@@ -24,7 +24,7 @@ function setup(mode) {
     getPluginApi:request, postPluginJsonApi:request,
     isApiRequestCancellation:error=>error?.code==='ERR_CANCELED', console, Date};
   vm.createContext(context);
-  vm.runInContext(code+'\nglobalThis.test={load,retry,servers,rows,error,notice,loading,retryId,total,enabled,editMapping,removeMapping,cloudMappings};',context);
+  vm.runInContext(code+'\nglobalThis.test={load,retry,servers,rows,error,notice,loading,retryId,total,enabled,editMapping,addMapping,removeMapping,toggleMapping,expandedMappings,cloudMappings,localMappings};',context);
   return {...context.test,props,pending,close:()=>cleanups.forEach(fn=>fn())};
 }
 const settle = async()=>{await vue.nextTick();await Promise.resolve();await Promise.resolve()};
@@ -35,6 +35,10 @@ const settle = async()=>{await vue.nextTick();await Promise.resolve();await Prom
   config.pending[0].resolve({servers:['Emby']});
   await settle();
   assert.equal(config.servers.value[0],'Emby','editing a setting must not discard server options');
+  assert.equal(config.localMappings.value.length,0,'unused group must not add an empty mapping');
+  config.addMapping('sync_delete_cloud_paths',4);
+  assert.equal(config.cloudMappings.value.length,1);
+  assert.equal(config.expandedMappings.value.sync_delete_cloud_paths,0,'new mapping opens for editing');
   config.props.form.sync_delete_cloud_paths='/emby#/strm#/media#/library';
   config.props.form.sync_delete_cloud=false;
   config.editMapping('sync_delete_cloud_paths',0,2,'/new-media');
@@ -42,6 +46,19 @@ const settle = async()=>{await vue.nextTick();await Promise.resolve();await Prom
   assert.equal(config.props.form.sync_delete_cloud,false,'path editing must not enable cloud deletion');
   config.editMapping('sync_delete_cloud_paths',0,3,'/new library');
   assert.equal(config.cloudMappings.value[0][2],'/new-media','local path edits must preserve the cloud mapping');
+  const draft=config.props.form.sync_delete_cloud_paths;
+  config.toggleMapping('sync_delete_cloud_paths',0);
+  assert.equal(config.expandedMappings.value.sync_delete_cloud_paths,-1);
+  config.toggleMapping('sync_delete_cloud_paths',0);
+  assert.equal(config.props.form.sync_delete_cloud_paths,draft,'collapsing a mapping must preserve its draft');
+  config.addMapping('sync_delete_cloud_paths',4);
+  assert.equal(config.expandedMappings.value.sync_delete_cloud_paths,1);
+  config.removeMapping('sync_delete_cloud_paths',0);
+  assert.equal(config.expandedMappings.value.sync_delete_cloud_paths,0,'removing an earlier mapping keeps the same editor open');
+  config.removeMapping('sync_delete_cloud_paths',0);
+  assert.equal(config.cloudMappings.value.length,0);
+  assert.equal(config.expandedMappings.value.sync_delete_cloud_paths,-1);
+  config.props.form.sync_delete_cloud_paths=draft;
   config.props.form.sync_delete_cloud_paths=' \n'+config.props.form.sync_delete_cloud_paths;
   config.removeMapping('sync_delete_cloud_paths',0);
   assert.equal(config.props.form.sync_delete_cloud_paths,'');
@@ -57,6 +74,7 @@ const settle = async()=>{await vue.nextTick();await Promise.resolve();await Prom
   history.props.pluginId='B';await vue.nextTick();
   assert.equal(history.enabled.value,false);
   assert.equal(history.total.value,0);
+  assert.equal(Object.keys(history.expandedMappings.value).length,0);
   history.pending.at(-1).reject({code:'ERR_CANCELED',message:'cancelled'});await settle();
   assert.equal(history.error.value,'','request cancellation is normal control flow');
   assert.equal(history.loading.value,false);

@@ -17,26 +17,39 @@ const loading = ref(false)
 const error = ref('')
 const notice = ref('')
 const retryId = ref('')
-const mappingRows = (value, columns) => {
-  const rows = String(value || '').split('\n').filter(line => line.trim()).map(line => line.split('#'))
-  return rows.length ? rows : [Array(columns).fill('')]
-}
-const cloudMappings = computed(() => mappingRows(props.form?.sync_delete_cloud_paths, 4))
-const localMappings = computed(() => mappingRows(props.form?.sync_delete_local_paths, 2))
+const expandedMappings = ref({})
+const mappingRows = value => String(value || '').split('\n').filter(line => line.trim()).map(line => line.split('#'))
+const cloudMappings = computed(() => mappingRows(props.form?.sync_delete_cloud_paths))
+const localMappings = computed(() => mappingRows(props.form?.sync_delete_local_paths))
+const mappingGroups = computed(() => [
+  { field: 'sync_delete_local_paths', title: '本地媒体库', icon: 'mdi-folder-outline', columns: 2, rows: localMappings.value,
+    inputs: [{ column: 0, label: 'Emby 媒体目录' }, { column: 1, label: 'MP 本地媒体目录' }] },
+  { field: 'sync_delete_cloud_paths', title: 'STRM 媒体库', icon: 'mdi-cloud-outline', columns: 4, rows: cloudMappings.value,
+    inputs: [{ column: 0, label: 'Emby STRM 目录' }, { column: 1, label: 'MP STRM 目录' },
+      { column: 3, label: '本地整理目录（可选）' }, { column: 2, label: '网盘目录' }] },
+])
 const sourceRoots = computed(() => String(props.form?.sync_delete_source_paths || '').split('\n').map(line => line.trim()).filter(Boolean))
+const mappingTitle = row => String(row[0] || '').trim().split(/[\\/]/).filter(Boolean).at(-1) || '新映射'
+function toggleMapping(field, index) {
+  expandedMappings.value = { ...expandedMappings.value, [field]: expandedMappings.value[field] === index ? -1 : index }
+}
 function editMapping(field, index, column, value) {
-  const rows = mappingRows(props.form[field], field === 'sync_delete_cloud_paths' ? 4 : 2)
+  const rows = mappingRows(props.form[field])
+  rows[index] ||= Array(field === 'sync_delete_cloud_paths' ? 4 : 2).fill('')
   rows[index][column] = String(value || '').replace(/[\r\n]/g, '')
   props.form[field] = rows.map(row => row.join('#')).join('\n')
 }
 function addMapping(field, columns) {
-  const rows = mappingRows(props.form[field], columns)
+  const rows = mappingRows(props.form[field])
   rows.push(Array(columns).fill(''))
   props.form[field] = rows.map(row => row.join('#')).join('\n')
+  expandedMappings.value = { ...expandedMappings.value, [field]: rows.length - 1 }
 }
 function removeMapping(field, index) {
-  const rows = mappingRows(props.form[field], field === 'sync_delete_cloud_paths' ? 4 : 2)
+  const rows = mappingRows(props.form[field])
   props.form[field] = rows.filter((_, i) => i !== index).map(row => row.join('#')).join('\n')
+  const opened = expandedMappings.value[field] ?? -1
+  expandedMappings.value = { ...expandedMappings.value, [field]: opened === index ? -1 : opened > index ? opened - 1 : opened }
 }
 let revision = 0
 let loadRevision = 0
@@ -104,6 +117,7 @@ watch(() => [props.pluginId, props.mode, props.api], () => {
   servers.value = []
   total.value = 0
   enabled.value = false
+  expandedMappings.value = {}
   notice.value = ''
   retryId.value = ''
   load()
@@ -131,26 +145,27 @@ defineExpose({ refresh: load })
         <VSwitch v-model="form.sync_delete_notify" color="success" inset hide-details label="发送结果通知" />
       </div>
       <div class="text-caption text-medium-emphasis mt-2">删除下载源文件时，同时清理明确映射的本地整理副本。</div>
-      <div class="mt-5"><strong>本地整理到本地</strong></div>
-      <div class="my-3">
-        <div v-for="(row, index) in localMappings" :key="index" class="dm-sync-mapping mt-3">
-          <VTextarea :model-value="row[0]" label="Emby 媒体目录" rows="2" auto-grow density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_local_paths', index, 0, $event)" />
-          <VTextarea :model-value="row[1]" label="MP 本地媒体目录" rows="2" auto-grow density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_local_paths', index, 1, $event)" />
-          <VBtn class="dm-sync-remove" size="small" variant="text" prepend-icon="mdi-close" @click="removeMapping('sync_delete_local_paths', index)">移除此映射</VBtn>
+      <section v-for="group in mappingGroups" :key="group.field" class="dm-sync-group">
+        <div class="dm-sync-group-head">
+          <div class="dm-sync-group-title"><VIcon :icon="group.icon" size="19" /><h3>{{ group.title }}</h3><span class="dm-sync-count">{{ group.rows.length }}</span></div>
+          <VBtn size="small" variant="text" color="primary" prepend-icon="mdi-plus" :aria-label="`添加${group.title}映射`" @click="addMapping(group.field, group.columns)">添加映射</VBtn>
         </div>
-        <VBtn size="small" variant="text" prepend-icon="mdi-plus" class="mt-2" @click="addMapping('sync_delete_local_paths', 2)">添加本地映射</VBtn>
-      </div>
-      <div class="mt-4"><strong>本地整理到网盘（STRM）</strong></div>
-      <div class="my-3">
-        <div v-for="(row, index) in cloudMappings" :key="index" class="dm-sync-mapping mt-3">
-          <VTextarea :model-value="row[0]" label="Emby STRM 目录" rows="2" auto-grow density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 0, $event)" />
-          <VTextarea :model-value="row[1]" label="MP STRM 目录" rows="2" auto-grow density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 1, $event)" />
-          <VTextarea :model-value="row[3]" label="本地整理目录" rows="2" auto-grow density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 3, $event)" />
-          <VTextarea :model-value="row[2]" label="网盘目录" rows="2" auto-grow density="compact" variant="outlined" hide-details @update:model-value="editMapping('sync_delete_cloud_paths', index, 2, $event)" />
-          <VBtn class="dm-sync-remove" size="small" variant="text" prepend-icon="mdi-close" @click="removeMapping('sync_delete_cloud_paths', index)">移除此映射</VBtn>
+        <div v-if="!group.rows.length" class="dm-sync-empty">尚未配置{{ group.title }}映射</div>
+        <div v-else class="dm-sync-mapping-list">
+          <details v-for="(row, index) in group.rows" :key="index" class="dm-sync-mapping" :open="expandedMappings[group.field] === index">
+            <summary class="dm-sync-mapping-summary" @click.prevent="toggleMapping(group.field, index)">
+              <span class="dm-sync-index">{{ String(index + 1).padStart(2, '0') }}</span>
+              <span class="dm-sync-mapping-label"><strong :title="mappingTitle(row)">{{ mappingTitle(row) }}</strong><span :title="row[0]">{{ row[0] || '填写目录，建立路径对应关系' }}</span></span>
+              <VIcon class="dm-sync-chevron" icon="mdi-chevron-down" size="20" />
+            </summary>
+            <div v-if="expandedMappings[group.field] === index" class="dm-sync-mapping-editor">
+              <VTextarea v-for="input in group.inputs" :key="input.column" :model-value="row[input.column] || ''" :label="input.label" class="dm-sync-directory" rows="2" auto-grow density="compact" variant="outlined" hide-details spellcheck="false" @update:model-value="editMapping(group.field, index, input.column, $event)" />
+              <div class="dm-sync-editor-footer"><VBtn size="small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="removeMapping(group.field, index)">移除此映射</VBtn></div>
+            </div>
+          </details>
         </div>
-        <VBtn size="small" variant="text" prepend-icon="mdi-plus" class="mt-2" @click="addMapping('sync_delete_cloud_paths', 4)">添加网盘映射</VBtn>
-      </div>
+      </section>
+
       <details class="my-4">
         <summary>高级设置 · 删除范围<span v-if="sourceRoots.length">（{{ sourceRoots.length }} 个源目录）</span><span v-else-if="form.sync_delete_source || form.sync_delete_torrents" class="text-warning">（请填写源目录）</span></summary>
         <div class="text-caption text-medium-emphasis mt-3">源文件和种子仅在允许的目录内处理，保护目录中的文件保留。</div>
@@ -194,8 +209,31 @@ defineExpose({ refresh: load })
 .dm-sync-job { background: transparent !important; }
 .dm-sync-path { overflow-wrap: anywhere; font-size: 12px; }
 .dm-sync summary { cursor: pointer; }
-.dm-sync-mapping { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 16px; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; }
-.dm-sync-mapping :deep(textarea) { overflow-wrap: anywhere; }
-.dm-sync-remove { justify-self: end; }
+.dm-sync-group { margin-top: 22px; min-width: 0; }
+.dm-sync-group-head, .dm-sync-group-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dm-sync-group-head { justify-content: space-between; margin-bottom: 10px; }
+.dm-sync-group-title > .v-icon { color: rgba(var(--v-theme-on-surface), .6); }
+.dm-sync-group-title h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.dm-sync-count { min-width: 22px; padding: 1px 6px; border-radius: 6px; background: rgba(var(--v-theme-on-surface), .06); color: rgba(var(--v-theme-on-surface), .6); font-size: 11px; text-align: center; }
+.dm-sync-empty { padding: 14px; border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 9px; text-align: center; color: rgba(var(--v-theme-on-surface), .48); font-size: 12px; }
+.dm-sync-mapping-list { display: grid; gap: 8px; }
+.dm-sync-mapping { min-width: 0; border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 10px; }
+.dm-sync-mapping[open] { border-color: rgba(var(--v-theme-primary), .35); }
+.dm-sync-mapping-summary { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; list-style: none; transition: background .15s; }
+.dm-sync-mapping-summary:hover { background: rgba(var(--v-theme-on-surface), .025); }
+.dm-sync-mapping-summary:focus-visible { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: 2px; }
+.dm-sync-mapping-summary::-webkit-details-marker { display: none; }
+.dm-sync-index { flex: 0 0 28px; width: 28px; height: 28px; display: grid; place-items: center; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), .07); border-radius: 7px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.dm-sync-mapping-label { display: grid; min-width: 0; flex: 1; gap: 3px; }
+.dm-sync-mapping-label strong { font-size: 13px; font-weight: 500; }
+.dm-sync-mapping-label > span { font-size: 11px; color: rgba(var(--v-theme-on-surface), .5); }
+.dm-sync-mapping-label > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-sync-chevron { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), .45); transition: transform .15s; }
+.dm-sync-mapping[open] > summary .dm-sync-chevron { transform: rotate(180deg); }
+.dm-sync-mapping-editor { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 18px 16px 10px; border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); }
+.dm-sync-directory { min-width: 0; }
+.dm-sync-directory :deep(textarea) { overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
+.dm-sync-editor-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+@media (max-width: 480px) { .dm-sync-mapping-summary { padding: 11px; gap: 9px; } .dm-sync-mapping-editor { padding-inline: 12px; } }
 @media (max-width: 760px) { .dm-sync-switches { grid-template-columns: 1fr; } }
 </style>

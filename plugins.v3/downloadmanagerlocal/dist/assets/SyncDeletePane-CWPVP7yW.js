@@ -63,34 +63,54 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-const {toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode,createVNode:_createVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock} = await importShared('vue');
+const {toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementVNode:_createElementVNode,createVNode:_createVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,withModifiers:_withModifiers} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "dm-sync" };
 const _hoisted_2 = { class: "dm-sync-heading" };
 const _hoisted_3 = { class: "dm-sync-switches" };
-const _hoisted_4 = { class: "my-3" };
-const _hoisted_5 = { class: "my-3" };
-const _hoisted_6 = { class: "my-4" };
-const _hoisted_7 = { key: 0 };
+const _hoisted_4 = { class: "dm-sync-group-head" };
+const _hoisted_5 = { class: "dm-sync-group-title" };
+const _hoisted_6 = { class: "dm-sync-count" };
+const _hoisted_7 = {
+  key: 0,
+  class: "dm-sync-empty"
+};
 const _hoisted_8 = {
+  key: 1,
+  class: "dm-sync-mapping-list"
+};
+const _hoisted_9 = ["open"];
+const _hoisted_10 = ["onClick"];
+const _hoisted_11 = { class: "dm-sync-index" };
+const _hoisted_12 = { class: "dm-sync-mapping-label" };
+const _hoisted_13 = ["title"];
+const _hoisted_14 = ["title"];
+const _hoisted_15 = {
+  key: 0,
+  class: "dm-sync-mapping-editor"
+};
+const _hoisted_16 = { class: "dm-sync-editor-footer" };
+const _hoisted_17 = { class: "my-4" };
+const _hoisted_18 = { key: 0 };
+const _hoisted_19 = {
   key: 1,
   class: "text-warning"
 };
-const _hoisted_9 = { class: "dm-sync-heading mb-3" };
-const _hoisted_10 = { class: "text-caption text-medium-emphasis" };
-const _hoisted_11 = {
+const _hoisted_20 = { class: "dm-sync-heading mb-3" };
+const _hoisted_21 = { class: "text-caption text-medium-emphasis" };
+const _hoisted_22 = {
   key: 1,
   class: "text-medium-emphasis pa-6 text-center"
 };
-const _hoisted_12 = { class: "dm-sync-heading" };
-const _hoisted_13 = { class: "text-caption text-medium-emphasis mt-1" };
-const _hoisted_14 = {
+const _hoisted_23 = { class: "dm-sync-heading" };
+const _hoisted_24 = { class: "text-caption text-medium-emphasis mt-1" };
+const _hoisted_25 = {
   key: 0,
   class: "text-warning mt-2"
 };
-const _hoisted_15 = { class: "mt-3" };
-const _hoisted_16 = { class: "text-caption mt-2" };
+const _hoisted_26 = { class: "mt-3" };
+const _hoisted_27 = { class: "text-caption mt-2" };
 
 const {computed,onBeforeUnmount,ref,watch} = await importShared('vue');
 
@@ -115,26 +135,39 @@ const loading = ref(false);
 const error = ref('');
 const notice = ref('');
 const retryId = ref('');
-const mappingRows = (value, columns) => {
-  const rows = String(value || '').split('\n').filter(line => line.trim()).map(line => line.split('#'));
-  return rows.length ? rows : [Array(columns).fill('')]
-};
-const cloudMappings = computed(() => mappingRows(props.form?.sync_delete_cloud_paths, 4));
-const localMappings = computed(() => mappingRows(props.form?.sync_delete_local_paths, 2));
+const expandedMappings = ref({});
+const mappingRows = value => String(value || '').split('\n').filter(line => line.trim()).map(line => line.split('#'));
+const cloudMappings = computed(() => mappingRows(props.form?.sync_delete_cloud_paths));
+const localMappings = computed(() => mappingRows(props.form?.sync_delete_local_paths));
+const mappingGroups = computed(() => [
+  { field: 'sync_delete_local_paths', title: '本地媒体库', icon: 'mdi-folder-outline', columns: 2, rows: localMappings.value,
+    inputs: [{ column: 0, label: 'Emby 媒体目录' }, { column: 1, label: 'MP 本地媒体目录' }] },
+  { field: 'sync_delete_cloud_paths', title: 'STRM 媒体库', icon: 'mdi-cloud-outline', columns: 4, rows: cloudMappings.value,
+    inputs: [{ column: 0, label: 'Emby STRM 目录' }, { column: 1, label: 'MP STRM 目录' },
+      { column: 3, label: '本地整理目录（可选）' }, { column: 2, label: '网盘目录' }] },
+]);
 const sourceRoots = computed(() => String(props.form?.sync_delete_source_paths || '').split('\n').map(line => line.trim()).filter(Boolean));
+const mappingTitle = row => String(row[0] || '').trim().split(/[\\/]/).filter(Boolean).at(-1) || '新映射';
+function toggleMapping(field, index) {
+  expandedMappings.value = { ...expandedMappings.value, [field]: expandedMappings.value[field] === index ? -1 : index };
+}
 function editMapping(field, index, column, value) {
-  const rows = mappingRows(props.form[field], field === 'sync_delete_cloud_paths' ? 4 : 2);
+  const rows = mappingRows(props.form[field]);
+  rows[index] ||= Array(field === 'sync_delete_cloud_paths' ? 4 : 2).fill('');
   rows[index][column] = String(value || '').replace(/[\r\n]/g, '');
   props.form[field] = rows.map(row => row.join('#')).join('\n');
 }
 function addMapping(field, columns) {
-  const rows = mappingRows(props.form[field], columns);
+  const rows = mappingRows(props.form[field]);
   rows.push(Array(columns).fill(''));
   props.form[field] = rows.map(row => row.join('#')).join('\n');
+  expandedMappings.value = { ...expandedMappings.value, [field]: rows.length - 1 };
 }
 function removeMapping(field, index) {
-  const rows = mappingRows(props.form[field], field === 'sync_delete_cloud_paths' ? 4 : 2);
+  const rows = mappingRows(props.form[field]);
   props.form[field] = rows.filter((_, i) => i !== index).map(row => row.join('#')).join('\n');
+  const opened = expandedMappings.value[field] ?? -1;
+  expandedMappings.value = { ...expandedMappings.value, [field]: opened === index ? -1 : opened > index ? opened - 1 : opened };
 }
 let revision = 0;
 let loadRevision = 0;
@@ -202,6 +235,7 @@ watch(() => [props.pluginId, props.mode, props.api], () => {
   servers.value = [];
   total.value = 0;
   enabled.value = false;
+  expandedMappings.value = {};
   notice.value = '';
   retryId.value = '';
   load();
@@ -213,8 +247,9 @@ return (_ctx, _cache) => {
   const _component_VAlert = _resolveComponent("VAlert");
   const _component_VSwitch = _resolveComponent("VSwitch");
   const _component_VSelect = _resolveComponent("VSelect");
-  const _component_VTextarea = _resolveComponent("VTextarea");
+  const _component_VIcon = _resolveComponent("VIcon");
   const _component_VBtn = _resolveComponent("VBtn");
+  const _component_VTextarea = _resolveComponent("VTextarea");
   const _component_VProgressLinear = _resolveComponent("VProgressLinear");
   const _component_VChip = _resolveComponent("VChip");
   const _component_VCardText = _resolveComponent("VCardText");
@@ -253,7 +288,7 @@ return (_ctx, _cache) => {
     (__props.mode === 'config' && __props.form)
       ? (_openBlock(), _createElementBlock(_Fragment, { key: 2 }, [
           _createElementVNode("div", _hoisted_2, [
-            _cache[12] || (_cache[12] = _createElementVNode("div", null, [
+            _cache[10] || (_cache[10] = _createElementVNode("div", null, [
               _createElementVNode("strong", null, "同步删除"),
               _createElementVNode("div", { class: "text-caption text-medium-emphasis" }, "在 Emby 删除本地媒体或 STRM 后，清理关联文件、种子和整理记录。")
             ], -1)),
@@ -284,7 +319,7 @@ return (_ctx, _cache) => {
             density: "compact",
             class: "mb-4"
           }, {
-            default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
+            default: _withCtx(() => [...(_cache[11] || (_cache[11] = [
               _createTextVNode("使用现有神医深度删除通知。合集还有其它集数时，种子暂停保留。", -1)
             ]))]),
             _: 1
@@ -331,152 +366,114 @@ return (_ctx, _cache) => {
               label: "发送结果通知"
             }, null, 8, ["modelValue"])
           ]),
-          _cache[20] || (_cache[20] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mt-2" }, "删除下载源文件时，同时清理明确映射的本地整理副本。", -1)),
-          _cache[21] || (_cache[21] = _createElementVNode("div", { class: "mt-5" }, [
-            _createElementVNode("strong", null, "本地整理到本地")
-          ], -1)),
-          _createElementVNode("div", _hoisted_4, [
-            (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(localMappings.value, (row, index) => {
-              return (_openBlock(), _createElementBlock("div", {
-                key: index,
-                class: "dm-sync-mapping mt-3"
-              }, [
-                _createVNode(_component_VTextarea, {
-                  "model-value": row[0],
-                  label: "Emby 媒体目录",
-                  rows: "2",
-                  "auto-grow": "",
-                  density: "compact",
-                  variant: "outlined",
-                  "hide-details": "",
-                  "onUpdate:modelValue": $event => (editMapping('sync_delete_local_paths', index, 0, $event))
-                }, null, 8, ["model-value", "onUpdate:modelValue"]),
-                _createVNode(_component_VTextarea, {
-                  "model-value": row[1],
-                  label: "MP 本地媒体目录",
-                  rows: "2",
-                  "auto-grow": "",
-                  density: "compact",
-                  variant: "outlined",
-                  "hide-details": "",
-                  "onUpdate:modelValue": $event => (editMapping('sync_delete_local_paths', index, 1, $event))
-                }, null, 8, ["model-value", "onUpdate:modelValue"]),
+          _cache[16] || (_cache[16] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mt-2" }, "删除下载源文件时，同时清理明确映射的本地整理副本。", -1)),
+          (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(mappingGroups.value, (group) => {
+            return (_openBlock(), _createElementBlock("section", {
+              key: group.field,
+              class: "dm-sync-group"
+            }, [
+              _createElementVNode("div", _hoisted_4, [
+                _createElementVNode("div", _hoisted_5, [
+                  _createVNode(_component_VIcon, {
+                    icon: group.icon,
+                    size: "19"
+                  }, null, 8, ["icon"]),
+                  _createElementVNode("h3", null, _toDisplayString(group.title), 1),
+                  _createElementVNode("span", _hoisted_6, _toDisplayString(group.rows.length), 1)
+                ]),
                 _createVNode(_component_VBtn, {
-                  class: "dm-sync-remove",
                   size: "small",
                   variant: "text",
-                  "prepend-icon": "mdi-close",
-                  onClick: $event => (removeMapping('sync_delete_local_paths', index))
+                  color: "primary",
+                  "prepend-icon": "mdi-plus",
+                  "aria-label": `添加${group.title}映射`,
+                  onClick: $event => (addMapping(group.field, group.columns))
                 }, {
-                  default: _withCtx(() => [...(_cache[14] || (_cache[14] = [
-                    _createTextVNode("移除此映射", -1)
+                  default: _withCtx(() => [...(_cache[12] || (_cache[12] = [
+                    _createTextVNode("添加映射", -1)
                   ]))]),
                   _: 1
-                }, 8, ["onClick"])
-              ]))
-            }), 128)),
-            _createVNode(_component_VBtn, {
-              size: "small",
-              variant: "text",
-              "prepend-icon": "mdi-plus",
-              class: "mt-2",
-              onClick: _cache[7] || (_cache[7] = $event => (addMapping('sync_delete_local_paths', 2)))
-            }, {
-              default: _withCtx(() => [...(_cache[15] || (_cache[15] = [
-                _createTextVNode("添加本地映射", -1)
-              ]))]),
-              _: 1
-            })
-          ]),
-          _cache[22] || (_cache[22] = _createElementVNode("div", { class: "mt-4" }, [
-            _createElementVNode("strong", null, "本地整理到网盘（STRM）")
-          ], -1)),
-          _createElementVNode("div", _hoisted_5, [
-            (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(cloudMappings.value, (row, index) => {
-              return (_openBlock(), _createElementBlock("div", {
-                key: index,
-                class: "dm-sync-mapping mt-3"
-              }, [
-                _createVNode(_component_VTextarea, {
-                  "model-value": row[0],
-                  label: "Emby STRM 目录",
-                  rows: "2",
-                  "auto-grow": "",
-                  density: "compact",
-                  variant: "outlined",
-                  "hide-details": "",
-                  "onUpdate:modelValue": $event => (editMapping('sync_delete_cloud_paths', index, 0, $event))
-                }, null, 8, ["model-value", "onUpdate:modelValue"]),
-                _createVNode(_component_VTextarea, {
-                  "model-value": row[1],
-                  label: "MP STRM 目录",
-                  rows: "2",
-                  "auto-grow": "",
-                  density: "compact",
-                  variant: "outlined",
-                  "hide-details": "",
-                  "onUpdate:modelValue": $event => (editMapping('sync_delete_cloud_paths', index, 1, $event))
-                }, null, 8, ["model-value", "onUpdate:modelValue"]),
-                _createVNode(_component_VTextarea, {
-                  "model-value": row[3],
-                  label: "本地整理目录",
-                  rows: "2",
-                  "auto-grow": "",
-                  density: "compact",
-                  variant: "outlined",
-                  "hide-details": "",
-                  "onUpdate:modelValue": $event => (editMapping('sync_delete_cloud_paths', index, 3, $event))
-                }, null, 8, ["model-value", "onUpdate:modelValue"]),
-                _createVNode(_component_VTextarea, {
-                  "model-value": row[2],
-                  label: "网盘目录",
-                  rows: "2",
-                  "auto-grow": "",
-                  density: "compact",
-                  variant: "outlined",
-                  "hide-details": "",
-                  "onUpdate:modelValue": $event => (editMapping('sync_delete_cloud_paths', index, 2, $event))
-                }, null, 8, ["model-value", "onUpdate:modelValue"]),
-                _createVNode(_component_VBtn, {
-                  class: "dm-sync-remove",
-                  size: "small",
-                  variant: "text",
-                  "prepend-icon": "mdi-close",
-                  onClick: $event => (removeMapping('sync_delete_cloud_paths', index))
-                }, {
-                  default: _withCtx(() => [...(_cache[16] || (_cache[16] = [
-                    _createTextVNode("移除此映射", -1)
-                  ]))]),
-                  _: 1
-                }, 8, ["onClick"])
-              ]))
-            }), 128)),
-            _createVNode(_component_VBtn, {
-              size: "small",
-              variant: "text",
-              "prepend-icon": "mdi-plus",
-              class: "mt-2",
-              onClick: _cache[8] || (_cache[8] = $event => (addMapping('sync_delete_cloud_paths', 4)))
-            }, {
-              default: _withCtx(() => [...(_cache[17] || (_cache[17] = [
-                _createTextVNode("添加网盘映射", -1)
-              ]))]),
-              _: 1
-            })
-          ]),
-          _createElementVNode("details", _hoisted_6, [
+                }, 8, ["aria-label", "onClick"])
+              ]),
+              (!group.rows.length)
+                ? (_openBlock(), _createElementBlock("div", _hoisted_7, "尚未配置" + _toDisplayString(group.title) + "映射", 1))
+                : (_openBlock(), _createElementBlock("div", _hoisted_8, [
+                    (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(group.rows, (row, index) => {
+                      return (_openBlock(), _createElementBlock("details", {
+                        key: index,
+                        class: "dm-sync-mapping",
+                        open: expandedMappings.value[group.field] === index
+                      }, [
+                        _createElementVNode("summary", {
+                          class: "dm-sync-mapping-summary",
+                          onClick: _withModifiers($event => (toggleMapping(group.field, index)), ["prevent"])
+                        }, [
+                          _createElementVNode("span", _hoisted_11, _toDisplayString(String(index + 1).padStart(2, '0')), 1),
+                          _createElementVNode("span", _hoisted_12, [
+                            _createElementVNode("strong", {
+                              title: mappingTitle(row)
+                            }, _toDisplayString(mappingTitle(row)), 9, _hoisted_13),
+                            _createElementVNode("span", {
+                              title: row[0]
+                            }, _toDisplayString(row[0] || '填写目录，建立路径对应关系'), 9, _hoisted_14)
+                          ]),
+                          _createVNode(_component_VIcon, {
+                            class: "dm-sync-chevron",
+                            icon: "mdi-chevron-down",
+                            size: "20"
+                          })
+                        ], 8, _hoisted_10),
+                        (expandedMappings.value[group.field] === index)
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_15, [
+                              (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(group.inputs, (input) => {
+                                return (_openBlock(), _createBlock(_component_VTextarea, {
+                                  key: input.column,
+                                  "model-value": row[input.column] || '',
+                                  label: input.label,
+                                  class: "dm-sync-directory",
+                                  rows: "2",
+                                  "auto-grow": "",
+                                  density: "compact",
+                                  variant: "outlined",
+                                  "hide-details": "",
+                                  spellcheck: "false",
+                                  "onUpdate:modelValue": $event => (editMapping(group.field, index, input.column, $event))
+                                }, null, 8, ["model-value", "label", "onUpdate:modelValue"]))
+                              }), 128)),
+                              _createElementVNode("div", _hoisted_16, [
+                                _createVNode(_component_VBtn, {
+                                  size: "small",
+                                  variant: "text",
+                                  color: "error",
+                                  "prepend-icon": "mdi-delete-outline",
+                                  onClick: $event => (removeMapping(group.field, index))
+                                }, {
+                                  default: _withCtx(() => [...(_cache[13] || (_cache[13] = [
+                                    _createTextVNode("移除此映射", -1)
+                                  ]))]),
+                                  _: 1
+                                }, 8, ["onClick"])
+                              ])
+                            ]))
+                          : _createCommentVNode("", true)
+                      ], 8, _hoisted_9))
+                    }), 128))
+                  ]))
+            ]))
+          }), 128)),
+          _createElementVNode("details", _hoisted_17, [
             _createElementVNode("summary", null, [
-              _cache[18] || (_cache[18] = _createTextVNode("高级设置 · 删除范围", -1)),
+              _cache[14] || (_cache[14] = _createTextVNode("高级设置 · 删除范围", -1)),
               (sourceRoots.value.length)
-                ? (_openBlock(), _createElementBlock("span", _hoisted_7, "（" + _toDisplayString(sourceRoots.value.length) + " 个源目录）", 1))
+                ? (_openBlock(), _createElementBlock("span", _hoisted_18, "（" + _toDisplayString(sourceRoots.value.length) + " 个源目录）", 1))
                 : (__props.form.sync_delete_source || __props.form.sync_delete_torrents)
-                  ? (_openBlock(), _createElementBlock("span", _hoisted_8, "（请填写源目录）"))
+                  ? (_openBlock(), _createElementBlock("span", _hoisted_19, "（请填写源目录）"))
                   : _createCommentVNode("", true)
             ]),
-            _cache[19] || (_cache[19] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mt-3" }, "源文件和种子仅在允许的目录内处理，保护目录中的文件保留。", -1)),
+            _cache[15] || (_cache[15] = _createElementVNode("div", { class: "text-caption text-medium-emphasis mt-3" }, "源文件和种子仅在允许的目录内处理，保护目录中的文件保留。", -1)),
             _createVNode(_component_VTextarea, {
               modelValue: __props.form.sync_delete_source_paths,
-              "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((__props.form.sync_delete_source_paths) = $event)),
+              "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((__props.form.sync_delete_source_paths) = $event)),
               label: "允许删除的下载源目录",
               rows: "3",
               "auto-grow": "",
@@ -488,7 +485,7 @@ return (_ctx, _cache) => {
             }, null, 8, ["modelValue"]),
             _createVNode(_component_VTextarea, {
               modelValue: __props.form.sync_delete_exclude_paths,
-              "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((__props.form.sync_delete_exclude_paths) = $event)),
+              "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((__props.form.sync_delete_exclude_paths) = $event)),
               label: "保护目录（可选）",
               rows: "2",
               density: "compact",
@@ -500,10 +497,10 @@ return (_ctx, _cache) => {
           ])
         ], 64))
       : (_openBlock(), _createElementBlock(_Fragment, { key: 3 }, [
-          _createElementVNode("div", _hoisted_9, [
+          _createElementVNode("div", _hoisted_20, [
             _createElementVNode("div", null, [
-              _cache[23] || (_cache[23] = _createElementVNode("strong", null, "同步删除历史", -1)),
-              _createElementVNode("div", _hoisted_10, _toDisplayString(enabled.value ? '同步删除已启用' : '同步删除未启用') + " · 共 " + _toDisplayString(total.value) + " 条", 1)
+              _cache[17] || (_cache[17] = _createElementVNode("strong", null, "同步删除历史", -1)),
+              _createElementVNode("div", _hoisted_21, _toDisplayString(enabled.value ? '同步删除已启用' : '同步删除未启用') + " · 共 " + _toDisplayString(total.value) + " 条", 1)
             ]),
             _createVNode(_component_VBtn, {
               variant: "text",
@@ -522,7 +519,7 @@ return (_ctx, _cache) => {
               }))
             : _createCommentVNode("", true),
           (!rows.value.length && !loading.value)
-            ? (_openBlock(), _createElementBlock("div", _hoisted_11, "暂无同步删除记录"))
+            ? (_openBlock(), _createElementBlock("div", _hoisted_22, "暂无同步删除记录"))
             : _createCommentVNode("", true),
           (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(rows.value, (job) => {
             return (_openBlock(), _createBlock(_component_VCard, {
@@ -533,7 +530,7 @@ return (_ctx, _cache) => {
               default: _withCtx(() => [
                 _createVNode(_component_VCardText, null, {
                   default: _withCtx(() => [
-                    _createElementVNode("div", _hoisted_12, [
+                    _createElementVNode("div", _hoisted_23, [
                       _createElementVNode("strong", null, _toDisplayString(job.event?.name || job.event?.paths?.[0] || '媒体删除'), 1),
                       _createVNode(_component_VChip, {
                         color: color(job.state),
@@ -546,12 +543,12 @@ return (_ctx, _cache) => {
                         _: 2
                       }, 1032, ["color"])
                     ]),
-                    _createElementVNode("div", _hoisted_13, _toDisplayString(dateText(job.updated_at)), 1),
+                    _createElementVNode("div", _hoisted_24, _toDisplayString(dateText(job.updated_at)), 1),
                     (job.error)
-                      ? (_openBlock(), _createElementBlock("div", _hoisted_14, _toDisplayString(job.error), 1))
+                      ? (_openBlock(), _createElementBlock("div", _hoisted_25, _toDisplayString(job.error), 1))
                       : _createCommentVNode("", true),
-                    _createElementVNode("details", _hoisted_15, [
-                      _cache[24] || (_cache[24] = _createElementVNode("summary", null, "查看关联明细", -1)),
+                    _createElementVNode("details", _hoisted_26, [
+                      _cache[18] || (_cache[18] = _createElementVNode("summary", null, "查看关联明细", -1)),
                       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList([...(job.plan?.cloud_files || []), ...(job.plan?.source_files || [])], (file) => {
                         return (_openBlock(), _createElementBlock("div", {
                           key: `${file.storage}:${file.path}`,
@@ -564,7 +561,7 @@ return (_ctx, _cache) => {
                           class: "dm-sync-path mt-2"
                         }, _toDisplayString(label(task.status)) + " · " + _toDisplayString(task.downloader) + " · " + _toDisplayString(task.id), 1))
                       }), 128)),
-                      _createElementVNode("div", _hoisted_16, "整理记录已处理 " + _toDisplayString(job.records_done?.length || 0) + " / " + _toDisplayString(job.plan?.records?.length || 0), 1)
+                      _createElementVNode("div", _hoisted_27, "整理记录已处理 " + _toDisplayString(job.records_done?.length || 0) + " / " + _toDisplayString(job.plan?.records?.length || 0), 1)
                     ]),
                     (job.state === 'failed')
                       ? (_openBlock(), _createBlock(_component_VBtn, {
@@ -577,7 +574,7 @@ return (_ctx, _cache) => {
                           disabled: !enabled.value || Boolean(retryId.value),
                           onClick: $event => (retry(job))
                         }, {
-                          default: _withCtx(() => [...(_cache[25] || (_cache[25] = [
+                          default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
                             _createTextVNode("核验后重试", -1)
                           ]))]),
                           _: 1
@@ -595,7 +592,7 @@ return (_ctx, _cache) => {
                 key: 2,
                 modelValue: page.value,
                 "onUpdate:modelValue": [
-                  _cache[11] || (_cache[11] = $event => ((page).value = $event)),
+                  _cache[9] || (_cache[9] = $event => ((page).value = $event)),
                   load
                 ],
                 length: pages.value,
@@ -609,6 +606,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const SyncDeletePane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a75f788c"]]);
+const SyncDeletePane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0e9f7ce9"]]);
 
 export { SyncDeletePane as S, _export_sfc as _, postPluginApi as a, getPluginApi as g, isApiRequestCancellation as i, postPluginJsonApi as p };
