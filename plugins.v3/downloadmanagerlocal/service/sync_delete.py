@@ -762,6 +762,9 @@ def receive_webhook(plugin, event):
         snapshot = event_snapshot(data)
         if snapshot["channel"] != "emby":
             return {"accepted": False, "reason": "not_emby"}
+        configured = mappings(config_for(plugin))
+        if not any(within(path, item["emby"]) for path in snapshot["paths"] for item in configured):
+            return {"accepted": False, "reason": "path_not_mapped"}
         runtime = getattr(plugin, "_sync_delete_runtime", None)
         if runtime is None or runtime.stop.is_set():
             raise DeleteRejected("同步删除执行器未运行")

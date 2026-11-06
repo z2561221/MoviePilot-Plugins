@@ -37,6 +37,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - `sync_delete_jobs` 保存当前实例的执行快照与历史；`sync_delete_blocks` 绑定下载器/hash/创建时间，阻止旧任务被校验或辅种重新启动。完成历史最多 1000 条、30 天，未解决记录受单独上限保护。
 - 同步删除受理、开始、关联与完成写 INFO 日志，均带任务 ID 和媒体名称；重复事件不重复记受理，人工重试单独标注。完成状态持久化成功后才输出结果，区分已删除、已不存在、移除种子和暂停保留；日志不依赖结果通知开关，不输出 Webhook 原文。守护：`test_sync_delete_logging.py`。
 - `deep.delete` 为默认通知；普通 `library.deleted` 默认关闭。旧 hash-only 清理入口不再整包删除，必须解析到具体媒体范围。
+- 删除通知全部路径均在已配置映射外时直接忽略，不创建任务或失败历史。按目录边界匹配，不将 `strm-9kg` 视为 `strm` 子目录；已映射路径、映射根和混合版本清单继续交给原有完整规划校验，不截断事件路径。守护：`test_sync_delete_event_scope.py`。
 - `/sync_delete/options`、`/sync_delete/history` 返回裸模型；`/sync_delete/preview`、`/sync_delete/retry` 返回标准 Response。预览和重试验证超管身份，重试只接受服务端任务 ID。
 - 配置页分本地与 STRM 两组，目录使用全宽自动增高输入框，无批量/分列模式切换。网盘处理继续由 `sync_delete_cloud` 独立开关控制，填写或改动目录不会自动启用；三段、四段路径格式及后端关联规则保持兼容。
 - 普通通知、手动预览、无记录强删入口从配置页移除；保存时将 `sync_delete_library_deleted`、`sync_delete_force_cloud` 置 false，并丢弃全空映射行。后端旧字段及诊断预览 API 继续兼容。源目录、保护目录收在默认折叠的“高级设置 · 删除范围”，折叠不清空配置或放宽边界。
