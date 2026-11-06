@@ -475,6 +475,30 @@ def retire_relations(plugin, plan):
             plugin.del_data(key)
 
 
+def _log_target(job: dict) -> str:
+    """日志只记录任务和媒体标识，不输出 Webhook 原文或播放链接。"""
+    event = job.get("event") or {}
+    name = text(event.get("name"))
+    if not name:
+        paths = event.get("paths") or []
+        name = PurePosixPath(paths[0]).name if paths else "媒体"
+    name = " ".join(name.split())[:240]
+    return f"[{job['id']}] {name}"
+
+
+def _log_result(job: dict) -> str:
+    """区分实际删除、原已不存在和合集保留，不能把跳过项记作删除。"""
+    plan = job["plan"]
+    cloud, local, tasks = plan["cloud_files"], plan["source_files"], plan["tasks"]
+    return (f"网盘已删除 {sum(item['status'] == 'deleted' for item in cloud)}、"
+            f"已不存在 {sum(item['status'] == 'absent' for item in cloud)}；"
+            f"本地已删除 {sum(item['status'] == 'deleted' for item in local)}、"
+            f"已不存在 {sum(item['status'] == 'absent' for item in local)}；"
+            f"种子已移除 {sum(item['status'] == 'removed' for item in tasks)}、"
+            f"保留并暂停 {sum(item['status'] == 'paused' for item in tasks)}；"
+            f"整理记录已清理 {len(job['records_done'])}/{len(plan['records'])}")
+
+
 class DeleteRuntime:
     """单实例串行执行队列；重启后的未决任务保留为待重试，不自动重放。"""
 
@@ -546,6 +570,8 @@ class DeleteRuntime:
                 job.update(state="failed", error="执行队列已满")
                 self.save(job)
                 raise DeleteRejected("执行队列已满") from error
+            action = "重试已受理" if job_id else "已受理"
+            logger.info(f"同步删除{action} {_log_target(job)}：路径 {len(job['event']['paths'])} 项，等待执行")
             return job["id"]
 
     def execute(self, job, adapter=None):
@@ -554,6 +580,7 @@ class DeleteRuntime:
         adapter = adapter or SyncDeleteAdapter(self.plugin, config)
         self.check(config)
         job.update(state="running", updated_at=time())
+        logger.info(f"同步删除开始处理 {_log_target(job)}")
         if not job.get("plan"):
             job["plan"] = build_plan(self.plugin, job["event"], config, adapter)
         plan = job["plan"]
@@ -562,6 +589,9 @@ class DeleteRuntime:
         if plan["config_fingerprint"] != fingerprint(config):
             raise DeleteRejected("任务配置快照与当前配置不同")
         self.save(job)
+        logger.info(f"同步删除关联完成 {_log_target(job)}：网盘 {len(plan['cloud_files'])} 项、"
+                    f"本地 {len(plan['source_files'])} 项、种子 {len(plan['tasks'])} 个、"
+                    f"整理记录 {len(plan['records'])} 条")
         for scope_path in job["event"]["paths"]:
             scope = mapped_scope(scope_path, config)
             if adapter.lookup("local", scope["local_path"], scope["local"]) is not None:
@@ -641,6 +671,7 @@ class DeleteRuntime:
         self.plugin.save_data(BLOCKS_KEY, blocks)
         job.update(state="completed", updated_at=time(), error="")
         self.save(job)
+        logger.info(f"同步删除完成 {_log_target(job)}：{_log_result(job)}")
 
     def run(self):
         """串行消费删除任务并保留故障阶段，停止时退出后续操作。"""
@@ -676,8 +707,8 @@ class DeleteRuntime:
                         self.save(job)
                     except Exception as storage_error:  # noqa: BLE001 -- 持久化故障保留原记录并停止 worker。
                         self.stop.set()
-                        logger.error(f"同步删除状态保存失败：{type(storage_error).__name__}")
-                    logger.warning(f"同步删除未完成 [{job_id}]：{message}")
+                        logger.error(f"同步删除状态保存失败 [{job_id}]：{type(storage_error).__name__}")
+                    logger.warning(f"同步删除未完成 {_log_target(job)}：{message}")
             finally:
                 self.queue.task_done()
             if job and not self.stop.is_set() and getattr(self.plugin, "_sync_delete_notify", False):
@@ -704,6 +735,7 @@ def start_runtime(plugin):
             mappings(config_for(plugin))
             runtime.thread = Thread(target=runtime.run, name=f"{plugin.__class__.__name__}-sync-delete", daemon=True)
             runtime.thread.start()
+            logger.info(f"同步删除执行器已启动：保留 {len(runtime.jobs())} 条历史，等待 Emby 删除通知")
 
 
 def stop_runtime(plugin):
