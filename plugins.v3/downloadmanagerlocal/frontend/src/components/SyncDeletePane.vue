@@ -169,7 +169,6 @@ defineExpose({ refresh: load })
         </div>
         <VBtn size="small" variant="text" prepend-icon="mdi-plus" class="mt-2" @click="addMapping('sync_delete_local_paths', 2)">添加本地映射</VBtn>
       </div>
-      <VSelect v-model="form.sync_delete_storage" :items="['115网盘Plus']" label="网盘存储" density="compact" variant="outlined" hide-details />
       <VTextarea v-if="mappingMode === 'text'" v-model="form.sync_delete_cloud_paths" label="网盘媒体库路径映射" rows="3" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="Emby路径#MP本地STRM路径#网盘目录#本地整理目录（最后一段可选，一行一条）" />
       <div v-else class="my-4">
         <strong>网盘媒体库路径映射</strong>
@@ -185,8 +184,10 @@ defineExpose({ refresh: load })
       <div class="text-caption text-medium-emphasis mb-3">先整理到本地再上传网盘时，可填写对应的本地整理目录以关联整理记录和下载源；三段映射仍可继续使用。</div>
       <VTextarea v-model="form.sync_delete_source_paths" label="允许删除的下载源目录" rows="3" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="填写 MP 容器内的真实下载目录，一行一个" />
       <VTextarea v-model="form.sync_delete_exclude_paths" label="保护目录（可选）" rows="2" density="compact" variant="outlined" hide-details class="my-4" placeholder="一行一个路径，匹配到的文件保留" />
-      <VSwitch v-model="form.sync_delete_force_cloud" :disabled="!form.sync_delete_cloud" color="warning" inset hide-details label="没有整理记录时，也按映射删除网盘文件" />
-      <div class="text-caption text-medium-emphasis mb-3">仍需唯一确认网盘实体；不会凭片名猜测下载器任务。</div>
+      <template v-if="form.sync_delete_cloud">
+        <VSwitch v-model="form.sync_delete_force_cloud" color="warning" inset hide-details label="没有整理记录时，也按映射删除网盘文件" />
+        <div class="text-caption text-medium-emphasis mb-3">网盘删除使用 115网盘Plus；仍需唯一确认网盘文件，不会凭片名猜测下载器任务。</div>
+      </template>
       <VSwitch v-model="form.sync_delete_library_deleted" color="warning" inset hide-details label="同时处理普通 Emby 删除通知" />
       <VDivider class="my-4" />
       <strong>匹配预览</strong>

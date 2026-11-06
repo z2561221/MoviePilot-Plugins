@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, i as isApiRequestCancellation, S as SyncDeletePane, g as getPluginApi, p as postPluginJsonApi } from './SyncDeletePane-Cf3G-MiH.js';
+import { _ as _export_sfc, i as isApiRequestCancellation, S as SyncDeletePane, g as getPluginApi, p as postPluginJsonApi } from './SyncDeletePane-CzhD0aIC.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,createBlock:_createBlock,createCommentVNode:_createCommentVNode,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 

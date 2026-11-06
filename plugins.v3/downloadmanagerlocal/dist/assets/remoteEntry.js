@@ -2,11 +2,11 @@ const currentImports = {};
       const exportSet = new Set(['Module', '__esModule', 'default', '_export_sfc']);
       let moduleMap = {
 "./Config":()=>{
-      dynamicLoadingCss(["__federation_expose_Config-LmBfE4IA.css","SyncDeletePane-B1gZt8hZ.css"], false, './Config');
-      return __federation_import('./__federation_expose_Config-CYA5D-Ya.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
+      dynamicLoadingCss(["__federation_expose_Config-LmBfE4IA.css","SyncDeletePane-BKyAqdVU.css"], false, './Config');
+      return __federation_import('./__federation_expose_Config-RfZEqO2G.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Page":()=>{
-      dynamicLoadingCss(["__federation_expose_Page-C2eUwh3I.css","SyncDeletePane-B1gZt8hZ.css"], false, './Page');
-      return __federation_import('./__federation_expose_Page-hLiccbHt.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      dynamicLoadingCss(["__federation_expose_Page-C2eUwh3I.css","SyncDeletePane-BKyAqdVU.css"], false, './Page');
+      return __federation_import('./__federation_expose_Page-XF2HA6eo.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;
