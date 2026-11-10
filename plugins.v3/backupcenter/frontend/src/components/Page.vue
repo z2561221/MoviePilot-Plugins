@@ -109,7 +109,7 @@ const restorePluginOptions = computed(() => (
       title: pluginTitleById.value.get(value) || value,
       value,
     }))
-))
+ ).filter(item => !(preview.value?.excluded_plugin_ids || []).includes(item.value)))
 const createSelection = computed(() => (
   createForm.target === 'plugin' ? createForm.pluginSelection : createForm.moviepilotSelection
 ))
@@ -787,6 +787,7 @@ onBeforeUnmount(() => {
               <div class="bc-muted px-2 pb-2">先在下方选择插件；数据包含 PluginData、插件文件和缓存。</div>
             </section>
           </div>
+          <VAlert v-if="preview?.excluded_plugin_ids?.length" type="info" variant="tonal" density="compact">旧备份中的备份中心及其分身已排除，其他插件仍可选择恢复。</VAlert>
           <VSelect
             v-model="restoreForm.pluginIds"
             :items="restorePluginOptions"
