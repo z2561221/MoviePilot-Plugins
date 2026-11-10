@@ -656,7 +656,7 @@ def test_automatic_bundle_can_restore_one_plugins_data_only(tmp_path, monkeypatc
     manifest_module.ManifestService.write_json(
         payload / "manifest.json", public_manifest
     )
-    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"}, 
+    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"},
         read_public_manifest=lambda backup_id: public_manifest,
         create_backup=lambda *_args, **_kwargs: {"backup_id": "backup-emergency"},
     )
@@ -707,7 +707,7 @@ def test_restore_stops_before_plugin_emergency_backup_when_host_backup_fails(
         "selected_plugin_ids": ["PluginA"],
     }
     calls = []
-    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"}, 
+    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"},
         read_public_manifest=lambda _backup_id: manifest,
         create_backup=lambda *_args, **_kwargs: calls.append("plugin")
         or {"backup_id": "backup-emergency"},
@@ -771,7 +771,7 @@ def test_encrypted_preview_does_not_require_password_before_dialog():
         "database": {"included": False},
         "encryption": {"enabled": True},
     }
-    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"}, 
+    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"},
         verify_backup=lambda backup_id: {
             "manifest": manifest,
             "verified_files": ["payload.enc", "manifest.public.json"],
@@ -1111,7 +1111,7 @@ def test_restore_rolls_back_config_data_and_files_together(tmp_path, monkeypatch
     )
 
     settings = _service_settings(tmp_path)
-    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"}, 
+    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"},
         settings=settings,
         get_backup_root=lambda: tmp_path / "backups",
         read_public_manifest=lambda _backup_id: manifest,
@@ -1291,7 +1291,7 @@ def test_restore_failure_preserves_writes_outside_restore(tmp_path, monkeypatch,
         """返回隔离的已校验负载。"""
         yield tmp_path
 
-    service = restore_module.RestoreService(plugin, SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"}, 
+    service = restore_module.RestoreService(plugin, SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"},
         read_public_manifest=lambda _: manifest, create_backup=emergency_backup,
     ))
     monkeypatch.setattr(service, "_payload_directory", payload_directory)
