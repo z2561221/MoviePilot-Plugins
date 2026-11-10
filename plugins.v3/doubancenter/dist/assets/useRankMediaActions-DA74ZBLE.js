@@ -1,4 +1,29 @@
-import { a as getPluginApi, p as postPluginApi } from './useRequestScope-Dkqwm-Un.js';
+import { importShared } from './__federation_fn_import-JrT3xvdd.js';
+import { a as getPluginApi, i as isApiRequestCancellation, p as postPluginApi } from './useRequestScope-CDEhkzJg.js';
+
+const {ref,watch,onScopeDispose} = await importShared('vue');
+
+// 显示权限按当前API与实例读取，服务端仍逐次授权每个管理操作。
+function useManagementPermissions(api, pluginId) {
+  const canManage = ref(false);
+  const permissionError = ref('');
+  let alive = true;
+  let generation = 0;
+  watch(() => [api(), pluginId()], async ([client, id]) => {
+    const current = ++generation;
+    const owns = () => alive && current === generation && client === api() && id === pluginId();
+    canManage.value = false;
+    permissionError.value = '';
+    try {
+      const result = await getPluginApi(client, id, 'permissions', { feedback: 'silent' });
+      if (owns()) canManage.value = result?.success === true && result.data?.can_manage === true;
+    } catch (error) {
+      if (owns() && !isApiRequestCancellation(error)) permissionError.value = '权限读取失败，请重新打开页面。';
+    }
+  }, { immediate: true, flush: 'sync' });
+  onScopeDispose(() => { alive = false; generation++; });
+  return { canManage, permissionError }
+}
 
 const BUILTIN_RANK_ROUTES = {
   coming: '/douban/tv/coming',
@@ -257,4 +282,4 @@ function useRankMediaActions({ api, pluginId, rankNameOf }) {
   }
 }
 
-export { doubanDispatchUrl as d, sourceDescriptor as s, useRankMediaActions as u };
+export { useRankMediaActions as a, doubanDispatchUrl as d, sourceDescriptor as s, useManagementPermissions as u };

@@ -289,3 +289,22 @@ test('通知分类旧请求不能覆盖新实例，失败保持安全默认项',
     assert.equal(config.notificationTypeOptions[0].value, 'Plugin')
   } finally { scope.stop() }
 })
+
+
+test('管理权限随API和实例变化，旧授权及失败均不能开放按钮', async () => {
+  const { useManagementPermissions } = await load('useManagementPermissions.js')
+  const id = vue.ref('A'), requests = []
+  const client = vue.ref({ get: () => new Promise((resolve, reject) => requests.push({ resolve, reject })) })
+  const scope = vue.effectScope()
+  const access = scope.run(() => useManagementPermissions(() => client.value, () => id.value))
+  try {
+    id.value = 'B'; await tick()
+    requests[0].resolve(ok({ can_manage: true })); await tick()
+    assert.equal(access.canManage.value, false)
+    requests[1].resolve(ok({ can_manage: true })); await tick()
+    assert.equal(access.canManage.value, true)
+    client.value = { get: async () => { throw new Error('offline') } }; await tick()
+    assert.equal(access.canManage.value, false)
+    assert.match(access.permissionError.value, /权限读取失败/)
+  } finally { scope.stop() }
+})

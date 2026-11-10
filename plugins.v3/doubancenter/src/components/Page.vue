@@ -1,4 +1,5 @@
 <script setup>
+import { useManagementPermissions } from './useManagementPermissions'
 import { onMounted } from 'vue'
 import PageActionDialog from './page/PageActionDialog.vue'
 import PageContent from './page/PageContent.vue'
@@ -11,6 +12,8 @@ const props = defineProps({
   appPage: { type: Boolean, default: false },
   showSettings: { type: Boolean, default: false },
 })
+const { canManage, permissionError } = useManagementPermissions(() => props.api, () => props.pluginId || 'DoubanCenter')
+
 const emit = defineEmits(['close', 'switch'])
 
 const page = usePageRuntime({
@@ -38,7 +41,7 @@ onMounted(page.loadAll)
         <VBtn variant="text" size="small" class="text-none dc-toolbar-action" :title="page.archivePage ? '返回' : '归档'" :aria-label="page.archivePage ? '返回' : '归档'" :color="page.archivePage ? 'primary' : undefined" @click="page.archivePage ? page.closeArchivePage() : page.openArchivePage()">
           <VIcon :icon="page.archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline'" size="18" class="dc-toolbar-icon" /><span class="dc-toolbar-label">{{ page.archivePage ? '返回' : '归档' }}</span>
         </VBtn>
-        <VBtn v-if="props.showSettings || !props.appPage" variant="text" size="small" class="text-none dc-toolbar-action" title="设置" aria-label="设置" @click="emit('switch')">
+        <VBtn v-if="props.showSettings || !props.appPage" variant="text" size="small" class="text-none dc-toolbar-action" title="设置" aria-label="设置" :disabled="!canManage" @click="emit('switch')">
           <VIcon icon="mdi-cog-outline" size="18" class="dc-toolbar-icon" /><span class="dc-toolbar-label">设置</span>
         </VBtn>
         <VBtn v-if="!props.appPage" icon variant="text" size="small" class="dc-toolbar-action" title="关闭" aria-label="关闭" @click="emit('close')"><VIcon icon="mdi-close" size="18" class="dc-toolbar-icon" /></VBtn>
@@ -47,11 +50,12 @@ onMounted(page.loadAll)
     <VDivider />
     <VProgressLinear v-if="page.loading" indeterminate color="primary" height="2" />
     <VCardText class="pa-3 dc-flow">
+      <VAlert v-if="!canManage" type="info" variant="tonal" density="compact" class="dc-load-alert">{{ permissionError || '当前为只读模式，记录维护需要管理员权限。' }}</VAlert>
       <VAlert v-if="page.loadError" type="warning" variant="tonal" density="compact" class="dc-load-alert">
         <div class="dc-load-alert__content"><span>{{ page.loadError }}</span><VBtn variant="text" size="x-small" prepend-icon="mdi-refresh" class="text-none" :loading="page.loading" @click="page.archivePage ? page.loadArchive() : page.loadAll()">重试</VBtn></div>
       </VAlert>
       <div v-if="page.actionMessage" class="dc-action-message" :class="page.actionOk ? 'text-success' : 'text-error'">{{ page.actionMessage }}</div>
-      <PageContent :page="page" />
+      <PageContent :page="page" :can-manage="canManage" />
     </VCardText>
     <PageActionDialog :page="page" />
   </VCard>

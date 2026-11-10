@@ -1,4 +1,5 @@
 <script setup>
+import { useManagementPermissions } from './useManagementPermissions'
 import { ref, computed, onMounted, watch } from 'vue'
 import { getPluginApi, postPluginApi, toPosterThumbnail, openNativeSubscription } from './api'
 import { sourceDescriptor, doubanDispatchUrl } from './source'
@@ -16,6 +17,8 @@ const props = defineProps({
 const dashboardPluginId = computed(
   () => String(props.pluginId || props.config?.id || 'DoubanCenter').trim() || 'DoubanCenter',
 )
+
+const { canManage, permissionError } = useManagementPermissions(() => props.api, () => dashboardPluginId.value)
 
 const config = ref({})
 const rankHistory = ref({})
@@ -369,7 +372,7 @@ onMounted(load)
       <VCardTitle>豆瓣中心</VCardTitle>
       <VCardSubtitle>点击榜单条目可选择来源、TMDB 或订阅</VCardSubtitle>
       <template #append>
-        <VBtn variant="text" size="x-small" prepend-icon="mdi-refresh" class="text-none" :loading="refreshing" @click="refreshDashboard">刷新</VBtn>
+        <VBtn variant="text" size="x-small" prepend-icon="mdi-refresh" class="text-none" :loading="refreshing" :disabled="!canManage" :title="canManage ? '刷新榜单' : permissionError || '刷新榜单需要管理员权限'" @click="refreshDashboard">刷新</VBtn>
       </template>
     </VCardItem>
     <VDivider />
