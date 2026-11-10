@@ -8,6 +8,11 @@ const props = defineProps({
   pluginId: { type: String, default: 'DownloadManagerLocal' },
   sourcePluginId: { type: String, default: 'DownloadManagerLocal' },
 })
+
+const canManage = ref(false)
+const permissionError = ref('')
+
+
 const emit = defineEmits(['close', 'switch'])
 const getApi = (path, options = {}) => getPluginApi(props.api, props.pluginId, path, options)
 const postApi = (path, payload = {}, options = {}) => postPluginApi(props.api, props.pluginId, path, payload, options)
@@ -543,16 +548,33 @@ onBeforeUnmount(() => {
   stopOverviewAutoRefresh()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
+
+let permissionsRevision = 0
+watch(() => [props.api, props.pluginId], async () => {
+  const revision = ++permissionsRevision
+  const api = props.api
+  const id = props.pluginId
+  const current = () => !pageDisposed && revision === permissionsRevision && api === props.api && id === props.pluginId
+  canManage.value = false
+  permissionError.value = ''
+  try {
+    const value = await getPluginApi(api, id, 'permissions', { feedback: 'silent' })
+    if (current()) canManage.value = value?.can_manage === true
+  } catch (reason) {
+    if (current() && !isApiRequestCancellation(reason)) permissionError.value = '权限读取失败，请重新打开页面。'
+  }
+}, { immediate: true, flush: 'sync' })
 </script>
 
 <template>
   <div class="dm-page">
+    <VAlert v-if="!canManage" type="info" variant="tonal" density="compact">{{ permissionError || '当前为只读模式，管理操作需要管理员权限。' }}</VAlert>
     <VToolbar density="comfortable" class="dm-toolbar">
       <VIcon icon="mdi-download" class="ms-3 me-2" color="primary" />
       <div class="text-h6">下载中心</div>
       <VSpacer />
       <VBtn variant="text" size="small" prepend-icon="mdi-refresh" class="text-none me-2" @click="refreshActive" :loading="loading">刷新</VBtn>
-      <VBtn variant="text" prepend-icon="mdi-cog-outline" class="text-none" @click="emit('switch')">设置</VBtn>
+      <VBtn :disabled="!canManage" variant="text" prepend-icon="mdi-cog-outline" class="text-none" @click="emit('switch')">设置</VBtn>
       <VBtn icon="mdi-close" variant="text" @click="emit('close')" />
     </VToolbar>
     <VDivider />
@@ -752,14 +774,14 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-else-if="activeTab === 'sync_delete'" class="dm-pane">
-          <SyncDeletePane ref="syncDeletePane" :api="props.api" :plugin-id="props.pluginId" />
+          <SyncDeletePane :can-manage="canManage" ref="syncDeletePane" :api="props.api" :plugin-id="props.pluginId" />
         </section>
 
         <section v-else-if="activeTab === 'history'" class="dm-pane">
           <div class="d-flex align-center mb-3">
             <div class="text-subtitle-2">命名历史</div>
             <VSpacer />
-            <VBtn variant="tonal" size="small" prepend-icon="mdi-auto-fix" class="text-none" @click="doRetryRenames" :loading="retrying">补刀</VBtn>
+            <VBtn :disabled="!canManage" variant="tonal" size="small" prepend-icon="mdi-auto-fix" class="text-none" @click="doRetryRenames" :loading="retrying">补刀</VBtn>
           </div>
           <div v-if="records.length === 0" class="dm-state text-center text-medium-emphasis">
             <VIcon icon="mdi-history" size="48" color="grey-lighten-1" class="mb-2" />
@@ -785,9 +807,9 @@ onBeforeUnmount(() => {
                   <td><VChip size="x-small" :color="r.success ? 'success' : 'error'" variant="tonal">{{ r.success ? '成功' : (r.reason || '失败') }}</VChip></td>
                   <td>
                     <div class="d-flex ga-1">
-                      <VBtn size="x-small" variant="tonal" color="primary" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
-                      <VBtn v-if="r.success" size="x-small" variant="tonal" color="warning" @click="doRecovery(r.hash)">恢复</VBtn>
-                      <VBtn size="x-small" variant="text" color="error" @click="doDelete(r.hash)">删除</VBtn>
+                      <VBtn :disabled="!canManage" size="x-small" variant="tonal" color="primary" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
+                      <VBtn :disabled="!canManage" v-if="r.success" size="x-small" variant="tonal" color="warning" @click="doRecovery(r.hash)">恢复</VBtn>
+                      <VBtn :disabled="!canManage" size="x-small" variant="text" color="error" @click="doDelete(r.hash)">删除</VBtn>
                     </div>
                   </td>
                 </tr>
@@ -815,9 +837,9 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
                 <div class="dm-record-actions">
-                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
-                  <VBtn v-if="r.success" size="x-small" variant="tonal" color="warning" prepend-icon="mdi-undo" @click="doRecovery(r.hash)">恢复</VBtn>
-                  <VBtn size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="doDelete(r.hash)">删除</VBtn>
+                  <VBtn :disabled="!canManage" size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
+                  <VBtn :disabled="!canManage" v-if="r.success" size="x-small" variant="tonal" color="warning" prepend-icon="mdi-undo" @click="doRecovery(r.hash)">恢复</VBtn>
+                  <VBtn :disabled="!canManage" size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="doDelete(r.hash)">删除</VBtn>
                 </div>
               </article>
             </div>
@@ -857,9 +879,9 @@ onBeforeUnmount(() => {
                   <td class="text-caption dm-ellipsis" :title="r.archive_reason || r.reason">{{ r.archive_reason || r.reason }}</td>
                   <td>
                     <div class="d-flex ga-1">
-                      <VBtn size="x-small" variant="tonal" color="primary" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash" :disabled="!!retryingHash || restoringHash === r.hash || deletingHash === r.hash">补刀</VBtn>
-                      <VBtn size="x-small" variant="tonal" color="primary" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash" :disabled="retryingHash === r.hash">恢复</VBtn>
-                      <VBtn size="x-small" variant="text" color="error" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash" :disabled="retryingHash === r.hash">删除</VBtn>
+                      <VBtn size="x-small" variant="tonal" color="primary" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash" :disabled="!canManage || !!retryingHash || restoringHash === r.hash || deletingHash === r.hash">补刀</VBtn>
+                      <VBtn size="x-small" variant="tonal" color="primary" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash" :disabled="!canManage || retryingHash === r.hash">恢复</VBtn>
+                      <VBtn size="x-small" variant="text" color="error" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash" :disabled="!canManage || retryingHash === r.hash">删除</VBtn>
                     </div>
                   </td>
                 </tr>
@@ -887,9 +909,9 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
                 <div class="dm-record-actions">
-                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash" :disabled="!!retryingHash || restoringHash === r.hash || deletingHash === r.hash">补刀</VBtn>
-                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-archive-arrow-up-outline" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash" :disabled="retryingHash === r.hash">恢复</VBtn>
-                  <VBtn size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash" :disabled="retryingHash === r.hash">删除</VBtn>
+                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash" :disabled="!canManage || !!retryingHash || restoringHash === r.hash || deletingHash === r.hash">补刀</VBtn>
+                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-archive-arrow-up-outline" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash" :disabled="!canManage || retryingHash === r.hash">恢复</VBtn>
+                  <VBtn size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash" :disabled="!canManage || retryingHash === r.hash">删除</VBtn>
                 </div>
               </article>
             </div>

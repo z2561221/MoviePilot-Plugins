@@ -2,6 +2,9 @@
 
 from .sync_delete import routes as sync_delete_routes
 
+from fastapi import Depends
+
+from .security import PermissionsResult, permissions, require_admin
 from functools import partial
 from typing import Any, Dict, List
 
@@ -37,7 +40,9 @@ from .handlers import (
 
 def build_api_routes(plugin) -> List[Dict[str, Any]]:
     """构造插件 API 路由声明，保持前端调用契约不变。"""
-    return sync_delete_routes(plugin) + [
+    routes = sync_delete_routes(plugin) + [
+        {"path": "/permissions", "endpoint": permissions, "methods": ["GET"],
+         "auth": "bear", "summary": "获取当前用户管理权限", "response_model": PermissionsResult},
         {
             "path": "/downloaders",
             "endpoint": plugin.api_downloaders,
@@ -199,3 +204,8 @@ def build_api_routes(plugin) -> List[Dict[str, Any]]:
             "response_model": schemas.Response[TagCleanupExecuteResult],
         },
     ]
+
+    for route in routes:
+        if set(route["methods"]) - {"GET", "HEAD", "OPTIONS"}:
+            route["dependencies"] = [*route.get("dependencies", []), Depends(require_admin)]
+    return routes

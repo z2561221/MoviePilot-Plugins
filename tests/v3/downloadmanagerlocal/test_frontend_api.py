@@ -153,7 +153,7 @@ def test_config_waiting_actions_never_write_to_a_new_instance() -> None:
       for (const action of ['reallocateUploadLimits','scanUploadSites','clearUploadSiteRules']) {
         const watchers=[],pending=[],cleanups=[];
         const props={pluginId:'A',api:{},initialConfig:{upload_limit_downloaders:['QB'],upload_limit_site_rules:{keep:{limit_kib:1}}}};
-        const request=(api,id,path,payload)=>new Promise((resolve,reject)=>pending.push({id,path,payload,resolve,reject}));
+        const request=(api,id,path,payload)=>path==='permissions' ? Promise.resolve({can_manage:true}) : new Promise((resolve,reject)=>pending.push({id,path,payload,resolve,reject}));
         const build=new Function('reactive','ref','computed','watch','onMounted','onBeforeUnmount','defineProps','defineEmits','getPluginApi','postPluginJsonApi','isApiRequestCancellation',
           source+'\nreturn {form,queueUploadSiteRulesSave,reallocateUploadLimits,scanUploadSites,clearUploadSiteRules,uploadMessage};');
         globalThis.document={removeEventListener(){},visibilityState:'hidden'};

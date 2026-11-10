@@ -7,6 +7,7 @@ const props = defineProps({
   pluginId: { type: String, required: true },
   form: { type: Object, default: null },
   mode: { type: String, default: 'history' },
+  canManage: { type: Boolean, default: false },
 })
 const servers = ref([])
 const rows = ref([])
@@ -89,7 +90,7 @@ async function load() {
 }
 
 async function retry(job) {
-  if (retryId.value) return
+  if (!props.canManage || retryId.value) return
   const ticket = revision
   const request = ++retryRevision
   const id = props.pluginId
@@ -194,7 +195,7 @@ defineExpose({ refresh: load })
             <div v-for="task in job.plan?.tasks || []" :key="`${task.downloader}:${task.id}`" class="dm-sync-path mt-2">{{ label(task.status) }} · {{ task.downloader }} · {{ task.id }}</div>
             <div class="text-caption mt-2">整理记录已处理 {{ job.records_done?.length || 0 }} / {{ job.plan?.records?.length || 0 }}</div>
           </details>
-          <VBtn v-if="job.state === 'failed'" class="mt-3" color="warning" variant="tonal" size="small" :loading="retryId === job.id" :disabled="!enabled || Boolean(retryId)" @click="retry(job)">核验后重试</VBtn>
+          <VBtn v-if="job.state === 'failed'" class="mt-3" color="warning" variant="tonal" size="small" :loading="retryId === job.id" :disabled="!props.canManage || !enabled || Boolean(retryId)" @click="retry(job)">核验后重试</VBtn>
         </VCardText>
       </VCard>
       <VPagination v-if="pages > 1" v-model="page" :length="pages" :total-visible="5" density="compact" @update:model-value="load" />

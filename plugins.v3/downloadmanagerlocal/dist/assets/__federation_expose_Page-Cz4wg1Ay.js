@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, S as SyncDeletePane, i as isApiRequestCancellation, g as getPluginApi, a as postPluginApi } from './SyncDeletePane-CWPVP7yW.js';
+import { _ as _export_sfc, g as getPluginApi, i as isApiRequestCancellation, S as SyncDeletePane, a as postPluginApi } from './SyncDeletePane-DUaFWmTI.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createBlock:_createBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
+const {toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "dm-page" };
@@ -249,6 +249,11 @@ const _sfc_main = {
   setup(__props, { emit: __emit }) {
 
 const props = __props;
+
+const canManage = ref(false);
+const permissionError = ref('');
+
+
 const emit = __emit;
 const getApi = (path, options = {}) => getPluginApi(props.api, props.pluginId, path, options);
 const postApi = (path, payload = {}, options = {}) => postPluginApi(props.api, props.pluginId, path, payload, options);
@@ -783,7 +788,24 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 
+let permissionsRevision = 0;
+watch(() => [props.api, props.pluginId], async () => {
+  const revision = ++permissionsRevision;
+  const api = props.api;
+  const id = props.pluginId;
+  const current = () => !pageDisposed && revision === permissionsRevision && api === props.api && id === props.pluginId;
+  canManage.value = false;
+  permissionError.value = '';
+  try {
+    const value = await getPluginApi(api, id, 'permissions', { feedback: 'silent' });
+    if (current()) canManage.value = value?.can_manage === true;
+  } catch (reason) {
+    if (current() && !isApiRequestCancellation(reason)) permissionError.value = '权限读取失败，请重新打开页面。';
+  }
+}, { immediate: true, flush: 'sync' });
+
 return (_ctx, _cache) => {
+  const _component_VAlert = _resolveComponent("VAlert");
   const _component_VIcon = _resolveComponent("VIcon");
   const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VBtn = _resolveComponent("VBtn");
@@ -792,7 +814,6 @@ return (_ctx, _cache) => {
   const _component_VListItemTitle = _resolveComponent("VListItemTitle");
   const _component_VListItem = _resolveComponent("VListItem");
   const _component_VList = _resolveComponent("VList");
-  const _component_VAlert = _resolveComponent("VAlert");
   const _component_VProgressCircular = _resolveComponent("VProgressCircular");
   const _component_VAvatar = _resolveComponent("VAvatar");
   const _component_VChip = _resolveComponent("VChip");
@@ -800,6 +821,19 @@ return (_ctx, _cache) => {
   const _component_VTable = _resolveComponent("VTable");
 
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
+    (!canManage.value)
+      ? (_openBlock(), _createBlock(_component_VAlert, {
+          key: 0,
+          type: "info",
+          variant: "tonal",
+          density: "compact"
+        }, {
+          default: _withCtx(() => [
+            _createTextVNode(_toDisplayString(permissionError.value || '当前为只读模式，管理操作需要管理员权限。'), 1)
+          ]),
+          _: 1
+        }))
+      : _createCommentVNode("", true),
     _createVNode(_component_VToolbar, {
       density: "comfortable",
       class: "dm-toolbar"
@@ -826,6 +860,7 @@ return (_ctx, _cache) => {
           _: 1
         }, 8, ["loading"]),
         _createVNode(_component_VBtn, {
+          disabled: !canManage.value,
           variant: "text",
           "prepend-icon": "mdi-cog-outline",
           class: "text-none",
@@ -835,7 +870,7 @@ return (_ctx, _cache) => {
             _createTextVNode("设置", -1)
           ]))]),
           _: 1
-        }),
+        }, 8, ["disabled"]),
         _createVNode(_component_VBtn, {
           icon: "mdi-close",
           variant: "text",
@@ -1314,11 +1349,12 @@ return (_ctx, _cache) => {
             : (activeTab.value === 'sync_delete')
               ? (_openBlock(), _createElementBlock("section", _hoisted_67, [
                   _createVNode(SyncDeletePane, {
+                    "can-manage": canManage.value,
                     ref_key: "syncDeletePane",
                     ref: syncDeletePane,
                     api: props.api,
                     "plugin-id": props.pluginId
-                  }, null, 8, ["api", "plugin-id"])
+                  }, null, 8, ["can-manage", "api", "plugin-id"])
                 ]))
               : (activeTab.value === 'history')
                 ? (_openBlock(), _createElementBlock("section", _hoisted_68, [
@@ -1326,6 +1362,7 @@ return (_ctx, _cache) => {
                       _cache[35] || (_cache[35] = _createElementVNode("div", { class: "text-subtitle-2" }, "命名历史", -1)),
                       _createVNode(_component_VSpacer),
                       _createVNode(_component_VBtn, {
+                        disabled: !canManage.value,
                         variant: "tonal",
                         size: "small",
                         "prepend-icon": "mdi-auto-fix",
@@ -1337,7 +1374,7 @@ return (_ctx, _cache) => {
                           _createTextVNode("补刀", -1)
                         ]))]),
                         _: 1
-                      }, 8, ["loading"])
+                      }, 8, ["disabled", "loading"])
                     ]),
                     (records.value.length === 0)
                       ? (_openBlock(), _createElementBlock("div", _hoisted_70, [
@@ -1394,6 +1431,7 @@ return (_ctx, _cache) => {
                                       _createElementVNode("td", null, [
                                         _createElementVNode("div", _hoisted_75, [
                                           _createVNode(_component_VBtn, {
+                                            disabled: !canManage.value,
                                             size: "x-small",
                                             variant: "tonal",
                                             color: "primary",
@@ -1404,10 +1442,11 @@ return (_ctx, _cache) => {
                                               _createTextVNode("补刀", -1)
                                             ]))]),
                                             _: 1
-                                          }, 8, ["onClick", "loading"]),
+                                          }, 8, ["disabled", "onClick", "loading"]),
                                           (r.success)
                                             ? (_openBlock(), _createBlock(_component_VBtn, {
                                                 key: 0,
+                                                disabled: !canManage.value,
                                                 size: "x-small",
                                                 variant: "tonal",
                                                 color: "warning",
@@ -1417,9 +1456,10 @@ return (_ctx, _cache) => {
                                                   _createTextVNode("恢复", -1)
                                                 ]))]),
                                                 _: 1
-                                              }, 8, ["onClick"]))
+                                              }, 8, ["disabled", "onClick"]))
                                             : _createCommentVNode("", true),
                                           _createVNode(_component_VBtn, {
+                                            disabled: !canManage.value,
                                             size: "x-small",
                                             variant: "text",
                                             color: "error",
@@ -1429,7 +1469,7 @@ return (_ctx, _cache) => {
                                               _createTextVNode("删除", -1)
                                             ]))]),
                                             _: 1
-                                          }, 8, ["onClick"])
+                                          }, 8, ["disabled", "onClick"])
                                         ])
                                       ])
                                     ]))
@@ -1484,6 +1524,7 @@ return (_ctx, _cache) => {
                                 ]),
                                 _createElementVNode("div", _hoisted_86, [
                                   _createVNode(_component_VBtn, {
+                                    disabled: !canManage.value,
                                     size: "x-small",
                                     variant: "tonal",
                                     color: "primary",
@@ -1495,10 +1536,11 @@ return (_ctx, _cache) => {
                                       _createTextVNode("补刀", -1)
                                     ]))]),
                                     _: 1
-                                  }, 8, ["onClick", "loading"]),
+                                  }, 8, ["disabled", "onClick", "loading"]),
                                   (r.success)
                                     ? (_openBlock(), _createBlock(_component_VBtn, {
                                         key: 0,
+                                        disabled: !canManage.value,
                                         size: "x-small",
                                         variant: "tonal",
                                         color: "warning",
@@ -1509,9 +1551,10 @@ return (_ctx, _cache) => {
                                           _createTextVNode("恢复", -1)
                                         ]))]),
                                         _: 1
-                                      }, 8, ["onClick"]))
+                                      }, 8, ["disabled", "onClick"]))
                                     : _createCommentVNode("", true),
                                   _createVNode(_component_VBtn, {
+                                    disabled: !canManage.value,
                                     size: "x-small",
                                     variant: "text",
                                     color: "error",
@@ -1522,7 +1565,7 @@ return (_ctx, _cache) => {
                                       _createTextVNode("删除", -1)
                                     ]))]),
                                     _: 1
-                                  }, 8, ["onClick"])
+                                  }, 8, ["disabled", "onClick"])
                                 ])
                               ]))
                             }), 128))
@@ -1615,7 +1658,7 @@ return (_ctx, _cache) => {
                                               color: "primary",
                                               onClick: $event => (doRetryRename(r.hash)),
                                               loading: retryingHash.value === r.hash,
-                                              disabled: !!retryingHash.value || restoringHash.value === r.hash || deletingHash.value === r.hash
+                                              disabled: !canManage.value || !!retryingHash.value || restoringHash.value === r.hash || deletingHash.value === r.hash
                                             }, {
                                               default: _withCtx(() => [...(_cache[48] || (_cache[48] = [
                                                 _createTextVNode("补刀", -1)
@@ -1628,7 +1671,7 @@ return (_ctx, _cache) => {
                                               color: "primary",
                                               onClick: $event => (restoreArchive(r.hash)),
                                               loading: restoringHash.value === r.hash,
-                                              disabled: retryingHash.value === r.hash
+                                              disabled: !canManage.value || retryingHash.value === r.hash
                                             }, {
                                               default: _withCtx(() => [...(_cache[49] || (_cache[49] = [
                                                 _createTextVNode("恢复", -1)
@@ -1641,7 +1684,7 @@ return (_ctx, _cache) => {
                                               color: "error",
                                               onClick: $event => (deleteArchive(r.hash)),
                                               loading: deletingHash.value === r.hash,
-                                              disabled: retryingHash.value === r.hash
+                                              disabled: !canManage.value || retryingHash.value === r.hash
                                             }, {
                                               default: _withCtx(() => [...(_cache[50] || (_cache[50] = [
                                                 _createTextVNode("删除", -1)
@@ -1705,7 +1748,7 @@ return (_ctx, _cache) => {
                                       "prepend-icon": "mdi-auto-fix",
                                       onClick: $event => (doRetryRename(r.hash)),
                                       loading: retryingHash.value === r.hash,
-                                      disabled: !!retryingHash.value || restoringHash.value === r.hash || deletingHash.value === r.hash
+                                      disabled: !canManage.value || !!retryingHash.value || restoringHash.value === r.hash || deletingHash.value === r.hash
                                     }, {
                                       default: _withCtx(() => [...(_cache[55] || (_cache[55] = [
                                         _createTextVNode("补刀", -1)
@@ -1719,7 +1762,7 @@ return (_ctx, _cache) => {
                                       "prepend-icon": "mdi-archive-arrow-up-outline",
                                       onClick: $event => (restoreArchive(r.hash)),
                                       loading: restoringHash.value === r.hash,
-                                      disabled: retryingHash.value === r.hash
+                                      disabled: !canManage.value || retryingHash.value === r.hash
                                     }, {
                                       default: _withCtx(() => [...(_cache[56] || (_cache[56] = [
                                         _createTextVNode("恢复", -1)
@@ -1733,7 +1776,7 @@ return (_ctx, _cache) => {
                                       "prepend-icon": "mdi-delete-outline",
                                       onClick: $event => (deleteArchive(r.hash)),
                                       loading: deletingHash.value === r.hash,
-                                      disabled: retryingHash.value === r.hash
+                                      disabled: !canManage.value || retryingHash.value === r.hash
                                     }, {
                                       default: _withCtx(() => [...(_cache[57] || (_cache[57] = [
                                         _createTextVNode("删除", -1)
@@ -1909,6 +1952,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-eb006423"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-65f1522a"]]);
 
 export { Page as default };

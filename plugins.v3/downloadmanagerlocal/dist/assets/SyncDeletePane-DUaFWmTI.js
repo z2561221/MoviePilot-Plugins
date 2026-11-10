@@ -122,6 +122,7 @@ const _sfc_main = {
   pluginId: { type: String, required: true },
   form: { type: Object, default: null },
   mode: { type: String, default: 'history' },
+  canManage: { type: Boolean, default: false },
 },
   setup(__props, { expose: __expose }) {
 
@@ -207,7 +208,7 @@ async function load() {
 }
 
 async function retry(job) {
-  if (retryId.value) return
+  if (!props.canManage || retryId.value) return
   const ticket = revision;
   const request = ++retryRevision;
   const id = props.pluginId;
@@ -571,7 +572,7 @@ return (_ctx, _cache) => {
                           variant: "tonal",
                           size: "small",
                           loading: retryId.value === job.id,
-                          disabled: !enabled.value || Boolean(retryId.value),
+                          disabled: !props.canManage || !enabled.value || Boolean(retryId.value),
                           onClick: $event => (retry(job))
                         }, {
                           default: _withCtx(() => [...(_cache[19] || (_cache[19] = [
@@ -606,6 +607,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const SyncDeletePane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0e9f7ce9"]]);
+const SyncDeletePane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-61ba0169"]]);
 
 export { SyncDeletePane as S, _export_sfc as _, postPluginApi as a, getPluginApi as g, isApiRequestCancellation as i, postPluginJsonApi as p };

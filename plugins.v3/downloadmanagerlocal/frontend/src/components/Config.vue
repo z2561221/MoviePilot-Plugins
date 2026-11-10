@@ -9,6 +9,11 @@ const props = defineProps({
   pluginId: { type: String, default: 'DownloadManagerLocal' },
   sourcePluginId: { type: String, default: 'DownloadManagerLocal' },
 })
+
+const canManage = ref(false)
+const permissionError = ref('')
+
+
 const emit = defineEmits(['save', 'close', 'switch'])
 const getApi = (path, options = {}) => getPluginApi(props.api, props.pluginId, path, options)
 const postJsonApi = (path, payload = {}, options = {}) => postPluginJsonApi(props.api, props.pluginId, path, payload, options)
@@ -786,10 +791,27 @@ async function executeCleanupTags() {
     if (owns()) cleanupExecuting.value = false
   }
 }
+
+let permissionsRevision = 0
+watch(() => [props.api, props.pluginId], async () => {
+  const revision = ++permissionsRevision
+  const api = props.api
+  const id = props.pluginId
+  const current = () => !configDisposed && revision === permissionsRevision && api === props.api && id === props.pluginId
+  canManage.value = false
+  permissionError.value = ''
+  try {
+    const value = await getPluginApi(api, id, 'permissions', { feedback: 'silent' })
+    if (current()) canManage.value = value?.can_manage === true
+  } catch (reason) {
+    if (current() && !isApiRequestCancellation(reason)) permissionError.value = '权限读取失败，请重新打开页面。'
+  }
+}, { immediate: true, flush: 'sync' })
 </script>
 <template>
   <div class="dm-config">
     <VCard flat class="dm-card">
+    <VAlert v-if="!canManage" type="info" variant="tonal" density="compact">{{ permissionError || '当前为只读模式，管理操作需要管理员权限。' }}</VAlert>
       <VCardItem class="dm-header">
         <template #prepend>
           <VAvatar color="success" variant="tonal" size="44" rounded="lg">
@@ -901,10 +923,10 @@ async function executeCleanupTags() {
                 </div>
                 <div class="d-flex align-center ga-2">
                   <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="uploadScanningSites"
-                    :disabled="uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
+                    :disabled="!canManage || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
                     @click="scanUploadSites">扫描站点</VBtn>
                   <VBtn color="error" variant="text" prepend-icon="mdi-delete-sweep-outline"
-                    :disabled="!uploadSiteRuleRows.length || uploadScanningSites || uploadActionRunning === 'reallocate'"
+                    :disabled="!canManage || !uploadSiteRuleRows.length || uploadScanningSites || uploadActionRunning === 'reallocate'"
                     :loading="uploadActionRunning === 'site-rules'"
                     @click="clearUploadSiteRules">清空策略</VBtn>
                 </div>
@@ -928,10 +950,10 @@ async function executeCleanupTags() {
                   </div>
                   <VTextField :model-value="row.limit_kib" @update:model-value="setUploadSiteRule(row.name, $event)"
                     label="合计上限（KiB/s）" type="number" min="0" step="1" clearable density="compact" variant="outlined"
-                    :disabled="uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
+                    :disabled="!canManage || uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
                     hint="留空或 0 表示该站点不限速；正数为跨下载器共享的站点合计上限" persistent-hint />
                   <VBtn icon="mdi-delete-outline" size="small" color="error" variant="text" title="删除站点"
-                    :disabled="uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
+                    :disabled="!canManage || uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
                     @click="removeUploadSiteRule(row.name)" />
                 </div>
               </div>
@@ -954,10 +976,10 @@ async function executeCleanupTags() {
                     @click="refreshUploadLimitStatus">刷新</VBtn>
                   <VBtn size="small" color="primary" variant="tonal" prepend-icon="mdi-call-split"
                     :loading="uploadActionRunning === 'reallocate'"
-                    :disabled="!uploadLimit.enabled || uploadScanningSites || uploadActionRunning === 'site-rules'"
+                    :disabled="!canManage || !uploadLimit.enabled || uploadScanningSites || uploadActionRunning === 'site-rules'"
                     @click="reallocateUploadLimits">立即分配</VBtn>
                   <VBtn size="small" color="warning" variant="tonal" prepend-icon="mdi-backup-restore"
-                    :disabled="!uploadLimit.active && !uploadLimit.enabled" @click="uploadRestoreDialog = true">停用并恢复</VBtn>
+                    :disabled="!canManage || !uploadLimit.active && !uploadLimit.enabled" @click="uploadRestoreDialog = true">停用并恢复</VBtn>
                 </div>
               </div>
 
@@ -1136,7 +1158,7 @@ async function executeCleanupTags() {
                       <strong class="text-body-2">{{ item.downloader_id }}</strong>
                       <div class="text-caption text-medium-emphasis">{{ item.status === 'trusted' ? '可信基准' : '校准中' }} · {{ item.sample_count }}/{{ item.min_samples }} 样本</div>
                     </div>
-                    <VBtn v-if="speedMonitor.mode === 'auto'" size="small" variant="tonal" color="warning" icon="mdi-restart"
+                    <VBtn :disabled="!canManage" v-if="speedMonitor.mode === 'auto'" size="small" variant="tonal" color="warning" icon="mdi-restart"
                       :loading="monitorResetting === item.downloader_id" title="重置自动基准" @click="resetMonitorBaseline(item.downloader_id)" />
                   </div>
                   <div class="dm-baseline-values">
@@ -1419,7 +1441,7 @@ async function executeCleanupTags() {
                 <VSelect v-model="cleanupDownloaders" label="下载器" density="compact" variant="outlined" hide-details
                   :items="qbDownloaderItems" multiple chips closable-chips class="dm-cleanup-select" />
                 <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="cleanupScanning"
-                  :disabled="!cleanupDownloaders.length" @click="scanCleanupTags">扫描标签</VBtn>
+                  :disabled="!canManage || !cleanupDownloaders.length" @click="scanCleanupTags">扫描标签</VBtn>
               </div>
 
               <VAlert v-if="cleanupMessage" :type="cleanupStatus" variant="tonal" density="compact" closable class="mt-3"
@@ -1480,13 +1502,13 @@ async function executeCleanupTags() {
                     待清理 {{ cleanupRemovals.length }} 个标签 · {{ cleanupRemovalAssociations }} 条任务关联
                   </div>
                   <VBtn color="warning" variant="tonal" prepend-icon="mdi-eye-outline"
-                    :disabled="!cleanupRemovals.length" @click="previewCleanupTags">预览清理</VBtn>
+                    :disabled="!canManage || !cleanupRemovals.length" @click="previewCleanupTags">预览清理</VBtn>
                 </div>
               </div>
             </div>
 
             <div v-if="activeSub === 'sync_delete_basic'" class="dm-pane">
-              <SyncDeletePane :api="props.api" :plugin-id="props.pluginId" :form="form" mode="config" />
+              <SyncDeletePane :can-manage="canManage" :api="props.api" :plugin-id="props.pluginId" :form="form" mode="config" />
             </div>
 
             <!-- ═══ 做种校验 v3.0.15 · 基础设置 ═══ -->
@@ -1518,7 +1540,7 @@ async function executeCleanupTags() {
       <VCardActions class="dm-actions">
         <VSpacer />
         <VBtn variant="text" @click="emit('close')">取消</VBtn>
-        <VBtn color="primary" variant="flat" prepend-icon="mdi-content-save-outline" @click="saveConfig">保存配置</VBtn>
+        <VBtn :disabled="!canManage" color="primary" variant="flat" prepend-icon="mdi-content-save-outline" @click="saveConfig">保存配置</VBtn>
       </VCardActions>
     </VCard>
 
@@ -1543,7 +1565,7 @@ async function executeCleanupTags() {
         <VCardActions>
           <VSpacer />
           <VBtn variant="text" :disabled="cleanupExecuting" @click="cleanupDialog = false">取消</VBtn>
-          <VBtn color="error" variant="flat" prepend-icon="mdi-tag-remove-outline" :loading="cleanupExecuting"
+          <VBtn :disabled="!canManage" color="error" variant="flat" prepend-icon="mdi-tag-remove-outline" :loading="cleanupExecuting"
             @click="executeCleanupTags">确认清理</VBtn>
         </VCardActions>
       </VCard>
@@ -1566,7 +1588,7 @@ async function executeCleanupTags() {
         <VCardActions>
           <VSpacer />
           <VBtn variant="text" :disabled="uploadActionRunning === 'restore'" @click="uploadRestoreDialog = false">取消</VBtn>
-          <VBtn color="warning" variant="flat" prepend-icon="mdi-backup-restore" :loading="uploadActionRunning === 'restore'"
+          <VBtn :disabled="!canManage" color="warning" variant="flat" prepend-icon="mdi-backup-restore" :loading="uploadActionRunning === 'restore'"
             @click="disableAndRestoreUploadLimits">确认恢复</VBtn>
         </VCardActions>
       </VCard>

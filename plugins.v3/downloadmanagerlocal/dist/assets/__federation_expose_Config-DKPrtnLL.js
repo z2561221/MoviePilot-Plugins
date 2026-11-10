@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, i as isApiRequestCancellation, S as SyncDeletePane, g as getPluginApi, p as postPluginJsonApi } from './SyncDeletePane-CWPVP7yW.js';
+import { _ as _export_sfc, i as isApiRequestCancellation, g as getPluginApi, S as SyncDeletePane, p as postPluginJsonApi } from './SyncDeletePane-DUaFWmTI.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,createBlock:_createBlock,createCommentVNode:_createCommentVNode,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
+const {toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "dm-config" };
@@ -189,6 +189,11 @@ const _sfc_main = {
   setup(__props, { emit: __emit }) {
 
 const props = __props;
+
+const canManage = ref(false);
+const permissionError = ref('');
+
+
 const emit = __emit;
 const getApi = (path, options = {}) => getPluginApi(props.api, props.pluginId, path, options);
 const postJsonApi = (path, payload = {}, options = {}) => postPluginJsonApi(props.api, props.pluginId, path, payload, options);
@@ -966,7 +971,24 @@ async function executeCleanupTags() {
   }
 }
 
+let permissionsRevision = 0;
+watch(() => [props.api, props.pluginId], async () => {
+  const revision = ++permissionsRevision;
+  const api = props.api;
+  const id = props.pluginId;
+  const current = () => !configDisposed && revision === permissionsRevision && api === props.api && id === props.pluginId;
+  canManage.value = false;
+  permissionError.value = '';
+  try {
+    const value = await getPluginApi(api, id, 'permissions', { feedback: 'silent' });
+    if (current()) canManage.value = value?.can_manage === true;
+  } catch (reason) {
+    if (current() && !isApiRequestCancellation(reason)) permissionError.value = '权限读取失败，请重新打开页面。';
+  }
+}, { immediate: true, flush: 'sync' });
+
 return (_ctx, _cache) => {
+  const _component_VAlert = _resolveComponent("VAlert");
   const _component_VIcon = _resolveComponent("VIcon");
   const _component_VAvatar = _resolveComponent("VAvatar");
   const _component_VCardTitle = _resolveComponent("VCardTitle");
@@ -981,7 +1003,6 @@ return (_ctx, _cache) => {
   const _component_VSelect = _resolveComponent("VSelect");
   const _component_VRow = _resolveComponent("VRow");
   const _component_VTextField = _resolveComponent("VTextField");
-  const _component_VAlert = _resolveComponent("VAlert");
   const _component_VBtn = _resolveComponent("VBtn");
   const _component_VChip = _resolveComponent("VChip");
   const _component_VTextarea = _resolveComponent("VTextarea");
@@ -1000,6 +1021,19 @@ return (_ctx, _cache) => {
       class: "dm-card"
     }, {
       default: _withCtx(() => [
+        (!canManage.value)
+          ? (_openBlock(), _createBlock(_component_VAlert, {
+              key: 0,
+              type: "info",
+              variant: "tonal",
+              density: "compact"
+            }, {
+              default: _withCtx(() => [
+                _createTextVNode(_toDisplayString(permissionError.value || '当前为只读模式，管理操作需要管理员权限。'), 1)
+              ]),
+              _: 1
+            }))
+          : _createCommentVNode("", true),
         _createVNode(_component_VCardItem, { class: "dm-header" }, {
           prepend: _withCtx(() => [
             _createVNode(_component_VAvatar, {
@@ -1297,7 +1331,7 @@ return (_ctx, _cache) => {
                       variant: "tonal",
                       "prepend-icon": "mdi-radar",
                       loading: uploadScanningSites.value,
-                      disabled: uploadActionRunning.value === 'site-rules' || uploadActionRunning.value === 'reallocate',
+                      disabled: !canManage.value || uploadActionRunning.value === 'site-rules' || uploadActionRunning.value === 'reallocate',
                       onClick: scanUploadSites
                     }, {
                       default: _withCtx(() => [...(_cache[79] || (_cache[79] = [
@@ -1309,7 +1343,7 @@ return (_ctx, _cache) => {
                       color: "error",
                       variant: "text",
                       "prepend-icon": "mdi-delete-sweep-outline",
-                      disabled: !uploadSiteRuleRows.value.length || uploadScanningSites.value || uploadActionRunning.value === 'reallocate',
+                      disabled: !canManage.value || !uploadSiteRuleRows.value.length || uploadScanningSites.value || uploadActionRunning.value === 'reallocate',
                       loading: uploadActionRunning.value === 'site-rules',
                       onClick: clearUploadSiteRules
                     }, {
@@ -1375,7 +1409,7 @@ return (_ctx, _cache) => {
                             clearable: "",
                             density: "compact",
                             variant: "outlined",
-                            disabled: uploadScanningSites.value || uploadActionRunning.value === 'site-rules' || uploadActionRunning.value === 'reallocate',
+                            disabled: !canManage.value || uploadScanningSites.value || uploadActionRunning.value === 'site-rules' || uploadActionRunning.value === 'reallocate',
                             hint: "留空或 0 表示该站点不限速；正数为跨下载器共享的站点合计上限",
                             "persistent-hint": ""
                           }, null, 8, ["model-value", "onUpdate:modelValue", "disabled"]),
@@ -1385,7 +1419,7 @@ return (_ctx, _cache) => {
                             color: "error",
                             variant: "text",
                             title: "删除站点",
-                            disabled: uploadScanningSites.value || uploadActionRunning.value === 'site-rules' || uploadActionRunning.value === 'reallocate',
+                            disabled: !canManage.value || uploadScanningSites.value || uploadActionRunning.value === 'site-rules' || uploadActionRunning.value === 'reallocate',
                             onClick: $event => (removeUploadSiteRule(row.name))
                           }, null, 8, ["disabled", "onClick"])
                         ]))
@@ -1431,7 +1465,7 @@ return (_ctx, _cache) => {
                       variant: "tonal",
                       "prepend-icon": "mdi-call-split",
                       loading: uploadActionRunning.value === 'reallocate',
-                      disabled: !uploadLimit.value.enabled || uploadScanningSites.value || uploadActionRunning.value === 'site-rules',
+                      disabled: !canManage.value || !uploadLimit.value.enabled || uploadScanningSites.value || uploadActionRunning.value === 'site-rules',
                       onClick: reallocateUploadLimits
                     }, {
                       default: _withCtx(() => [...(_cache[84] || (_cache[84] = [
@@ -1444,7 +1478,7 @@ return (_ctx, _cache) => {
                       color: "warning",
                       variant: "tonal",
                       "prepend-icon": "mdi-backup-restore",
-                      disabled: !uploadLimit.value.active && !uploadLimit.value.enabled,
+                      disabled: !canManage.value || !uploadLimit.value.active && !uploadLimit.value.enabled,
                       onClick: _cache[5] || (_cache[5] = $event => (uploadRestoreDialog.value = true))
                     }, {
                       default: _withCtx(() => [...(_cache[85] || (_cache[85] = [
@@ -2020,6 +2054,7 @@ return (_ctx, _cache) => {
                             (speedMonitor.value.mode === 'auto')
                               ? (_openBlock(), _createBlock(_component_VBtn, {
                                   key: 0,
+                                  disabled: !canManage.value,
                                   size: "small",
                                   variant: "tonal",
                                   color: "warning",
@@ -2027,7 +2062,7 @@ return (_ctx, _cache) => {
                                   loading: monitorResetting.value === item.downloader_id,
                                   title: "重置自动基准",
                                   onClick: $event => (resetMonitorBaseline(item.downloader_id))
-                                }, null, 8, ["loading", "onClick"]))
+                                }, null, 8, ["disabled", "loading", "onClick"]))
                               : _createCommentVNode("", true)
                           ]),
                           _createElementVNode("div", _hoisted_72, [
@@ -3004,7 +3039,7 @@ return (_ctx, _cache) => {
                     variant: "tonal",
                     "prepend-icon": "mdi-radar",
                     loading: cleanupScanning.value,
-                    disabled: !cleanupDownloaders.value.length,
+                    disabled: !canManage.value || !cleanupDownloaders.value.length,
                     onClick: scanCleanupTags
                   }, {
                     default: _withCtx(() => [...(_cache[131] || (_cache[131] = [
@@ -3146,7 +3181,7 @@ return (_ctx, _cache) => {
                           color: "warning",
                           variant: "tonal",
                           "prepend-icon": "mdi-eye-outline",
-                          disabled: !cleanupRemovals.value.length,
+                          disabled: !canManage.value || !cleanupRemovals.value.length,
                           onClick: previewCleanupTags
                         }, {
                           default: _withCtx(() => [...(_cache[136] || (_cache[136] = [
@@ -3163,11 +3198,12 @@ return (_ctx, _cache) => {
               (activeSub.value === 'sync_delete_basic')
                 ? (_openBlock(), _createElementBlock("div", _hoisted_107, [
                     _createVNode(SyncDeletePane, {
+                      "can-manage": canManage.value,
                       api: props.api,
                       "plugin-id": props.pluginId,
                       form: form,
                       mode: "config"
-                    }, null, 8, ["api", "plugin-id", "form"])
+                    }, null, 8, ["can-manage", "api", "plugin-id", "form"])
                   ]))
                 : _createCommentVNode("", true),
               _withDirectives(_createElementVNode("div", _hoisted_108, [
@@ -3285,6 +3321,7 @@ return (_ctx, _cache) => {
               _: 1
             }),
             _createVNode(_component_VBtn, {
+              disabled: !canManage.value,
               color: "primary",
               variant: "flat",
               "prepend-icon": "mdi-content-save-outline",
@@ -3294,7 +3331,7 @@ return (_ctx, _cache) => {
                 _createTextVNode("保存配置", -1)
               ]))]),
               _: 1
-            })
+            }, 8, ["disabled"])
           ]),
           _: 1
         })
@@ -3390,6 +3427,7 @@ return (_ctx, _cache) => {
                   _: 1
                 }, 8, ["disabled"]),
                 _createVNode(_component_VBtn, {
+                  disabled: !canManage.value,
                   color: "error",
                   variant: "flat",
                   "prepend-icon": "mdi-tag-remove-outline",
@@ -3400,7 +3438,7 @@ return (_ctx, _cache) => {
                     _createTextVNode("确认清理", -1)
                   ]))]),
                   _: 1
-                }, 8, ["loading"])
+                }, 8, ["disabled", "loading"])
               ]),
               _: 1
             })
@@ -3470,6 +3508,7 @@ return (_ctx, _cache) => {
                   _: 1
                 }, 8, ["disabled"]),
                 _createVNode(_component_VBtn, {
+                  disabled: !canManage.value,
                   color: "warning",
                   variant: "flat",
                   "prepend-icon": "mdi-backup-restore",
@@ -3480,7 +3519,7 @@ return (_ctx, _cache) => {
                     _createTextVNode("确认恢复", -1)
                   ]))]),
                   _: 1
-                }, 8, ["loading"])
+                }, 8, ["disabled", "loading"])
               ]),
               _: 1
             })
@@ -3495,6 +3534,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6db67443"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-15854632"]]);
 
 export { Config as default };

@@ -26,8 +26,9 @@ def test_all_plugin_routes_declare_concrete_v3_models() -> None:
 
     routes = plugin.get_api()
 
-    assert len(routes) == 24
+    assert len(routes) == 25
     assert {route["path"] for route in routes} == {
+        "/permissions",
         "/downloaders",
         "/rename_history",
         "/overview",
@@ -59,6 +60,7 @@ def test_all_plugin_routes_declare_concrete_v3_models() -> None:
     bare_paths = {
         "/sync_delete/options",
         "/sync_delete/history",
+        "/permissions",
         "/downloaders",
         "/rename_history",
         "/overview",

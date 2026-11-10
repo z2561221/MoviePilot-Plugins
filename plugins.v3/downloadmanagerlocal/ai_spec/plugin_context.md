@@ -468,3 +468,7 @@ $env:Path = "$nodeDir;$env:Path"
 - 此历史周期记录未覆盖 MP 同步、目标实例 reload、history/API 与页面验收；当前 V3 reload 使用 POST，历史源码或构建结果不代表当前运行态已验收。
 - IYUU 外部站点真实链路仍以目标实例配置和日志为准，实验室测试不替代生产站点实测。
 - 未 push、merge 或发布；这些动作仍需用户明确确认。
+
+## 管理权限
+
+所有有副作用的HTTP路由由controller.security.require_admin统一保护，包括会自动清理标签的扫描。permissions接口只返回当前已认证用户的can_manage；前端禁用管理按钮，实际授权仍由服务端逐次检查。后台任务继续通过内部服务运行，不受HTTP依赖影响。

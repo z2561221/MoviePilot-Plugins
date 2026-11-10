@@ -17,7 +17,7 @@ const parsed = compiler.parse(fs.readFileSync('src/components/SyncDeletePane.vue
 const code = parsed.descriptor.scriptSetup.content.replace(/^import .*$/gm, '');
 function setup(mode) {
   const pending = [], cleanups = [];
-  const props = vue.reactive({api:{}, pluginId:'A', mode, form:mode==='config'?{sync_delete_enabled:false,sync_delete_servers:['Emby']}:null});
+  const props = vue.reactive({canManage:true,api:{}, pluginId:'A', mode, form:mode==='config'?{sync_delete_enabled:false,sync_delete_servers:['Emby']}:null});
   const request = (api,id,path,payload) => new Promise((resolve,reject)=>pending.push({resolve,reject,id,path,payload}));
   const context = {defineProps:()=>props, defineExpose:()=>{}, ref:vue.ref, computed:vue.computed,
     watch:(...args)=>{const stop=vue.watch(...args);cleanups.push(stop)}, onBeforeUnmount:fn=>cleanups.push(fn),
