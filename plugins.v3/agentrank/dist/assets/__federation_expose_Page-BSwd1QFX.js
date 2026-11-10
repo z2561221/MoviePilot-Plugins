@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-BAIatVc-.js';
-import { _ as _export_sfc } from './_plugin-vue_export-helper-C3tB_UbJ.js';
+import { _ as _export_sfc, i as isApiRequestCancellation } from './_plugin-vue_export-helper-DPNHBQV0.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CjFrPaOp.js';
 
 const {unref:_unref$4,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,createElementVNode:_createElementVNode$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,mergeProps:_mergeProps$1,withCtx:_withCtx$4,openBlock:_openBlock$4,createBlock:_createBlock$4,createCommentVNode:_createCommentVNode$4,createElementBlock:_createElementBlock$3,withModifiers:_withModifiers$2,renderList:_renderList$3,Fragment:_Fragment$3} = await importShared('vue');
 
@@ -432,7 +432,6 @@ const _hoisted_10$2 = {
 const _hoisted_11$1 = { class: "ar-chat__command-main" };
 const _hoisted_12$1 = { class: "ar-chat__command-actions" };
 const _hoisted_13$1 = { class: "ar-chat__composer" };
-
 const {computed: computed$3,nextTick: nextTick$2,onUnmounted,ref: ref$3,watch: watch$3} = await importShared('vue');
 
 const {useDisplay: useDisplay$2} = await importShared('vuetify');
@@ -526,6 +525,7 @@ async function send() {
     await scrollToEnd();
     startPolling();
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     localError.value = error?.message || '消息发送失败，草稿已保留';
     try { await props.state.loadConversation({ markRead: true }); } catch (_) { /* 对话读取错误由共享状态展示。 */ }
     await scrollToEnd();
@@ -540,6 +540,7 @@ async function retryMessage(messageId) {
     await scrollToEnd();
     startPolling();
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     localError.value = error?.message || '重试失败';
     try { await props.state.loadConversation({ markRead: true }); } catch (_) { /* 对话读取错误由共享状态展示。 */ }
   }
@@ -551,6 +552,7 @@ async function respondCommand(command, action) {
     await props.state.respondConversationCommand(command.command_id, action);
     emit('pending-change');
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     localError.value = error?.message || '待执行操作失败';
   }
 }
@@ -807,7 +809,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const CriticChatDialog = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-9a64f11e"]]);
+const CriticChatDialog = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-8df760c2"]]);
 
 const {unref:_unref$2,resolveComponent:_resolveComponent$2,createVNode:_createVNode$2,createElementVNode:_createElementVNode$2,toDisplayString:_toDisplayString$2,withCtx:_withCtx$2,withModifiers:_withModifiers,withKeys:_withKeys$1,createTextVNode:_createTextVNode$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2} = await importShared('vue');
 
@@ -816,7 +818,6 @@ const _hoisted_1$2 = { class: "ar-comment__heading" };
 const _hoisted_2$2 = { class: "ar-comment__subtitle" };
 const _hoisted_3$2 = { class: "ar-comment__label" };
 const _hoisted_4$2 = { class: "ar-comment__judgment" };
-
 const {computed: computed$2,ref: ref$2,watch: watch$2} = await importShared('vue');
 
 const {useDisplay: useDisplay$1} = await importShared('vuetify');
@@ -870,6 +871,7 @@ async function submit() {
     emit('submitted', result);
     close();
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     localError.value = error?.message || '评论提交失败';
   }
 }
@@ -995,7 +997,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const FeedbackCommentDialog = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-ad9ce515"]]);
+const FeedbackCommentDialog = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-bb99e044"]]);
 
 const {unref:_unref$1,resolveComponent:_resolveComponent$1,createVNode:_createVNode$1,createElementVNode:_createElementVNode$1,toDisplayString:_toDisplayString$1,withCtx:_withCtx$1,createTextVNode:_createTextVNode$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createElementBlock:_createElementBlock$1,renderList:_renderList$1,Fragment:_Fragment$1} = await importShared('vue');
 
@@ -1022,7 +1024,6 @@ const _hoisted_9$1 = {
   class: "ar-pending__answer"
 };
 const _hoisted_10$1 = { class: "ar-pending__actions" };
-
 const {computed: computed$1,nextTick: nextTick$1,onBeforeUnmount: onBeforeUnmount$1,reactive: reactive$1,ref: ref$1,watch: watch$1} = await importShared('vue');
 
 const {useDisplay} = await importShared('vuetify');
@@ -1097,6 +1098,7 @@ async function load(view = activeView.value) {
     await props.state.loadPendingCenter(view);
     loadedViews[view] = true;
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     if (view === activeView.value) {
       localError.value = error?.message || '待处理项目读取失败';
     }
@@ -1122,6 +1124,7 @@ async function respond(item, action, options = {}) {
     await props.state.respondPending(item, action, options);
     emit('changed');
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     localError.value = error?.message || '待处理操作失败';
   }
 }
@@ -1481,7 +1484,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const PendingConfirmations = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-676b632f"]]);
+const PendingConfirmations = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-7f35b588"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeClass:_normalizeClass,mergeProps:_mergeProps,vShow:_vShow,withDirectives:_withDirectives,withKeys:_withKeys} = await importShared('vue');
 
@@ -1626,7 +1629,6 @@ const _hoisted_95 = { class: "ar-page__rank-copy" };
 const _hoisted_96 = { class: "ar-page__copy-text" };
 const _hoisted_97 = { class: "ar-page__rank-copy ar-page__rank-copy--muted" };
 const _hoisted_98 = { class: "ar-page__copy-text" };
-
 const {computed,nextTick,onBeforeUnmount,onMounted,reactive,ref,watch} = await importShared('vue');
 
 const historyPageSize = 10;
@@ -2227,6 +2229,7 @@ async function handleRefresh() {
     };
     scheduleRunProgressPoll(250);
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     snackbar.value = { show: true, message: error?.message || '榜单生成启动失败', color: 'error' };
   }
 }
@@ -2236,6 +2239,7 @@ async function runAction(action, successMessage) {
     const result = await action();
     snackbar.value = { show: true, message: result?.message || successMessage, color: 'success' };
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     snackbar.value = { show: true, message: error?.message || '操作失败', color: 'error' };
   }
 }
@@ -3728,6 +3732,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-81e4dad1"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ba25d617"]]);
 
 export { Page as default };

@@ -1,4 +1,5 @@
 <script setup>
+import { isApiRequestCancellation } from './api'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 
@@ -64,6 +65,7 @@ async function load(view = activeView.value) {
     await props.state.loadPendingCenter(view)
     loadedViews[view] = true
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     if (view === activeView.value) {
       localError.value = error?.message || '待处理项目读取失败'
     }
@@ -89,6 +91,7 @@ async function respond(item, action, options = {}) {
     await props.state.respondPending(item, action, options)
     emit('changed')
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     localError.value = error?.message || '待处理操作失败'
   }
 }

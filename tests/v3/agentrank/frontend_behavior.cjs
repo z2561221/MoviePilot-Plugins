@@ -6,6 +6,7 @@ const vm = require('node:vm')
 const { createRequire } = require('node:module')
 const frontend = path.resolve(__dirname, '../../..', 'plugins.v3/agentrank/frontend')
 const vue = createRequire(path.join(frontend, 'package.json'))('vue')
+const { isApiRequestCancellation } = require(path.join(frontend, 'src/components/api.js'))
 
 function component(name, props, exports, extra = {}) {
   const events = [], mounted = [], unmounted = []
@@ -13,7 +14,7 @@ function component(name, props, exports, extra = {}) {
     .split('<script setup>')[1].split('</script>')[0].replace(/^import .*$/gm, '')
   const scope = vue.effectScope()
   const context = {
-    ...vue, structuredClone, console,
+    ...vue, structuredClone, console, isApiRequestCancellation,
     defineProps: () => props, defineEmits: () => (...args) => events.push(args),
     inject: () => null, onMounted: fn => mounted.push(fn),
     onBeforeUnmount: fn => unmounted.push(fn), ...extra,
@@ -155,7 +156,7 @@ function stateHarness(get, post = async () => ({})) {
     .replace(/^import .*$/gm, '').replace('export function useAgentRankState', 'function useAgentRankState')
     .replace('    operations,', '    operations, recordedExposureKeys, pendingFeedbackRequests,')
   const scope = vue.effectScope()
-  const context = {...vue, console, getPluginApi: get, postPluginApi: post}
+  const context = {...vue, console, isApiRequestCancellation, getPluginApi: get, postPluginApi: post}
   vm.createContext(context)
   const state = scope.run(() => {
     vm.runInContext(`${source}\nglobalThis.state = useAgentRankState({}, 'AgentRank')`, context)

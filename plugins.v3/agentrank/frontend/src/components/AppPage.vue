@@ -1,4 +1,5 @@
 <script setup>
+import { isApiRequestCancellation } from './api'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import Config from './Config.vue'
 import Page from './Page.vue'
@@ -62,6 +63,7 @@ async function saveSettings(config) {
     pageKey.value += 1
     snackbar.value = { show: true, message: '设置已保存', color: 'success' }
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     snackbar.value = {
       show: true,
       message: error?.message || '设置保存失败',

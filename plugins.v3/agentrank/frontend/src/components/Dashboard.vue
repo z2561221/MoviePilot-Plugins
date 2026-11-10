@@ -1,4 +1,5 @@
 <script setup>
+import { isApiRequestCancellation } from './api'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useAgentRankState } from './useAgentRankState'
 import RecommendationActions from './RecommendationActions.vue'
@@ -115,6 +116,7 @@ async function runItemAction(action, successMessage) {
     const result = await action()
     snackbar.value = { show: true, message: result?.message || successMessage, color: 'success' }
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     snackbar.value = { show: true, message: error?.message || '操作失败', color: 'error' }
   }
 }

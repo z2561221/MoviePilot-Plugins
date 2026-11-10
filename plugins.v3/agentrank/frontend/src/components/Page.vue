@@ -1,4 +1,5 @@
 <script setup>
+import { isApiRequestCancellation } from './api'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useAgentRankState } from './useAgentRankState'
 import AgentAnalysisDialog from './AgentAnalysisDialog.vue'
@@ -598,6 +599,7 @@ async function handleRefresh() {
     }
     scheduleRunProgressPoll(250)
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     snackbar.value = { show: true, message: error?.message || '榜单生成启动失败', color: 'error' }
   }
 }
@@ -607,6 +609,7 @@ async function runAction(action, successMessage) {
     const result = await action()
     snackbar.value = { show: true, message: result?.message || successMessage, color: 'success' }
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     snackbar.value = { show: true, message: error?.message || '操作失败', color: 'error' }
   }
 }
