@@ -14,6 +14,7 @@ const props = defineProps({
   pluginId: { type: String, default: '' },
   sourcePluginId: { type: String, default: '' },
   showClose: { type: Boolean, default: true },
+  show_switch: { type: Boolean, default: true },
 })
 const emit = defineEmits(['switch', 'close'])
 const state = useAgentRankState(props.api, props.pluginId)
@@ -777,7 +778,7 @@ onBeforeUnmount(() => {
       <VBadge :content="state.pendingCenter.value?.total || 0" :model-value="Boolean(state.pendingCenter.value?.total)" color="warning" class="ar-page__pending-badge">
         <VBtn icon="mdi-inbox-outline" variant="text" aria-label="打开待处理中心" @click="pendingDialog = true" />
       </VBadge>
-      <VBtn icon="mdi-cog-outline" variant="text" aria-label="打开设置" @click="emit('switch', state.options.value?.config || {})" />
+      <VBtn v-if="props.show_switch" icon="mdi-cog-outline" variant="text" aria-label="打开设置" @click="emit('switch', state.options.value?.config || {})" />
       <VBtn v-if="showClose" icon="mdi-close" variant="text" aria-label="关闭详情" class="me-2" @click="emit('close')" />
     </VToolbar>
     <VDivider />
@@ -1254,7 +1255,7 @@ onBeforeUnmount(() => {
 .ar-page__table-wrap :deep(.v-table__wrapper > table > thead > tr > th) { background: rgba(var(--v-theme-on-surface), .018) !important; }
 .ar-page__brand { flex: 0 0 auto; }
 .ar-page__heading { min-width: 0; }
-.ar-page__title { font-size: 1.08rem; font-weight: 700; line-height: 1.35; }
+.ar-page__title { color: rgb(var(--v-theme-on-surface)); font-size: 1.08rem; font-weight: 700; line-height: 1.35; }
 .ar-page__subtitle { margin-top: 2px; color: rgba(var(--v-theme-on-surface), .58); font-size: 12px; }
 .ar-page__identity { width: 210px; margin-right: 4px; }
 .ar-page__summary-bar { flex: 0 0 auto; min-height: 56px; display: grid; grid-template-columns: repeat(3, minmax(120px, .7fr)) minmax(220px, 1.3fr) auto; align-items: center; gap: 8px; padding: 6px 14px; background: transparent; }

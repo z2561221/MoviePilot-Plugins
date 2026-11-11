@@ -1642,6 +1642,7 @@ const _sfc_main = {
   pluginId: { type: String, default: '' },
   sourcePluginId: { type: String, default: '' },
   showClose: { type: Boolean, default: true },
+  show_switch: { type: Boolean, default: true },
 },
   emits: ['switch', 'close'],
   setup(__props, { emit: __emit }) {
@@ -2470,15 +2471,18 @@ return (_ctx, _cache) => {
           ]),
           _: 1
         }, 8, ["content", "model-value"]),
-        _createVNode(_component_VBtn, {
-          icon: "mdi-cog-outline",
-          variant: "text",
-          "aria-label": "打开设置",
-          onClick: _cache[3] || (_cache[3] = $event => (emit('switch', _unref(state).options.value?.config || {})))
-        }),
-        (__props.showClose)
+        (props.show_switch)
           ? (_openBlock(), _createBlock(_component_VBtn, {
               key: 1,
+              icon: "mdi-cog-outline",
+              variant: "text",
+              "aria-label": "打开设置",
+              onClick: _cache[3] || (_cache[3] = $event => (emit('switch', _unref(state).options.value?.config || {})))
+            }))
+          : _createCommentVNode("", true),
+        (__props.showClose)
+          ? (_openBlock(), _createBlock(_component_VBtn, {
+              key: 2,
               icon: "mdi-close",
               variant: "text",
               "aria-label": "关闭详情",
@@ -3732,6 +3736,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ba25d617"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6aa71337"]]);
 
 export { Page as default };
