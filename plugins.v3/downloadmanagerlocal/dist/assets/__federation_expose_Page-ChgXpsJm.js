@@ -244,6 +244,7 @@ const _sfc_main = {
   api: { type: [Object, Function], default: null },
   pluginId: { type: String, default: 'DownloadManagerLocal' },
   sourcePluginId: { type: String, default: 'DownloadManagerLocal' },
+  show_switch: { type: Boolean, default: true },
 },
   emits: ['close', 'switch'],
   setup(__props, { emit: __emit }) {
@@ -859,18 +860,21 @@ return (_ctx, _cache) => {
           ]))]),
           _: 1
         }, 8, ["loading"]),
-        _createVNode(_component_VBtn, {
-          disabled: !canManage.value,
-          variant: "text",
-          "prepend-icon": "mdi-cog-outline",
-          class: "text-none",
-          onClick: _cache[0] || (_cache[0] = $event => (emit('switch')))
-        }, {
-          default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
-            _createTextVNode("设置", -1)
-          ]))]),
-          _: 1
-        }, 8, ["disabled"]),
+        (props.show_switch)
+          ? (_openBlock(), _createBlock(_component_VBtn, {
+              key: 0,
+              disabled: !canManage.value,
+              variant: "text",
+              "prepend-icon": "mdi-cog-outline",
+              class: "text-none",
+              onClick: _cache[0] || (_cache[0] = $event => (emit('switch')))
+            }, {
+              default: _withCtx(() => [...(_cache[5] || (_cache[5] = [
+                _createTextVNode("设置", -1)
+              ]))]),
+              _: 1
+            }, 8, ["disabled"]))
+          : _createCommentVNode("", true),
         _createVNode(_component_VBtn, {
           icon: "mdi-close",
           variant: "text",
@@ -1952,6 +1956,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-65f1522a"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-66586604"]]);
 
 export { Page as default };

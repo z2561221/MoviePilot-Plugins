@@ -5,8 +5,8 @@ const currentImports = {};
       dynamicLoadingCss(["__federation_expose_Config-DtmhB-A0.css","SyncDeletePane-C_ZLOpYe.css"], false, './Config');
       return __federation_import('./__federation_expose_Config-DKPrtnLL.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},
 "./Page":()=>{
-      dynamicLoadingCss(["__federation_expose_Page-DpubqlWM.css","SyncDeletePane-C_ZLOpYe.css"], false, './Page');
-      return __federation_import('./__federation_expose_Page-Cz4wg1Ay.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      dynamicLoadingCss(["__federation_expose_Page-BaQOLffN.css","SyncDeletePane-C_ZLOpYe.css"], false, './Page');
+      return __federation_import('./__federation_expose_Page-ChgXpsJm.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;

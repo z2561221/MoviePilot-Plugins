@@ -7,6 +7,7 @@ const props = defineProps({
   api: { type: [Object, Function], default: null },
   pluginId: { type: String, default: 'DownloadManagerLocal' },
   sourcePluginId: { type: String, default: 'DownloadManagerLocal' },
+  show_switch: { type: Boolean, default: true },
 })
 
 const canManage = ref(false)
@@ -574,7 +575,7 @@ watch(() => [props.api, props.pluginId], async () => {
       <div class="text-h6">下载中心</div>
       <VSpacer />
       <VBtn variant="text" size="small" prepend-icon="mdi-refresh" class="text-none me-2" @click="refreshActive" :loading="loading">刷新</VBtn>
-      <VBtn :disabled="!canManage" variant="text" prepend-icon="mdi-cog-outline" class="text-none" @click="emit('switch')">设置</VBtn>
+      <VBtn v-if="props.show_switch" :disabled="!canManage" variant="text" prepend-icon="mdi-cog-outline" class="text-none" @click="emit('switch')">设置</VBtn>
       <VBtn icon="mdi-close" variant="text" @click="emit('close')" />
     </VToolbar>
     <VDivider />
