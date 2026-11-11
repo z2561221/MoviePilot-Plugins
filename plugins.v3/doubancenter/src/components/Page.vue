@@ -11,6 +11,7 @@ const props = defineProps({
   nativeSubscribe: { type: Function, default: null },
   appPage: { type: Boolean, default: false },
   showSettings: { type: Boolean, default: false },
+  show_switch: { type: Boolean, default: true },
 })
 const { canManage, permissionError } = useManagementPermissions(() => props.api, () => props.pluginId || 'DoubanCenter')
 
@@ -41,7 +42,7 @@ onMounted(page.loadAll)
         <VBtn variant="text" size="small" class="text-none dc-toolbar-action" :title="page.archivePage ? '返回' : '归档'" :aria-label="page.archivePage ? '返回' : '归档'" :color="page.archivePage ? 'primary' : undefined" @click="page.archivePage ? page.closeArchivePage() : page.openArchivePage()">
           <VIcon :icon="page.archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline'" size="18" class="dc-toolbar-icon" /><span class="dc-toolbar-label">{{ page.archivePage ? '返回' : '归档' }}</span>
         </VBtn>
-        <VBtn v-if="props.showSettings || !props.appPage" variant="text" size="small" class="text-none dc-toolbar-action" title="设置" aria-label="设置" :disabled="!canManage" @click="emit('switch')">
+        <VBtn v-if="props.show_switch && (props.showSettings || !props.appPage)" variant="text" size="small" class="text-none dc-toolbar-action" title="设置" aria-label="设置" :disabled="!canManage" @click="emit('switch')">
           <VIcon icon="mdi-cog-outline" size="18" class="dc-toolbar-icon" /><span class="dc-toolbar-label">设置</span>
         </VBtn>
         <VBtn v-if="!props.appPage" icon variant="text" size="small" class="dc-toolbar-action" title="关闭" aria-label="关闭" @click="emit('close')"><VIcon icon="mdi-close" size="18" class="dc-toolbar-icon" /></VBtn>
