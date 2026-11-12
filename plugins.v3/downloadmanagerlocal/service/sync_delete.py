@@ -246,6 +246,9 @@ def _bridge_file(adapter, row, scope, *, cloud_enabled=True):
 
 def build_plan(plugin, event: dict, config: dict, adapter=None, *, preview=False) -> dict:
     """只读解析完整目标，任何歧义在执行文件操作之前返回。"""
+    if event.get("channel") == "download":
+        from .source_delete import build_source_plan
+        return build_source_plan(plugin, event, config, adapter)
     adapter = adapter or SyncDeleteAdapter(plugin, config)
     selected = config.get("sync_delete_servers") or []
     available = adapter.servers()
@@ -539,7 +542,7 @@ class DeleteRuntime:
                 or fingerprint(config_for(self.plugin)) != fingerprint(config)):
             raise DeleteRejected("同步删除已停止或配置发生变化")
 
-    def submit(self, event, *, job_id=None):
+    def submit(self, event, *, job_id=None, plan=None):
         """先记录删除意图，再将新事件或可重试任务加入队列。"""
         with self.lock:
             config = config_for(self.plugin)
@@ -560,7 +563,7 @@ class DeleteRuntime:
                         return row["id"]
                 if sum(row["state"] != "completed" for row in jobs.values()) >= MAX_PENDING:
                     raise DeleteRejected("未完成记录已达上限，请先处理失败任务")
-                job = {"id": uuid4().hex, "event_key": key, "event": event, "plan": None,
+                job = {"id": uuid4().hex, "event_key": key, "event": event, "plan": deepcopy(plan),
                        "created_at": time(), "records_done": [], "sources_marked": []}
             job.update(state="queued", error="", updated_at=time())
             self.save(job)
@@ -593,6 +596,8 @@ class DeleteRuntime:
                     f"本地 {len(plan['source_files'])} 项、种子 {len(plan['tasks'])} 个、"
                     f"整理记录 {len(plan['records'])} 条")
         for scope_path in job["event"]["paths"]:
+            if plan.get("channel") == "download":
+                continue
             scope = mapped_scope(scope_path, config)
             if adapter.lookup("local", scope["local_path"], scope["local"]) is not None:
                 raise DeleteRejected("媒体库路径重新出现，停止旧删除任务")
@@ -610,6 +615,9 @@ class DeleteRuntime:
         for task in plan["tasks"]:
             if task["status"] == "removed" and adapter.torrent(task["downloader"], task["id"]) is not None:
                 raise DeleteRejected("已移除的下载任务被重建，停止旧任务重试")
+        if plan.get("channel") == "download":
+            from .source_delete import check_source_plan
+            check_source_plan(self.plugin, plan, adapter)
         blocks = self.plugin.get_data(BLOCKS_KEY) or {}
         for task in plan["tasks"]:
             blocks[task["downloader"] + "::" + task["id"]] = {
@@ -628,6 +636,8 @@ class DeleteRuntime:
                     if key == "source_files" and any(
                             row["id"] not in record_ids for row in adapter.histories(source=target["path"])):
                         raise DeleteRejected("源文件已有其它整理记录引用，停止删除")
+                    if plan.get("channel") == "download":
+                        check_source_plan(self.plugin, plan, adapter)
                     adapter.delete_file(target)
                     target["status"] = "deleted"
                     self.save(job)
@@ -641,6 +651,8 @@ class DeleteRuntime:
             if task["status"] == "removed":
                 continue
             if task["action"] == "remove":
+                if plan.get("channel") == "download":
+                    check_source_plan(self.plugin, plan, adapter)
                 adapter.remove(task)
                 task["status"] = "removed"
             else:

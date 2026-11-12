@@ -2,8 +2,8 @@
 
 from types import SimpleNamespace
 
-from ..adapter.sync_delete import SyncDeleteAdapter
-from ..model.sync_delete import config_for, mappings, text, within
+from ..model.sync_delete import text
+from .source_delete import receive_source_deleted
 from .sync_delete import receive_webhook
 
 
@@ -31,27 +31,10 @@ def cleanup_by_path(plugin, item_path, trigger=""):
 
 
 def handle_sync_delete_by_hash_event(plugin, event, trigger=""):
-    """源文件事件只反查精确整理目标，不把移除种子扩大成整包删除。"""
+    """源文件删除直接使用持久转种关系，不再反查已被删除的整理记录。"""
     if not getattr(plugin, "_sync_delete_enabled", False) or not getattr(plugin, "_enabled", False):
         return _empty_result(trigger)
-    data = getattr(event, "event_data", None) or {}
-    src = data.get("src") if isinstance(data, dict) else getattr(data, "src", "")
-    if not src:
-        return _empty_result(trigger)
-    config = config_for(plugin)
-    adapter = SyncDeleteAdapter(plugin, config)
-    results = []
-    for record in adapter.histories(source=src):
-        dest = text(record.get("dest"))
-        for mapping in mappings(config):
-            if text(record.get("dest_storage") or "local") == mapping["storage"] and within(dest, mapping["target"], strict=True):
-                suffix = dest[len(mapping["target"]):]
-                emby_path = mapping["emby"] + suffix
-                if mapping["cloud"]:
-                    emby_path = emby_path.rsplit(".", 1)[0] + ".strm"
-                results.append(cleanup_by_path(plugin, emby_path, trigger))
-                break
-    return {"items": results}
+    return receive_source_deleted(plugin, event, trigger)
 
 
 def handle_plugin_action_event(plugin, event):

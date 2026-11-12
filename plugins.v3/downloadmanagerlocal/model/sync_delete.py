@@ -169,4 +169,7 @@ def event_snapshot(data) -> dict:
 def event_key(event: dict) -> str:
     """相同资源的重复通知共用键，不按整包 hash 吞掉其它集。"""
     value = {key: event.get(key) for key in ("server", "paths", "timestamp")}
+    if event.get("channel") == "download":
+        value.update(channel="download", source_hash=event.get("source_hash"),
+                     source_downloader=event.get("source_downloader"))
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
