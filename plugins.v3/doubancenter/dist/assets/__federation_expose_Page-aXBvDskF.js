@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, u as useRequestScope, t as toPosterThumbnail, a as getPluginApi, o as openNativeSubscription, p as postPluginApi } from './useRequestScope-Dkqwm-Un.js';
-import { u as useRankMediaActions, s as sourceDescriptor } from './useRankMediaActions-BgIPihDT.js';
+import { a as useRankMediaActions, s as sourceDescriptor, u as useManagementPermissions } from './useRankMediaActions-DA74ZBLE.js';
+import { _ as _export_sfc, u as useRequestScope, t as toPosterThumbnail, a as getPluginApi, o as openNativeSubscription, p as postPluginApi } from './useRequestScope-CDEhkzJg.js';
 
 const {resolveComponent:_resolveComponent$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2,withCtx:_withCtx$2,createVNode:_createVNode$2,toDisplayString:_toDisplayString$2,createTextVNode:_createTextVNode$2} = await importShared('vue');
 
@@ -274,6 +274,7 @@ const _hoisted_65 = {
 const _sfc_main$1 = {
   __name: 'PageContent',
   props: {
+  canManage: { type: Boolean, default: false },
   page: { type: Object, required: true },
 },
   setup(__props) {
@@ -367,6 +368,7 @@ return (_ctx, _cache) => {
                     _: 2
                   }, 1032, ["color"]),
                   _createVNode$1(_component_VBtn, {
+                    disabled: !__props.canManage,
                     icon: "mdi-restore",
                     variant: "text",
                     size: "x-small",
@@ -374,8 +376,9 @@ return (_ctx, _cache) => {
                     class: "dc-row-action",
                     loading: __props.page.actionKey === __props.page.rowKey('archive-restore', item, i),
                     onClick: $event => (__props.page.restoreArchive(item, i))
-                  }, null, 8, ["loading", "onClick"]),
+                  }, null, 8, ["disabled", "loading", "onClick"]),
                   _createVNode$1(_component_VBtn, {
+                    disabled: !__props.canManage,
                     icon: "mdi-delete-outline",
                     variant: "text",
                     size: "x-small",
@@ -383,7 +386,7 @@ return (_ctx, _cache) => {
                     class: "dc-row-action",
                     loading: __props.page.actionKey === __props.page.rowKey('archive-delete', item, i),
                     onClick: $event => (__props.page.deleteArchive(item, i))
-                  }, null, 8, ["loading", "onClick"])
+                  }, null, 8, ["disabled", "loading", "onClick"])
                 ]))
               }), 128))
             ]))
@@ -560,6 +563,7 @@ return (_ctx, _cache) => {
                       _: 2
                     }, 1024),
                     _createVNode$1(_component_VBtn, {
+                      disabled: !__props.canManage,
                       icon: "mdi-delete-outline",
                       variant: "text",
                       size: "x-small",
@@ -567,7 +571,7 @@ return (_ctx, _cache) => {
                       class: "dc-row-action",
                       loading: __props.page.actionKey === __props.page.rowKey('log', item, i),
                       onClick: $event => (__props.page.deleteAntiCheatLog(item, i))
-                    }, null, 8, ["loading", "onClick"])
+                    }, null, 8, ["disabled", "loading", "onClick"])
                   ]))
                 }), 128))
               ]))
@@ -706,6 +710,7 @@ return (_ctx, _cache) => {
                       _: 2
                     }, 1032, ["color"]),
                     _createVNode$1(_component_VBtn, {
+                      disabled: !__props.canManage,
                       icon: "mdi-delete-outline",
                       variant: "text",
                       size: "x-small",
@@ -713,7 +718,7 @@ return (_ctx, _cache) => {
                       class: "dc-row-action",
                       loading: __props.page.actionKey === __props.page.rowKey('sub', item, i),
                       onClick: $event => (__props.page.deleteSubscribeHistory(item, i))
-                    }, null, 8, ["loading", "onClick"])
+                    }, null, 8, ["disabled", "loading", "onClick"])
                   ]))
                 }), 128))
               ]))
@@ -810,6 +815,7 @@ return (_ctx, _cache) => {
                       _: 2
                     }, 1024),
                     _createVNode$1(_component_VBtn, {
+                      disabled: !__props.canManage,
                       icon: "mdi-delete-outline",
                       variant: "text",
                       size: "x-small",
@@ -817,7 +823,7 @@ return (_ctx, _cache) => {
                       class: "dc-row-action",
                       loading: __props.page.actionKey === __props.page.rowKey('log', log, i),
                       onClick: $event => (__props.page.deleteAntiCheatLog(log, i))
-                    }, null, 8, ["loading", "onClick"])
+                    }, null, 8, ["disabled", "loading", "onClick"])
                   ]))
                 }), 128))
               ]))
@@ -830,7 +836,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const PageContent = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-b9bc81df"]]);
+const PageContent = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-3668aeea"]]);
 
 const {reactive,ref,watch} = await importShared('vue');
 
@@ -1278,7 +1284,6 @@ const _hoisted_3 = { class: "text-caption text-medium-emphasis" };
 const _hoisted_4 = { class: "dc-page-toolbar-actions" };
 const _hoisted_5 = { class: "dc-toolbar-label" };
 const _hoisted_6 = { class: "dc-load-alert__content" };
-
 const {onMounted} = await importShared('vue');
 
 
@@ -1290,11 +1295,14 @@ const _sfc_main = {
   nativeSubscribe: { type: Function, default: null },
   appPage: { type: Boolean, default: false },
   showSettings: { type: Boolean, default: false },
+  show_switch: { type: Boolean, default: true },
 },
   emits: ['close', 'switch'],
   setup(__props, { emit: __emit }) {
 
 const props = __props;
+const { canManage, permissionError } = useManagementPermissions(() => props.api, () => props.pluginId || 'DoubanCenter');
+
 const emit = __emit;
 
 const page = usePageRuntime({
@@ -1383,7 +1391,7 @@ return (_ctx, _cache) => {
               ]),
               _: 1
             }, 8, ["title", "aria-label", "color"]),
-            (props.showSettings || !props.appPage)
+            (props.show_switch && (props.showSettings || !props.appPage))
               ? (_openBlock(), _createBlock(_component_VBtn, {
                   key: 0,
                   variant: "text",
@@ -1391,6 +1399,7 @@ return (_ctx, _cache) => {
                   class: "text-none dc-toolbar-action",
                   title: "设置",
                   "aria-label": "设置",
+                  disabled: !_unref(canManage),
                   onClick: _cache[2] || (_cache[2] = $event => (emit('switch')))
                 }, {
                   default: _withCtx(() => [
@@ -1402,7 +1411,7 @@ return (_ctx, _cache) => {
                     _cache[6] || (_cache[6] = _createElementVNode("span", { class: "dc-toolbar-label" }, "设置", -1))
                   ]),
                   _: 1
-                }))
+                }, 8, ["disabled"]))
               : _createCommentVNode("", true),
             (!props.appPage)
               ? (_openBlock(), _createBlock(_component_VBtn, {
@@ -1440,9 +1449,23 @@ return (_ctx, _cache) => {
         : _createCommentVNode("", true),
       _createVNode(_component_VCardText, { class: "pa-3 dc-flow" }, {
         default: _withCtx(() => [
-          (_unref(page).loadError)
+          (!_unref(canManage))
             ? (_openBlock(), _createBlock(_component_VAlert, {
                 key: 0,
+                type: "info",
+                variant: "tonal",
+                density: "compact",
+                class: "dc-load-alert"
+              }, {
+                default: _withCtx(() => [
+                  _createTextVNode(_toDisplayString(_unref(permissionError) || '当前为只读模式，记录维护需要管理员权限。'), 1)
+                ]),
+                _: 1
+              }))
+            : _createCommentVNode("", true),
+          (_unref(page).loadError)
+            ? (_openBlock(), _createBlock(_component_VAlert, {
+                key: 1,
                 type: "warning",
                 variant: "tonal",
                 density: "compact",
@@ -1471,11 +1494,14 @@ return (_ctx, _cache) => {
             : _createCommentVNode("", true),
           (_unref(page).actionMessage)
             ? (_openBlock(), _createElementBlock("div", {
-                key: 1,
+                key: 2,
                 class: _normalizeClass(["dc-action-message", _unref(page).actionOk ? 'text-success' : 'text-error'])
               }, _toDisplayString(_unref(page).actionMessage), 3))
             : _createCommentVNode("", true),
-          _createVNode(PageContent, { page: _unref(page) }, null, 8, ["page"])
+          _createVNode(PageContent, {
+            page: _unref(page),
+            "can-manage": _unref(canManage)
+          }, null, 8, ["page", "can-manage"])
         ]),
         _: 1
       }),
@@ -1487,6 +1513,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9b347f91"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d6aa73e0"]]);
 
 export { Page as default };

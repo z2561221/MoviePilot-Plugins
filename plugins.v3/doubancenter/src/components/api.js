@@ -89,3 +89,7 @@ export async function openNativeSubscription(nativeSubscribe, media) {
   }
   return result
 }
+
+export function isApiRequestCancellation(error) {
+  return Boolean(error && typeof error === 'object' && (error.__CANCEL__ || error.code === 'ERR_CANCELED' || error.name === 'AbortError' || error.name === 'CanceledError'))
+}
