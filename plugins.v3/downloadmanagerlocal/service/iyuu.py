@@ -26,10 +26,16 @@ from ..adapter.moviepilot import (
     request_get_res,
     request_post_res,
 )
-from ..model.state import IYUU_PENDING_KEY, iyuu_history_key, iyuu_source_key, record_iyuu_results
+from ..model.state import (
+    IYUU_PENDING_KEY,
+    iyuu_history_key,
+    iyuu_source_key,
+    record_iyuu_results,
+)
 from ..utils.sensitive import mask_sensitive_url
 from ..utils.torrent_adapter import get_label, get_tracker_urls
 from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
+from .sync_delete import coordinated, task_blocked
 from .transfer import _transfer_stopped
 
 IYUU_QUERY_CHUNK_SIZE = 100
@@ -129,6 +135,7 @@ def iyuu_auto_seed(plugin):
         lock.release()
 
 
+@coordinated
 def _run_iyuu_batch(plugin):
     """IYUU 自动辅种主逻辑"""
     generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
@@ -202,6 +209,8 @@ def _iyuu_auto_seed(plugin, generation):
                 return
             if index % IYUU_SCAN_PROGRESS_INTERVAL == 0:
                 logger.info(f"IYUU辅种：下载器 {downloader} 已扫描 {index}/{len(torrents)} 个已完成种子")
+            if task_blocked(plugin, service.name, torrent, service.type):
+                continue
             hash_str = plugin.get_hash(torrent, service.type)
             if hash_str in plugin._iyuu_error_caches or hash_str in plugin._iyuu_permanent_error_caches:
                 continue
@@ -573,6 +582,8 @@ def _resume_iyuu_postprocess(plugin, generation) -> None:
                     pending = _load_iyuu_pending(plugin)
                     pending.pop(key, None)
                     plugin.save_data(IYUU_PENDING_KEY, pending)
+                continue
+            if any(task_blocked(plugin, service.name, torrent, service.type) for torrent in torrents):
                 continue
             _finish_iyuu_pending(plugin, key, item, service, generation)
         except Exception as error:

@@ -3,7 +3,7 @@
 ## 插件定位
 
 `DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
-`3.3.12`（基于已发布的 V3.3.11）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`3.3.13`（基于已发布的 V3.3.12）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
@@ -14,7 +14,8 @@
 - 做种校验：转移或辅种后登记队列，后台线程轮询任务状态并按配置自动开始做种。
 - 速度监控：按下载器建立稳健速度基准，跟踪活跃下载会话并提供异常处置入口。
 - 上传限速：支持 qBittorrent 与 Transmission 下载器全局上传上限；用户可按需填写站点合计上限，正数站点跨下载器共享该额度，空值或 `0` 不写单种限速，并支持新种宽限和停用恢复。
-- 诊断与总览：为 Vue 详情页提供只读诊断、运行总览、重命名历史和归档记录。
+- 同步删除：接收 Emby 深度删除，按当前实例的整理记录、下载中心转种/辅种记录和 115 路径映射，逐文件处理网盘、源文件、QB/TR 任务和整理记录。
+- 诊断与总览：为 Vue 详情页提供只读诊断、运行总览、重命名历史、同步删除历史和归档记录。
 
 Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产物位于 `dist/assets/`。前端通过注入的 `api` prop 调用 `bear` 认证插件 API。
 
@@ -24,11 +25,45 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 目标测试和本文件，但必须遵守：
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
-- 不执行真实种子删除、转移或标签清理。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.12`；V2 源码与元数据保持原样。
+- 不执行真实种子删除、转移或标签清理；同步删除实施测试只使用隔离替身，生产接管需单独回读配置与运行日志。
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.13`；V2 源码与元数据保持原样。
 - 转移批次在停止和重新初始化后失效；已创建目标而未收尾的任务以 `stopped_after_add` 记录，保留源任务，下次继续后处理并避免重复添加。
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
+
+## 2026-11-12 Transmission 站点标签保留
+
+- 站点标签是追加操作：TR `set_torrent_tag` 默认整组替换，必须传入目标回读的 `org_tags`；不要重新混入已按 `remainoldtag=false` 排除的源标签。
+- 转种、IYUU 与重命名补刀共用 `service/site_tag.py`，站名已存在时继续幂等跳过。接口明确返回 `False` 时不记录成功；兼容旧 qB 宿主成功返回 `None`。
+- 回归 `tests/v3/downloadmanagerlocal/test_site_tag.py` 使用宿主真实标签方法与内存 RPC，覆盖保留开关、两类下载器、前缀、幂等及写入失败，不操作真实下载器。
+
+## 2026-11-06 同步删除集成
+
+- `model/sync_delete.py`：配置默认值、路径边界和精简事件；`adapter/sync_delete.py`：历史查询、115 和本地文件身份核验、QB/TR 文件清单与任务控制；`service/sync_delete.py`：关联规划、持久队列、逐目标执行和失败恢复。
+- `sync_delete_jobs` 保存当前实例的执行快照与历史；`sync_delete_blocks` 绑定下载器/hash/创建时间，阻止旧任务被校验或辅种重新启动。完成历史最多 1000 条、30 天，未解决记录受单独上限保护。
+- 同步删除受理、开始、关联与完成写 INFO 日志，均带任务 ID 和媒体名称；重复事件不重复记受理，人工重试单独标注。完成状态持久化成功后才输出结果，区分已删除、已不存在、移除种子和暂停保留；日志不依赖结果通知开关，不输出 Webhook 原文。守护：`test_sync_delete_logging.py`。
+- `deep.delete` 为默认通知；普通 `library.deleted` 默认关闭。旧 hash-only 清理入口不再整包删除，必须解析到具体媒体范围。
+- 删除通知全部路径均在已配置映射外时直接忽略，不创建任务或失败历史。按目录边界匹配，不将 `strm-9kg` 视为 `strm` 子目录；已映射路径、映射根和混合版本清单继续交给原有完整规划校验，不截断事件路径。守护：`test_sync_delete_event_scope.py`。
+- `/sync_delete/options`、`/sync_delete/history` 返回裸模型；`/sync_delete/preview`、`/sync_delete/retry` 返回标准 Response。预览和重试验证超管身份，重试只接受服务端任务 ID。
+- 配置页分本地与 STRM 两组，目录使用全宽自动增高输入框，无批量/分列模式切换。网盘处理继续由 `sync_delete_cloud` 独立开关控制，填写或改动目录不会自动启用；三段、四段路径格式及后端关联规则保持兼容。
+- 普通通知、手动预览、无记录强删入口从配置页移除；保存时将 `sync_delete_library_deleted`、`sync_delete_force_cloud` 置 false，并丢弃全空映射行。后端旧字段及诊断预览 API 继续兼容。源目录、保护目录收在默认折叠的“高级设置 · 删除范围”，折叠不清空配置或放宽边界。
+- 新增宿主兼容例外：`DownloadHistoryOper.get_files_by_hash/get_files_by_fullpath/delete_file_by_fullpath` 和 `TransferHistoryOper.delete`。当前部署 v3.2.4 的查询 SDK 不覆盖下载文件状态及整理记录删除，故在 adapter 内按次创建 Oper，返回普通字典并不缓存 Session；不导入宿主 ORM Model。宿主提供等价稳定 SDK 后移除这些兼容调用。相关测试以替身验证实体成功后才更新记录。
+- 115 自动删除限定已核验的 P115Disk 3.0.3 提供方：直接 `StorageChain.list_files` 的异常返回 None，与空列表区分；不用普通 REST 的空数组判定不存在。从固定网盘根 ID 逐层目录回读，避免路径/文件 ID 缓存命中已移动目标。若提供方语义变化则重新核验。
+- 转种、辅种批次和做种校验与同步删除使用实例互斥；IYUU 原有重叠触发跳过逻辑保留。配置修改/停用使旧执行器停止，重载未决任务留待重试，不自动执行删除。
+- 核心流程参考神医媒体文件同步删除及 115 STRM 助手的使用方式；实现为下载中心原生模块，不依赖它们的数据空间或执行器。
+- 云端映射向后兼容三段，允许第四段指定本地整理目录。仅按明确目录的相对路径桥接本地整理历史，禁止按标题猜测；存在副本时复核大小，副本已移走时要求历史大小与云端匹配。下载源开关控制本地整理副本清理，快照仍记录不存在状态，避免重试时误删新文件。回归入口：`test_sync_delete_local_bridge.py`。
+- `sync_delete_cloud=false` 时三段和四段映射均禁止云端读写；第四段只核验本地副本与可信历史大小，映射后的云端路径仅用于关联比较，不伪造云端不存在快照。源文件、种子及记录开关继续独立生效，不等待或确认外部服务的网盘删除结果。守护：`test_sync_delete_cloud_handoff.py`；旧计划仍受配置指纹限制。
+
+### 同周期审查修正
+
+- 多媒体删除的相对文件名按各自关联种子链匹配，不能跨不相关下载任务扩展文件清单。
+- 删除下载源和移除种子独立门禁；只移除种子不写下载文件已删除状态。完成后退出无其它保留关系的 IYUU 母种反查，暂停合集及并发新增关系继续保留。
+- 旧任务重试前复验全部文件身份、已移除任务是否重建及新增整理引用；执行每个源文件操作前再次检查保留引用。
+- 规划格式 `PLAN_VERSION=2` 拒绝重放升级前的旧清单，保留原进度与记录；不能把旧文件范围重新标记为新版本后继续执行。
+- `coordinated` 在等待实例锁前捕获停止代次，支持有界等待和停止退出；校验读取回包后复验代次。下载器查询失败保留校验队列。
+- 转移配置错误只关闭转移能力；空配置重置旧开关和认证字段。配置初始化复制输入，不回写调用者快照。
+- 前端选项、重试请求分别维护归属。配置页排队操作在每次等待后核对原实例，详情页操作离开原页面后停止回写；取消请求不显示成业务失败。
+- 守护用例：`tests/v3/downloadmanagerlocal/test_sync_delete_review.py`、`test_sync_delete_requests.py` 与 `test_frontend_api.py`。测试仅使用隔离替身和组件脚本，不执行真实删除。
 
 ## 2026-10-04 全局审查修复
 
@@ -104,8 +139,10 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
   TorrentHelper，插件仍需下载种子内容；2026-08-30 更新后的宿主已将该能力从
   `app.application.torrent` 包根迁入 `download` 子模块，旧的
   `app.services.torrent` 回退路径也已删除。实际运行态复核在同步/reload 阶段完成。
-  SDK 提供等价出口后移除此例外；聚焦守护为
-  `test_v3_internal_imports_match_symbol_allowlist`。
+  2026-11-06 在实际 v3.2.4 宿主复核 SDK 仍无等价出口，已登记
+  `.github/plugin-quality-exceptions.json`。SDK 提供等价出口后移除此例外；聚焦守护为
+  `test_v3_internal_imports_match_symbol_allowlist` 与
+  `test_torrent_download_adapter_preserves_host_contract`。
 - 宿主数据访问例外（按 MoviePilot V3 `1f3d2b7f` 复核）：
   - 下载历史 hash 查询优先使用 `app.sdk.queries.list_download_history`，返回脱离 ORM 的
     `DownloadHistorySnapshot`；旧 V3 镜像缺少该 SDK 时才回退
@@ -161,7 +198,9 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 | `/tag_cleanup_scan` | POST | 扫描下载器标签并清理临时标签 | `api_tag_cleanup_scan` |
 | `/tag_cleanup_execute` | POST | 按扫描快照清理标签 | `api_tag_cleanup_execute` |
 
-其中 7 条 GET 查询路由返回声明的裸业务模型，其余 13 条操作路由显式返回严格
+另有 `/sync_delete/options`、`/sync_delete/history` 两条 GET，以及
+`/sync_delete/preview`、`/sync_delete/retry` 两条 POST，详见同步删除章节。
+共 9 条 GET 查询路由返回声明的裸业务模型，其余 15 条操作路由显式返回严格
 `schemas.Response[T]`。Vue helper 仅在顶层字段恰好为
 `success/message/data` 且 `success` 为布尔值时解包；裸业务模型及带额外字段的
 自定义 payload 原样返回。这样既符合当前 V3 动态路由合同，也兼容旧镜像曾经提供
@@ -169,7 +208,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 守护测试：
 
-- `tests/static/test_downloadmanagerlocal_backend_contract.py`
+- `tests/v3/downloadmanagerlocal/test_v3_contract.py`
 
 ## 服务与事件
 
@@ -369,7 +408,7 @@ V3 使用已核验的宿主 checkout、工作区共享测试解释器和已安�
 ```powershell
 Remove-Item Env:CONFIG_DIR -ErrorAction SilentlyContinue
 $env:DB_TYPE = 'sqlite'
-$pluginTestPython = 'D:\AIGC\MoviePilot\.venv-test\Scripts\python.exe'
+$pluginTestPython = 'D:\AIGC\All In Docker\MoviePilot\.venv-test\Scripts\python.exe'
 
 & $pluginTestPython -m pytest tests/v3/downloadmanagerlocal -q
 & $pluginTestPython -m compileall -q plugins.v3/downloadmanagerlocal
@@ -388,7 +427,7 @@ Vue/API 契约完成验证。运行验收前必须先取得目标 MoviePilot 实
 ## 已知环境注意事项
 
 - Windows PATH 中的 `python` 指向 Microsoft Store alias，不可用于验证。
-- Codex bundled Python 初始没有 `pytest`，本执行分支已通过 `python -m pip install pytest` 安装到 bundled runtime。
+- 使用项目已核验的共享测试解释器及宿主 checkout；不以历史 bundled Python 安装记录判断当前环境。
 - 直接 `python -m pytest tests/static/...` 会触发根 `tests/conftest.py` 的代际检查而失败；static 测试需使用 `--confcutdir=tests/static`。
 - 正式 v1/v2 插件测试仍应遵守 `tests/run.py` 与 `tests/README.md`，不要把 static 测试入口误用于完整插件测试。
 
@@ -435,3 +474,7 @@ $env:Path = "$nodeDir;$env:Path"
 - 此历史周期记录未覆盖 MP 同步、目标实例 reload、history/API 与页面验收；当前 V3 reload 使用 POST，历史源码或构建结果不代表当前运行态已验收。
 - IYUU 外部站点真实链路仍以目标实例配置和日志为准，实验室测试不替代生产站点实测。
 - 未 push、merge 或发布；这些动作仍需用户明确确认。
+
+## 管理权限
+
+所有有副作用的HTTP路由由controller.security.require_admin统一保护，包括会自动清理标签的扫描。permissions接口只返回当前已认证用户的can_manage；前端禁用管理按钮，实际授权仍由服务端逐次检查。后台任务继续通过内部服务运行，不受HTTP依赖影响。

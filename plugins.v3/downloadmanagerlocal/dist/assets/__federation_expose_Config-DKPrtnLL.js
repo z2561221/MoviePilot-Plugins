@@ -1,7 +1,7 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi, p as postPluginJsonApi } from './_plugin-vue_export-helper-ClrE55wh.js';
+import { _ as _export_sfc, i as isApiRequestCancellation, g as getPluginApi, S as SyncDeletePane, p as postPluginJsonApi } from './SyncDeletePane-DUaFWmTI.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,createBlock:_createBlock,createCommentVNode:_createCommentVNode,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
+const {toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "dm-config" };
@@ -167,7 +167,11 @@ const _hoisted_103 = { class: "text-caption text-medium-emphasis" };
 const _hoisted_104 = ["title"];
 const _hoisted_105 = { class: "dm-cleanup-actions" };
 const _hoisted_106 = { class: "text-caption text-medium-emphasis" };
-const _hoisted_107 = { class: "dm-pane" };
+const _hoisted_107 = {
+  key: 0,
+  class: "dm-pane"
+};
+const _hoisted_108 = { class: "dm-pane" };
 
 const {reactive,ref,computed,watch,onMounted,onBeforeUnmount} = await importShared('vue');
 
@@ -185,6 +189,11 @@ const _sfc_main = {
   setup(__props, { emit: __emit }) {
 
 const props = __props;
+
+const canManage = ref(false);
+const permissionError = ref('');
+
+
 const emit = __emit;
 const getApi = (path, options = {}) => getPluginApi(props.api, props.pluginId, path, options);
 const postJsonApi = (path, payload = {}, options = {}) => postPluginJsonApi(props.api, props.pluginId, path, payload, options);
@@ -220,18 +229,43 @@ let uploadSiteScanTail = Promise.resolve();
 let configDraftRevision = 0;
 let configDisposed = false;
 
+function configRequestScope() {
+  const revision = configDraftRevision;
+  const pluginId = props.pluginId;
+  const api = props.api;
+  return () => !configDisposed && revision === configDraftRevision
+    && pluginId === props.pluginId && api === props.api
+}
+
+function resetConfigRequests() {
+  uploadActionRunning.value = '';
+  uploadScanningSites.value = false;
+  uploadMessage.value = '';
+  cleanupScanning.value = false;
+  cleanupExecuting.value = false;
+  cleanupDialog.value = false;
+  cleanupScan.value = null;
+  cleanupMessage.value = '';
+  monitorResetting.value = '';
+  monitorMessage.value = '';
+}
+
 async function refreshOverview() {
+  const owns = configRequestScope();
   const response = await getApi('overview');
+  if (!owns()) return
   if (response?.code === 0 || response?.cards) overview.value = response;
 }
 
 onMounted(async () => {
+  const owns = configRequestScope();
   try {
     const [dlResp, siteResp, overviewResp] = await Promise.all([
       getApi('downloaders', { feedback: 'silent' }),
       getApi('sites', { feedback: 'silent' }),
       getApi('overview', { feedback: 'silent' }),
     ]);
+    if (!owns()) return
     if (dlResp) {
       downloaderItems.value = dlResp;
     }
@@ -240,11 +274,18 @@ onMounted(async () => {
     }
     if (overviewResp?.code === 0 || overviewResp?.cards) overview.value = overviewResp;
   } catch (e) {
+    if (isApiRequestCancellation(e)) return
+    if (!owns()) return
     console.error('获取列表失败:', e);
   }
 });
 
 const defaults = {
+  sync_delete_enabled: false, sync_delete_servers: [], sync_delete_local_paths: '',
+  sync_delete_cloud_paths: '', sync_delete_storage: '115网盘Plus', sync_delete_source_paths: '',
+  sync_delete_exclude_paths: '', sync_delete_source: true, sync_delete_torrents: true,
+  sync_delete_cloud: true, sync_delete_records: true, sync_delete_force_cloud: false,
+  sync_delete_notify: true, sync_delete_library_deleted: false,
   enabled: false, transfer_enabled: true, delay_minutes: 25, onlyonce: false, notify: false,
   transfer_fallback_enabled: true, transfer_fallback_interval_minutes: 60,
   fromdownloader: '', todownloader: '', frompath: '', topath: '',
@@ -285,10 +326,12 @@ const mainTabs = [
   { key: 'rename', title: '命名补刀', icon: 'mdi-rename-box', desc: '转移后自动根据 TMDB 信息命名种子，并支持失败补刀。' },
   { key: 'tag', title: '站点标签', icon: 'mdi-tag-multiple', desc: '转移后自动根据 tracker 域名打站点标签。' },
   { key: 'seed', title: '做种校验', icon: 'mdi-check-circle-outline', desc: '统一控制跳过校验和自动开始做种，按需触发。' },
+  { key: 'sync_delete', title: '同步删除', icon: 'mdi-delete-outline', desc: '接收 Emby 删除通知，同步清理媒体、源文件和本插件关联种子。' },
   { key: 'upload', title: '上传限速', icon: 'mdi-upload-network-outline', desc: '设置下载器全局上传上限，并按需限制指定站点的合计上传速度。' },
 ];
 
 const subTabs = {
+  sync_delete: [{ key: 'sync_delete_basic', title: '基础设置', icon: 'mdi-delete-outline' }],
   overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
   upload: [
     { key: 'upload_basic', title: '基础设置', icon: 'mdi-tune-variant' },
@@ -491,23 +534,34 @@ const runtimeFlows = [
 watch(() => props.initialConfig, v => {
   configDraftRevision++;
   uploadSiteRulesRevision++;
+  resetConfigRequests();
   Object.keys(form).forEach(k => delete form[k]);
   Object.assign(form, defaults, v || {});
+  form.sync_delete_servers = [...(v?.sync_delete_servers || [])];
   form.speed_monitor_downloaders = [...(v?.speed_monitor_downloaders || [])];
   form.speed_monitor_manual_speed_bps = { ...(v?.speed_monitor_manual_speed_bps || {}) };
   form.speed_monitor_floor_speed_bps = { ...(v?.speed_monitor_floor_speed_bps || {}) };
   form.upload_limit_downloaders = [...(v?.upload_limit_downloaders || [])];
   form.upload_limit_downloader_limits_kib = { ...(v?.upload_limit_downloader_limits_kib || {}) };
   form.upload_limit_site_rules = Object.fromEntries(Object.entries(v?.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]));
-}, { immediate: true, deep: true });
-watch(() => props.pluginId, () => {
+}, { immediate: true, deep: true, flush: 'sync' });
+watch(() => [props.pluginId, props.api], () => {
   configDraftRevision++;
   uploadSiteRulesRevision++;
-});
+  resetConfigRequests();
+  overview.value = null;
+  uploadSiteItems.value = [];
+}, { flush: 'sync' });
 
 function saveConfig() {
+  const mappings = value => String(value || '').split('\n').filter(line => line.split('#').some(part => part.trim())).join('\n');
   emit('save', {
     ...form,
+    sync_delete_force_cloud: false,
+    sync_delete_library_deleted: false,
+    sync_delete_local_paths: mappings(form.sync_delete_local_paths),
+    sync_delete_cloud_paths: mappings(form.sync_delete_cloud_paths),
+    sync_delete_servers: [...(form.sync_delete_servers || [])],
     speed_monitor_downloaders: [...(form.speed_monitor_downloaders || [])],
     speed_monitor_manual_speed_bps: { ...(form.speed_monitor_manual_speed_bps || {}) },
     speed_monitor_floor_speed_bps: { ...(form.speed_monitor_floor_speed_bps || {}) },
@@ -587,6 +641,7 @@ function queueUploadSiteRulesSave(rules) {
     }
     return response
   }).catch(error => {
+    if (isApiRequestCancellation(error)) throw error
     if (!ownsDraft()) return null
     if (revision === uploadSiteRulesRevision) {
       uploadMessageStatus.value = 'error';
@@ -620,21 +675,25 @@ function removeUploadSiteRule(siteName) {
 }
 
 async function clearUploadSiteRules() {
+  const owns = configRequestScope();
   uploadActionRunning.value = 'site-rules';
   uploadMessage.value = '';
   const previousRules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]));
   form.upload_limit_site_rules = {};
   try {
     const response = await queueUploadSiteRulesSave({});
+    if (!owns() || !response) return
     form.upload_limit_site_rules = {};
     uploadMessageStatus.value = 'success';
     uploadMessage.value = '站点策略已清空并立即生效；所有任务仅受下载器全局上限约束';
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     form.upload_limit_site_rules = previousRules;
     uploadMessageStatus.value = 'error';
     uploadMessage.value = error?.message || '站点策略清空失败';
   } finally {
-    uploadActionRunning.value = '';
+    if (owns()) uploadActionRunning.value = '';
   }
 }
 
@@ -644,6 +703,7 @@ function applyUploadStatus(response) {
 }
 
 async function refreshUploadLimitStatus({ silent = false } = {}) {
+  const owns = configRequestScope();
   if (!silent) {
     uploadActionRunning.value = 'refresh';
     uploadMessage.value = '';
@@ -653,15 +713,18 @@ async function refreshUploadLimitStatus({ silent = false } = {}) {
       'upload_limit_status',
       silent ? { feedback: 'silent' } : {},
     );
+    if (!owns()) return
     applyUploadStatus(response);
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     if (silent) console.error('上传限速状态自动刷新失败:', error);
     else {
       uploadMessageStatus.value = 'error';
       uploadMessage.value = error?.message || '状态刷新失败';
     }
   } finally {
-    if (!silent) uploadActionRunning.value = '';
+    if (!silent && owns()) uploadActionRunning.value = '';
   }
 }
 
@@ -709,6 +772,7 @@ onBeforeUnmount(() => {
 });
 
 async function scanUploadSites() {
+  const owns = configRequestScope();
   uploadMessage.value = '';
   if (!form.upload_limit_downloaders?.length) {
     uploadMessageStatus.value = 'warning';
@@ -718,6 +782,7 @@ async function scanUploadSites() {
   uploadScanningSites.value = true;
   const scanOperation = (async () => {
     await flushUploadSiteRulesSave();
+    if (!owns()) return null
     return postJsonApi('upload_limit_site_tags', {
       downloaders: form.upload_limit_downloaders,
       rules: cloneUploadSiteRules(),
@@ -726,52 +791,65 @@ async function scanUploadSites() {
   uploadSiteScanTail = scanOperation;
   try {
     const response = await scanOperation;
+    if (!owns()) return
     uploadSiteItems.value = response?.items || [];
     form.upload_limit_site_rules = response?.rules || form.upload_limit_site_rules || {};
     uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error');
     uploadMessage.value = response?.msg || `扫描到 ${uploadSiteItems.value.length} 个站点标签，策略已立即生效`;
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     uploadMessageStatus.value = 'error';
     uploadMessage.value = error?.message || '站点扫描失败';
   } finally {
     if (uploadSiteScanTail === scanOperation) uploadSiteScanTail = Promise.resolve();
-    uploadScanningSites.value = false;
+    if (owns()) uploadScanningSites.value = false;
   }
 }
 
 async function reallocateUploadLimits() {
+  const owns = configRequestScope();
   uploadActionRunning.value = 'reallocate';
   uploadMessage.value = '';
   try {
     await uploadSiteScanTail;
     await flushUploadSiteRulesSave();
+    if (!owns()) return
     const response = await postJsonApi('upload_limit_reallocate', {});
+    if (!owns()) return
     applyUploadStatus(response);
     uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error');
     uploadMessage.value = response?.msg || '上传额度已重新分配';
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     uploadMessageStatus.value = 'error';
     uploadMessage.value = error?.message || '重新分配失败';
   } finally {
-    uploadActionRunning.value = '';
+    if (owns()) uploadActionRunning.value = '';
   }
 }
 
 async function disableAndRestoreUploadLimits() {
+  const owns = configRequestScope();
   uploadActionRunning.value = 'restore';
   uploadMessage.value = '';
   try {
     const response = await postJsonApi('upload_limit_disable_restore', {});
+    if (!owns()) return
     form.upload_limit_enabled = false;
     uploadRestoreDialog.value = false;
     await refreshUploadLimitStatus();
+    if (!owns()) return
     uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error');
     uploadMessage.value = response?.msg || '上传限速已停用并恢复';
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     uploadMessageStatus.value = 'error';
     uploadMessage.value = error?.message || '停用恢复失败';
   } finally {
-    uploadActionRunning.value = '';
+    if (owns()) uploadActionRunning.value = '';
   }
 }
 
@@ -784,18 +862,22 @@ function dispositionLabel(action) {
 }
 
 async function resetMonitorBaseline(downloaderId) {
+  const owns = configRequestScope();
   monitorResetting.value = downloaderId;
   monitorMessage.value = '';
   try {
     const response = await postJsonApi('reset_speed_monitor_baseline', { downloader_id: downloaderId });
+    if (!owns()) return
     monitorMessageStatus.value = response?.code === 0 ? 'success' : 'error';
     monitorMessage.value = response?.msg || (response?.code === 0 ? '速度基准已重置' : '重置失败');
     if (response?.code === 0) await refreshOverview();
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     monitorMessageStatus.value = 'error';
     monitorMessage.value = error?.message || '重置失败';
   } finally {
-    monitorResetting.value = '';
+    if (owns()) monitorResetting.value = '';
   }
 }
 
@@ -831,6 +913,7 @@ function cleanupKindMeta(kind) {
 }
 
 async function scanCleanupTags() {
+  const owns = configRequestScope();
   cleanupMessage.value = '';
   if (!cleanupDownloaders.value.length) {
     cleanupStatus.value = 'warning';
@@ -840,6 +923,7 @@ async function scanCleanupTags() {
   cleanupScanning.value = true;
   try {
     const response = await postJsonApi('tag_cleanup_scan', { downloaders: cleanupDownloaders.value });
+    if (!owns()) return
     cleanupScan.value = response || null;
     resetCleanupKeep(response?.downloaders || []);
     const errorCount = response?.errors?.length || 0;
@@ -848,10 +932,12 @@ async function scanCleanupTags() {
       ? `扫描完成 · 自动清理 ${response?.auto_removed?.length || 0} 个临时标签`
       : (response?.msg || '扫描失败');
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     cleanupStatus.value = 'error';
     cleanupMessage.value = error?.message || '扫描失败';
   } finally {
-    cleanupScanning.value = false;
+    if (owns()) cleanupScanning.value = false;
   }
 }
 
@@ -865,22 +951,44 @@ function previewCleanupTags() {
 }
 
 async function executeCleanupTags() {
+  const owns = configRequestScope();
   cleanupExecuting.value = true;
   try {
     const response = await postJsonApi('tag_cleanup_execute', { removals: cleanupRemovals.value });
+    if (!owns()) return
     cleanupDialog.value = false;
     await scanCleanupTags();
+    if (!owns()) return
     cleanupStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error');
     cleanupMessage.value = response?.msg || '清理完成';
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     cleanupStatus.value = 'error';
     cleanupMessage.value = error?.message || '清理失败';
   } finally {
-    cleanupExecuting.value = false;
+    if (owns()) cleanupExecuting.value = false;
   }
 }
 
+let permissionsRevision = 0;
+watch(() => [props.api, props.pluginId], async () => {
+  const revision = ++permissionsRevision;
+  const api = props.api;
+  const id = props.pluginId;
+  const current = () => !configDisposed && revision === permissionsRevision && api === props.api && id === props.pluginId;
+  canManage.value = false;
+  permissionError.value = '';
+  try {
+    const value = await getPluginApi(api, id, 'permissions', { feedback: 'silent' });
+    if (current()) canManage.value = value?.can_manage === true;
+  } catch (reason) {
+    if (current() && !isApiRequestCancellation(reason)) permissionError.value = '权限读取失败，请重新打开页面。';
+  }
+}, { immediate: true, flush: 'sync' });
+
 return (_ctx, _cache) => {
+  const _component_VAlert = _resolveComponent("VAlert");
   const _component_VIcon = _resolveComponent("VIcon");
   const _component_VAvatar = _resolveComponent("VAvatar");
   const _component_VCardTitle = _resolveComponent("VCardTitle");
@@ -895,7 +1003,6 @@ return (_ctx, _cache) => {
   const _component_VSelect = _resolveComponent("VSelect");
   const _component_VRow = _resolveComponent("VRow");
   const _component_VTextField = _resolveComponent("VTextField");
-  const _component_VAlert = _resolveComponent("VAlert");
   const _component_VBtn = _resolveComponent("VBtn");
   const _component_VChip = _resolveComponent("VChip");
   const _component_VTextarea = _resolveComponent("VTextarea");
@@ -914,6 +1021,19 @@ return (_ctx, _cache) => {
       class: "dm-card"
     }, {
       default: _withCtx(() => [
+        (!canManage.value)
+          ? (_openBlock(), _createBlock(_component_VAlert, {
+              key: 0,
+              type: "info",
+              variant: "tonal",
+              density: "compact"
+            }, {
+              default: _withCtx(() => [
+                _createTextVNode(_toDisplayString(permissionError.value || '当前为只读模式，管理操作需要管理员权限。'), 1)
+              ]),
+              _: 1
+            }))
+          : _createCommentVNode("", true),
         _createVNode(_component_VCardItem, { class: "dm-header" }, {
           prepend: _withCtx(() => [
             _createVNode(_component_VAvatar, {
@@ -1211,7 +1331,7 @@ return (_ctx, _cache) => {
                       variant: "tonal",
                       "prepend-icon": "mdi-radar",
                       loading: uploadScanningSites.value,
-                      disabled: uploadActionRunning.value === 'site-rules' || uploadActionRunning.value === 'reallocate',
+                      disabled: !canManage.value || uploadActionRunning.value === 'site-rules' || uploadActionRunning.value === 'reallocate',
                       onClick: scanUploadSites
                     }, {
                       default: _withCtx(() => [...(_cache[79] || (_cache[79] = [
@@ -1223,7 +1343,7 @@ return (_ctx, _cache) => {
                       color: "error",
                       variant: "text",
                       "prepend-icon": "mdi-delete-sweep-outline",
-                      disabled: !uploadSiteRuleRows.value.length || uploadScanningSites.value || uploadActionRunning.value === 'reallocate',
+                      disabled: !canManage.value || !uploadSiteRuleRows.value.length || uploadScanningSites.value || uploadActionRunning.value === 'reallocate',
                       loading: uploadActionRunning.value === 'site-rules',
                       onClick: clearUploadSiteRules
                     }, {
@@ -1289,7 +1409,7 @@ return (_ctx, _cache) => {
                             clearable: "",
                             density: "compact",
                             variant: "outlined",
-                            disabled: uploadScanningSites.value || uploadActionRunning.value === 'site-rules' || uploadActionRunning.value === 'reallocate',
+                            disabled: !canManage.value || uploadScanningSites.value || uploadActionRunning.value === 'site-rules' || uploadActionRunning.value === 'reallocate',
                             hint: "留空或 0 表示该站点不限速；正数为跨下载器共享的站点合计上限",
                             "persistent-hint": ""
                           }, null, 8, ["model-value", "onUpdate:modelValue", "disabled"]),
@@ -1299,7 +1419,7 @@ return (_ctx, _cache) => {
                             color: "error",
                             variant: "text",
                             title: "删除站点",
-                            disabled: uploadScanningSites.value || uploadActionRunning.value === 'site-rules' || uploadActionRunning.value === 'reallocate',
+                            disabled: !canManage.value || uploadScanningSites.value || uploadActionRunning.value === 'site-rules' || uploadActionRunning.value === 'reallocate',
                             onClick: $event => (removeUploadSiteRule(row.name))
                           }, null, 8, ["disabled", "onClick"])
                         ]))
@@ -1345,7 +1465,7 @@ return (_ctx, _cache) => {
                       variant: "tonal",
                       "prepend-icon": "mdi-call-split",
                       loading: uploadActionRunning.value === 'reallocate',
-                      disabled: !uploadLimit.value.enabled || uploadScanningSites.value || uploadActionRunning.value === 'site-rules',
+                      disabled: !canManage.value || !uploadLimit.value.enabled || uploadScanningSites.value || uploadActionRunning.value === 'site-rules',
                       onClick: reallocateUploadLimits
                     }, {
                       default: _withCtx(() => [...(_cache[84] || (_cache[84] = [
@@ -1358,7 +1478,7 @@ return (_ctx, _cache) => {
                       color: "warning",
                       variant: "tonal",
                       "prepend-icon": "mdi-backup-restore",
-                      disabled: !uploadLimit.value.active && !uploadLimit.value.enabled,
+                      disabled: !canManage.value || !uploadLimit.value.active && !uploadLimit.value.enabled,
                       onClick: _cache[5] || (_cache[5] = $event => (uploadRestoreDialog.value = true))
                     }, {
                       default: _withCtx(() => [...(_cache[85] || (_cache[85] = [
@@ -1934,6 +2054,7 @@ return (_ctx, _cache) => {
                             (speedMonitor.value.mode === 'auto')
                               ? (_openBlock(), _createBlock(_component_VBtn, {
                                   key: 0,
+                                  disabled: !canManage.value,
                                   size: "small",
                                   variant: "tonal",
                                   color: "warning",
@@ -1941,7 +2062,7 @@ return (_ctx, _cache) => {
                                   loading: monitorResetting.value === item.downloader_id,
                                   title: "重置自动基准",
                                   onClick: $event => (resetMonitorBaseline(item.downloader_id))
-                                }, null, 8, ["loading", "onClick"]))
+                                }, null, 8, ["disabled", "loading", "onClick"]))
                               : _createCommentVNode("", true)
                           ]),
                           _createElementVNode("div", _hoisted_72, [
@@ -2918,7 +3039,7 @@ return (_ctx, _cache) => {
                     variant: "tonal",
                     "prepend-icon": "mdi-radar",
                     loading: cleanupScanning.value,
-                    disabled: !cleanupDownloaders.value.length,
+                    disabled: !canManage.value || !cleanupDownloaders.value.length,
                     onClick: scanCleanupTags
                   }, {
                     default: _withCtx(() => [...(_cache[131] || (_cache[131] = [
@@ -3060,7 +3181,7 @@ return (_ctx, _cache) => {
                           color: "warning",
                           variant: "tonal",
                           "prepend-icon": "mdi-eye-outline",
-                          disabled: !cleanupRemovals.value.length,
+                          disabled: !canManage.value || !cleanupRemovals.value.length,
                           onClick: previewCleanupTags
                         }, {
                           default: _withCtx(() => [...(_cache[136] || (_cache[136] = [
@@ -3074,7 +3195,18 @@ return (_ctx, _cache) => {
               ], 512), [
                 [_vShow, activeSub.value === 'tag_cleanup']
               ]),
-              _withDirectives(_createElementVNode("div", _hoisted_107, [
+              (activeSub.value === 'sync_delete_basic')
+                ? (_openBlock(), _createElementBlock("div", _hoisted_107, [
+                    _createVNode(SyncDeletePane, {
+                      "can-manage": canManage.value,
+                      api: props.api,
+                      "plugin-id": props.pluginId,
+                      form: form,
+                      mode: "config"
+                    }, null, 8, ["can-manage", "api", "plugin-id", "form"])
+                  ]))
+                : _createCommentVNode("", true),
+              _withDirectives(_createElementVNode("div", _hoisted_108, [
                 _cache[139] || (_cache[139] = _createElementVNode("div", { class: "dm-section-title" }, "做种校验设置", -1)),
                 _createVNode(_component_VAlert, {
                   type: "info",
@@ -3189,6 +3321,7 @@ return (_ctx, _cache) => {
               _: 1
             }),
             _createVNode(_component_VBtn, {
+              disabled: !canManage.value,
               color: "primary",
               variant: "flat",
               "prepend-icon": "mdi-content-save-outline",
@@ -3198,7 +3331,7 @@ return (_ctx, _cache) => {
                 _createTextVNode("保存配置", -1)
               ]))]),
               _: 1
-            })
+            }, 8, ["disabled"])
           ]),
           _: 1
         })
@@ -3294,6 +3427,7 @@ return (_ctx, _cache) => {
                   _: 1
                 }, 8, ["disabled"]),
                 _createVNode(_component_VBtn, {
+                  disabled: !canManage.value,
                   color: "error",
                   variant: "flat",
                   "prepend-icon": "mdi-tag-remove-outline",
@@ -3304,7 +3438,7 @@ return (_ctx, _cache) => {
                     _createTextVNode("确认清理", -1)
                   ]))]),
                   _: 1
-                }, 8, ["loading"])
+                }, 8, ["disabled", "loading"])
               ]),
               _: 1
             })
@@ -3374,6 +3508,7 @@ return (_ctx, _cache) => {
                   _: 1
                 }, 8, ["disabled"]),
                 _createVNode(_component_VBtn, {
+                  disabled: !canManage.value,
                   color: "warning",
                   variant: "flat",
                   "prepend-icon": "mdi-backup-restore",
@@ -3384,7 +3519,7 @@ return (_ctx, _cache) => {
                     _createTextVNode("确认恢复", -1)
                   ]))]),
                   _: 1
-                }, 8, ["loading"])
+                }, 8, ["disabled", "loading"])
               ]),
               _: 1
             })
@@ -3399,6 +3534,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-29f6e6a3"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-15854632"]]);
 
 export { Config as default };

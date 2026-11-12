@@ -1,6 +1,7 @@
 <script setup>
 import { reactive, ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { getPluginApi, postPluginJsonApi } from './api'
+import { getPluginApi, postPluginJsonApi, isApiRequestCancellation } from './api'
+import SyncDeletePane from './SyncDeletePane.vue'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -8,6 +9,11 @@ const props = defineProps({
   pluginId: { type: String, default: 'DownloadManagerLocal' },
   sourcePluginId: { type: String, default: 'DownloadManagerLocal' },
 })
+
+const canManage = ref(false)
+const permissionError = ref('')
+
+
 const emit = defineEmits(['save', 'close', 'switch'])
 const getApi = (path, options = {}) => getPluginApi(props.api, props.pluginId, path, options)
 const postJsonApi = (path, payload = {}, options = {}) => postPluginJsonApi(props.api, props.pluginId, path, payload, options)
@@ -44,18 +50,43 @@ let uploadSiteScanTail = Promise.resolve()
 let configDraftRevision = 0
 let configDisposed = false
 
+function configRequestScope() {
+  const revision = configDraftRevision
+  const pluginId = props.pluginId
+  const api = props.api
+  return () => !configDisposed && revision === configDraftRevision
+    && pluginId === props.pluginId && api === props.api
+}
+
+function resetConfigRequests() {
+  uploadActionRunning.value = ''
+  uploadScanningSites.value = false
+  uploadMessage.value = ''
+  cleanupScanning.value = false
+  cleanupExecuting.value = false
+  cleanupDialog.value = false
+  cleanupScan.value = null
+  cleanupMessage.value = ''
+  monitorResetting.value = ''
+  monitorMessage.value = ''
+}
+
 async function refreshOverview() {
+  const owns = configRequestScope()
   const response = await getApi('overview')
+  if (!owns()) return
   if (response?.code === 0 || response?.cards) overview.value = response
 }
 
 onMounted(async () => {
+  const owns = configRequestScope()
   try {
     const [dlResp, siteResp, overviewResp] = await Promise.all([
       getApi('downloaders', { feedback: 'silent' }),
       getApi('sites', { feedback: 'silent' }),
       getApi('overview', { feedback: 'silent' }),
     ])
+    if (!owns()) return
     if (dlResp) {
       downloaderItems.value = dlResp
     }
@@ -64,11 +95,18 @@ onMounted(async () => {
     }
     if (overviewResp?.code === 0 || overviewResp?.cards) overview.value = overviewResp
   } catch (e) {
+    if (isApiRequestCancellation(e)) return
+    if (!owns()) return
     console.error('获取列表失败:', e)
   }
 })
 
 const defaults = {
+  sync_delete_enabled: false, sync_delete_servers: [], sync_delete_local_paths: '',
+  sync_delete_cloud_paths: '', sync_delete_storage: '115网盘Plus', sync_delete_source_paths: '',
+  sync_delete_exclude_paths: '', sync_delete_source: true, sync_delete_torrents: true,
+  sync_delete_cloud: true, sync_delete_records: true, sync_delete_force_cloud: false,
+  sync_delete_notify: true, sync_delete_library_deleted: false,
   enabled: false, transfer_enabled: true, delay_minutes: 25, onlyonce: false, notify: false,
   transfer_fallback_enabled: true, transfer_fallback_interval_minutes: 60,
   fromdownloader: '', todownloader: '', frompath: '', topath: '',
@@ -109,10 +147,12 @@ const mainTabs = [
   { key: 'rename', title: '命名补刀', icon: 'mdi-rename-box', desc: '转移后自动根据 TMDB 信息命名种子，并支持失败补刀。' },
   { key: 'tag', title: '站点标签', icon: 'mdi-tag-multiple', desc: '转移后自动根据 tracker 域名打站点标签。' },
   { key: 'seed', title: '做种校验', icon: 'mdi-check-circle-outline', desc: '统一控制跳过校验和自动开始做种，按需触发。' },
+  { key: 'sync_delete', title: '同步删除', icon: 'mdi-delete-outline', desc: '接收 Emby 删除通知，同步清理媒体、源文件和本插件关联种子。' },
   { key: 'upload', title: '上传限速', icon: 'mdi-upload-network-outline', desc: '设置下载器全局上传上限，并按需限制指定站点的合计上传速度。' },
 ]
 
 const subTabs = {
+  sync_delete: [{ key: 'sync_delete_basic', title: '基础设置', icon: 'mdi-delete-outline' }],
   overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
   upload: [
     { key: 'upload_basic', title: '基础设置', icon: 'mdi-tune-variant' },
@@ -315,23 +355,34 @@ const runtimeFlows = [
 watch(() => props.initialConfig, v => {
   configDraftRevision++
   uploadSiteRulesRevision++
+  resetConfigRequests()
   Object.keys(form).forEach(k => delete form[k])
   Object.assign(form, defaults, v || {})
+  form.sync_delete_servers = [...(v?.sync_delete_servers || [])]
   form.speed_monitor_downloaders = [...(v?.speed_monitor_downloaders || [])]
   form.speed_monitor_manual_speed_bps = { ...(v?.speed_monitor_manual_speed_bps || {}) }
   form.speed_monitor_floor_speed_bps = { ...(v?.speed_monitor_floor_speed_bps || {}) }
   form.upload_limit_downloaders = [...(v?.upload_limit_downloaders || [])]
   form.upload_limit_downloader_limits_kib = { ...(v?.upload_limit_downloader_limits_kib || {}) }
   form.upload_limit_site_rules = Object.fromEntries(Object.entries(v?.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
-}, { immediate: true, deep: true })
-watch(() => props.pluginId, () => {
+}, { immediate: true, deep: true, flush: 'sync' })
+watch(() => [props.pluginId, props.api], () => {
   configDraftRevision++
   uploadSiteRulesRevision++
-})
+  resetConfigRequests()
+  overview.value = null
+  uploadSiteItems.value = []
+}, { flush: 'sync' })
 
 function saveConfig() {
+  const mappings = value => String(value || '').split('\n').filter(line => line.split('#').some(part => part.trim())).join('\n')
   emit('save', {
     ...form,
+    sync_delete_force_cloud: false,
+    sync_delete_library_deleted: false,
+    sync_delete_local_paths: mappings(form.sync_delete_local_paths),
+    sync_delete_cloud_paths: mappings(form.sync_delete_cloud_paths),
+    sync_delete_servers: [...(form.sync_delete_servers || [])],
     speed_monitor_downloaders: [...(form.speed_monitor_downloaders || [])],
     speed_monitor_manual_speed_bps: { ...(form.speed_monitor_manual_speed_bps || {}) },
     speed_monitor_floor_speed_bps: { ...(form.speed_monitor_floor_speed_bps || {}) },
@@ -411,6 +462,7 @@ function queueUploadSiteRulesSave(rules) {
     }
     return response
   }).catch(error => {
+    if (isApiRequestCancellation(error)) throw error
     if (!ownsDraft()) return null
     if (revision === uploadSiteRulesRevision) {
       uploadMessageStatus.value = 'error'
@@ -444,21 +496,25 @@ function removeUploadSiteRule(siteName) {
 }
 
 async function clearUploadSiteRules() {
+  const owns = configRequestScope()
   uploadActionRunning.value = 'site-rules'
   uploadMessage.value = ''
   const previousRules = Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
   form.upload_limit_site_rules = {}
   try {
     const response = await queueUploadSiteRulesSave({})
+    if (!owns() || !response) return
     form.upload_limit_site_rules = {}
     uploadMessageStatus.value = 'success'
     uploadMessage.value = '站点策略已清空并立即生效；所有任务仅受下载器全局上限约束'
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     form.upload_limit_site_rules = previousRules
     uploadMessageStatus.value = 'error'
     uploadMessage.value = error?.message || '站点策略清空失败'
   } finally {
-    uploadActionRunning.value = ''
+    if (owns()) uploadActionRunning.value = ''
   }
 }
 
@@ -468,6 +524,7 @@ function applyUploadStatus(response) {
 }
 
 async function refreshUploadLimitStatus({ silent = false } = {}) {
+  const owns = configRequestScope()
   if (!silent) {
     uploadActionRunning.value = 'refresh'
     uploadMessage.value = ''
@@ -477,15 +534,18 @@ async function refreshUploadLimitStatus({ silent = false } = {}) {
       'upload_limit_status',
       silent ? { feedback: 'silent' } : {},
     )
+    if (!owns()) return
     applyUploadStatus(response)
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     if (silent) console.error('上传限速状态自动刷新失败:', error)
     else {
       uploadMessageStatus.value = 'error'
       uploadMessage.value = error?.message || '状态刷新失败'
     }
   } finally {
-    if (!silent) uploadActionRunning.value = ''
+    if (!silent && owns()) uploadActionRunning.value = ''
   }
 }
 
@@ -533,6 +593,7 @@ onBeforeUnmount(() => {
 })
 
 async function scanUploadSites() {
+  const owns = configRequestScope()
   uploadMessage.value = ''
   if (!form.upload_limit_downloaders?.length) {
     uploadMessageStatus.value = 'warning'
@@ -542,6 +603,7 @@ async function scanUploadSites() {
   uploadScanningSites.value = true
   const scanOperation = (async () => {
     await flushUploadSiteRulesSave()
+    if (!owns()) return null
     return postJsonApi('upload_limit_site_tags', {
       downloaders: form.upload_limit_downloaders,
       rules: cloneUploadSiteRules(),
@@ -550,52 +612,65 @@ async function scanUploadSites() {
   uploadSiteScanTail = scanOperation
   try {
     const response = await scanOperation
+    if (!owns()) return
     uploadSiteItems.value = response?.items || []
     form.upload_limit_site_rules = response?.rules || form.upload_limit_site_rules || {}
     uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
     uploadMessage.value = response?.msg || `扫描到 ${uploadSiteItems.value.length} 个站点标签，策略已立即生效`
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     uploadMessageStatus.value = 'error'
     uploadMessage.value = error?.message || '站点扫描失败'
   } finally {
     if (uploadSiteScanTail === scanOperation) uploadSiteScanTail = Promise.resolve()
-    uploadScanningSites.value = false
+    if (owns()) uploadScanningSites.value = false
   }
 }
 
 async function reallocateUploadLimits() {
+  const owns = configRequestScope()
   uploadActionRunning.value = 'reallocate'
   uploadMessage.value = ''
   try {
     await uploadSiteScanTail
     await flushUploadSiteRulesSave()
+    if (!owns()) return
     const response = await postJsonApi('upload_limit_reallocate', {})
+    if (!owns()) return
     applyUploadStatus(response)
     uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
     uploadMessage.value = response?.msg || '上传额度已重新分配'
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     uploadMessageStatus.value = 'error'
     uploadMessage.value = error?.message || '重新分配失败'
   } finally {
-    uploadActionRunning.value = ''
+    if (owns()) uploadActionRunning.value = ''
   }
 }
 
 async function disableAndRestoreUploadLimits() {
+  const owns = configRequestScope()
   uploadActionRunning.value = 'restore'
   uploadMessage.value = ''
   try {
     const response = await postJsonApi('upload_limit_disable_restore', {})
+    if (!owns()) return
     form.upload_limit_enabled = false
     uploadRestoreDialog.value = false
     await refreshUploadLimitStatus()
+    if (!owns()) return
     uploadMessageStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
     uploadMessage.value = response?.msg || '上传限速已停用并恢复'
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     uploadMessageStatus.value = 'error'
     uploadMessage.value = error?.message || '停用恢复失败'
   } finally {
-    uploadActionRunning.value = ''
+    if (owns()) uploadActionRunning.value = ''
   }
 }
 
@@ -608,18 +683,22 @@ function dispositionLabel(action) {
 }
 
 async function resetMonitorBaseline(downloaderId) {
+  const owns = configRequestScope()
   monitorResetting.value = downloaderId
   monitorMessage.value = ''
   try {
     const response = await postJsonApi('reset_speed_monitor_baseline', { downloader_id: downloaderId })
+    if (!owns()) return
     monitorMessageStatus.value = response?.code === 0 ? 'success' : 'error'
     monitorMessage.value = response?.msg || (response?.code === 0 ? '速度基准已重置' : '重置失败')
     if (response?.code === 0) await refreshOverview()
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     monitorMessageStatus.value = 'error'
     monitorMessage.value = error?.message || '重置失败'
   } finally {
-    monitorResetting.value = ''
+    if (owns()) monitorResetting.value = ''
   }
 }
 
@@ -655,6 +734,7 @@ function cleanupKindMeta(kind) {
 }
 
 async function scanCleanupTags() {
+  const owns = configRequestScope()
   cleanupMessage.value = ''
   if (!cleanupDownloaders.value.length) {
     cleanupStatus.value = 'warning'
@@ -664,6 +744,7 @@ async function scanCleanupTags() {
   cleanupScanning.value = true
   try {
     const response = await postJsonApi('tag_cleanup_scan', { downloaders: cleanupDownloaders.value })
+    if (!owns()) return
     cleanupScan.value = response || null
     resetCleanupKeep(response?.downloaders || [])
     const errorCount = response?.errors?.length || 0
@@ -672,10 +753,12 @@ async function scanCleanupTags() {
       ? `扫描完成 · 自动清理 ${response?.auto_removed?.length || 0} 个临时标签`
       : (response?.msg || '扫描失败')
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     cleanupStatus.value = 'error'
     cleanupMessage.value = error?.message || '扫描失败'
   } finally {
-    cleanupScanning.value = false
+    if (owns()) cleanupScanning.value = false
   }
 }
 
@@ -689,24 +772,46 @@ function previewCleanupTags() {
 }
 
 async function executeCleanupTags() {
+  const owns = configRequestScope()
   cleanupExecuting.value = true
   try {
     const response = await postJsonApi('tag_cleanup_execute', { removals: cleanupRemovals.value })
+    if (!owns()) return
     cleanupDialog.value = false
     await scanCleanupTags()
+    if (!owns()) return
     cleanupStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
     cleanupMessage.value = response?.msg || '清理完成'
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
     cleanupStatus.value = 'error'
     cleanupMessage.value = error?.message || '清理失败'
   } finally {
-    cleanupExecuting.value = false
+    if (owns()) cleanupExecuting.value = false
   }
 }
+
+let permissionsRevision = 0
+watch(() => [props.api, props.pluginId], async () => {
+  const revision = ++permissionsRevision
+  const api = props.api
+  const id = props.pluginId
+  const current = () => !configDisposed && revision === permissionsRevision && api === props.api && id === props.pluginId
+  canManage.value = false
+  permissionError.value = ''
+  try {
+    const value = await getPluginApi(api, id, 'permissions', { feedback: 'silent' })
+    if (current()) canManage.value = value?.can_manage === true
+  } catch (reason) {
+    if (current() && !isApiRequestCancellation(reason)) permissionError.value = '权限读取失败，请重新打开页面。'
+  }
+}, { immediate: true, flush: 'sync' })
 </script>
 <template>
   <div class="dm-config">
     <VCard flat class="dm-card">
+    <VAlert v-if="!canManage" type="info" variant="tonal" density="compact">{{ permissionError || '当前为只读模式，管理操作需要管理员权限。' }}</VAlert>
       <VCardItem class="dm-header">
         <template #prepend>
           <VAvatar color="success" variant="tonal" size="44" rounded="lg">
@@ -818,10 +923,10 @@ async function executeCleanupTags() {
                 </div>
                 <div class="d-flex align-center ga-2">
                   <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="uploadScanningSites"
-                    :disabled="uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
+                    :disabled="!canManage || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
                     @click="scanUploadSites">扫描站点</VBtn>
                   <VBtn color="error" variant="text" prepend-icon="mdi-delete-sweep-outline"
-                    :disabled="!uploadSiteRuleRows.length || uploadScanningSites || uploadActionRunning === 'reallocate'"
+                    :disabled="!canManage || !uploadSiteRuleRows.length || uploadScanningSites || uploadActionRunning === 'reallocate'"
                     :loading="uploadActionRunning === 'site-rules'"
                     @click="clearUploadSiteRules">清空策略</VBtn>
                 </div>
@@ -845,10 +950,10 @@ async function executeCleanupTags() {
                   </div>
                   <VTextField :model-value="row.limit_kib" @update:model-value="setUploadSiteRule(row.name, $event)"
                     label="合计上限（KiB/s）" type="number" min="0" step="1" clearable density="compact" variant="outlined"
-                    :disabled="uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
+                    :disabled="!canManage || uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
                     hint="留空或 0 表示该站点不限速；正数为跨下载器共享的站点合计上限" persistent-hint />
                   <VBtn icon="mdi-delete-outline" size="small" color="error" variant="text" title="删除站点"
-                    :disabled="uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
+                    :disabled="!canManage || uploadScanningSites || uploadActionRunning === 'site-rules' || uploadActionRunning === 'reallocate'"
                     @click="removeUploadSiteRule(row.name)" />
                 </div>
               </div>
@@ -871,10 +976,10 @@ async function executeCleanupTags() {
                     @click="refreshUploadLimitStatus">刷新</VBtn>
                   <VBtn size="small" color="primary" variant="tonal" prepend-icon="mdi-call-split"
                     :loading="uploadActionRunning === 'reallocate'"
-                    :disabled="!uploadLimit.enabled || uploadScanningSites || uploadActionRunning === 'site-rules'"
+                    :disabled="!canManage || !uploadLimit.enabled || uploadScanningSites || uploadActionRunning === 'site-rules'"
                     @click="reallocateUploadLimits">立即分配</VBtn>
                   <VBtn size="small" color="warning" variant="tonal" prepend-icon="mdi-backup-restore"
-                    :disabled="!uploadLimit.active && !uploadLimit.enabled" @click="uploadRestoreDialog = true">停用并恢复</VBtn>
+                    :disabled="!canManage || !uploadLimit.active && !uploadLimit.enabled" @click="uploadRestoreDialog = true">停用并恢复</VBtn>
                 </div>
               </div>
 
@@ -1053,7 +1158,7 @@ async function executeCleanupTags() {
                       <strong class="text-body-2">{{ item.downloader_id }}</strong>
                       <div class="text-caption text-medium-emphasis">{{ item.status === 'trusted' ? '可信基准' : '校准中' }} · {{ item.sample_count }}/{{ item.min_samples }} 样本</div>
                     </div>
-                    <VBtn v-if="speedMonitor.mode === 'auto'" size="small" variant="tonal" color="warning" icon="mdi-restart"
+                    <VBtn :disabled="!canManage" v-if="speedMonitor.mode === 'auto'" size="small" variant="tonal" color="warning" icon="mdi-restart"
                       :loading="monitorResetting === item.downloader_id" title="重置自动基准" @click="resetMonitorBaseline(item.downloader_id)" />
                   </div>
                   <div class="dm-baseline-values">
@@ -1336,7 +1441,7 @@ async function executeCleanupTags() {
                 <VSelect v-model="cleanupDownloaders" label="下载器" density="compact" variant="outlined" hide-details
                   :items="qbDownloaderItems" multiple chips closable-chips class="dm-cleanup-select" />
                 <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="cleanupScanning"
-                  :disabled="!cleanupDownloaders.length" @click="scanCleanupTags">扫描标签</VBtn>
+                  :disabled="!canManage || !cleanupDownloaders.length" @click="scanCleanupTags">扫描标签</VBtn>
               </div>
 
               <VAlert v-if="cleanupMessage" :type="cleanupStatus" variant="tonal" density="compact" closable class="mt-3"
@@ -1397,9 +1502,13 @@ async function executeCleanupTags() {
                     待清理 {{ cleanupRemovals.length }} 个标签 · {{ cleanupRemovalAssociations }} 条任务关联
                   </div>
                   <VBtn color="warning" variant="tonal" prepend-icon="mdi-eye-outline"
-                    :disabled="!cleanupRemovals.length" @click="previewCleanupTags">预览清理</VBtn>
+                    :disabled="!canManage || !cleanupRemovals.length" @click="previewCleanupTags">预览清理</VBtn>
                 </div>
               </div>
+            </div>
+
+            <div v-if="activeSub === 'sync_delete_basic'" class="dm-pane">
+              <SyncDeletePane :can-manage="canManage" :api="props.api" :plugin-id="props.pluginId" :form="form" mode="config" />
             </div>
 
             <!-- ═══ 做种校验 v3.0.15 · 基础设置 ═══ -->
@@ -1431,7 +1540,7 @@ async function executeCleanupTags() {
       <VCardActions class="dm-actions">
         <VSpacer />
         <VBtn variant="text" @click="emit('close')">取消</VBtn>
-        <VBtn color="primary" variant="flat" prepend-icon="mdi-content-save-outline" @click="saveConfig">保存配置</VBtn>
+        <VBtn :disabled="!canManage" color="primary" variant="flat" prepend-icon="mdi-content-save-outline" @click="saveConfig">保存配置</VBtn>
       </VCardActions>
     </VCard>
 
@@ -1456,7 +1565,7 @@ async function executeCleanupTags() {
         <VCardActions>
           <VSpacer />
           <VBtn variant="text" :disabled="cleanupExecuting" @click="cleanupDialog = false">取消</VBtn>
-          <VBtn color="error" variant="flat" prepend-icon="mdi-tag-remove-outline" :loading="cleanupExecuting"
+          <VBtn :disabled="!canManage" color="error" variant="flat" prepend-icon="mdi-tag-remove-outline" :loading="cleanupExecuting"
             @click="executeCleanupTags">确认清理</VBtn>
         </VCardActions>
       </VCard>
@@ -1479,7 +1588,7 @@ async function executeCleanupTags() {
         <VCardActions>
           <VSpacer />
           <VBtn variant="text" :disabled="uploadActionRunning === 'restore'" @click="uploadRestoreDialog = false">取消</VBtn>
-          <VBtn color="warning" variant="flat" prepend-icon="mdi-backup-restore" :loading="uploadActionRunning === 'restore'"
+          <VBtn :disabled="!canManage" color="warning" variant="flat" prepend-icon="mdi-backup-restore" :loading="uploadActionRunning === 'restore'"
             @click="disableAndRestoreUploadLimits">确认恢复</VBtn>
         </VCardActions>
       </VCard>

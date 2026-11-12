@@ -8,28 +8,27 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from app import schemas
-from app.schemas.types import MediaSource, MediaType
 from app.plugins.downloadmanagerlocal import DownloadManagerLocal
 from app.plugins.downloadmanagerlocal.adapter import moviepilot as moviepilot_adapter
 from app.plugins.downloadmanagerlocal.controller import handlers
 from app.plugins.downloadmanagerlocal.iyuu_helper import IyuuHelper
 from app.plugins.downloadmanagerlocal.model.api import HashActionResult, OverviewResult
 from app.plugins.downloadmanagerlocal.service import rename as rename_service
-
+from app.schemas.types import MediaSource, MediaType
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[3] / "plugins.v3/downloadmanagerlocal"
 
 
 def test_all_plugin_routes_declare_concrete_v3_models() -> None:
-    """20 条普通 JSON 路由必须使用 bearer 和具体响应模型。"""
+    """所有普通 JSON 路由必须使用 bearer 和具体响应模型。"""
     plugin = object.__new__(DownloadManagerLocal)
 
     routes = plugin.get_api()
 
-    assert len(routes) == 20
+    assert len(routes) == 25
     assert {route["path"] for route in routes} == {
+        "/permissions",
         "/downloaders",
         "/rename_history",
         "/overview",
@@ -50,11 +49,18 @@ def test_all_plugin_routes_declare_concrete_v3_models() -> None:
         "/sites",
         "/tag_cleanup_scan",
         "/tag_cleanup_execute",
+        "/sync_delete/options",
+        "/sync_delete/preview",
+        "/sync_delete/history",
+        "/sync_delete/retry",
     }
     for route in routes:
         assert route["auth"] == "bear"
         assert route.get("response_model") not in {None, dict, list}
     bare_paths = {
+        "/sync_delete/options",
+        "/sync_delete/history",
+        "/permissions",
         "/downloaders",
         "/rename_history",
         "/overview",
@@ -77,6 +83,8 @@ def test_json_post_routes_use_pydantic_request_models() -> None:
     """接收 JSON 的 POST 路由必须拒绝裸 dict 请求体。"""
     plugin = object.__new__(DownloadManagerLocal)
     json_paths = {
+        "/sync_delete/preview",
+        "/sync_delete/retry",
         "/reset_speed_monitor_baseline",
         "/upload_limit_reallocate",
         "/upload_limit_site_tags",
@@ -158,7 +166,6 @@ def test_rename_history_passes_only_complete_media_identity(
         def recognize_media(**kwargs):
             """记录一次识别调用并返回未命中。"""
             calls.append(kwargs)
-            return None
 
     plugin = SimpleNamespace(
         _rename_exclude_dirs="",
@@ -422,6 +429,31 @@ def test_v3_internal_imports_match_symbol_allowlist() -> None:
                 actual.update((node.module, alias.name) for alias in node.names)
 
     assert actual == allowed
+
+    import json
+
+    exceptions = json.loads((PLUGIN_ROOT.parents[1] / ".github/plugin-quality-exceptions.json").read_text(encoding="utf-8"))
+    entries = exceptions["DownloadManagerLocal"]["imports"]
+    assert {(entry["module"], entry["symbol"]) for entry in entries} == allowed
+    assert all(entry.get(field) for entry in entries for field in ("reason", "host_version", "removal_condition", "test"))
+
+
+def test_torrent_download_adapter_preserves_host_contract(monkeypatch) -> None:
+    """必要兼容入口透传认证参数与宿主结果，不自行联网或重新解析种子。"""
+    calls = []
+    result = ("fixture.torrent", b"fixture", "folder", ["A.mkv"], "")
+
+    class FakeTorrentHelper:
+        """隔离真实站点访问的下载适配替身。"""
+
+        def download_torrent(self, **kwargs):
+            """记录参数并返回宿主五项结果。"""
+            calls.append(kwargs)
+            return result
+
+    monkeypatch.setattr(moviepilot_adapter, "TorrentHelper", FakeTorrentHelper)
+    assert moviepilot_adapter.download_torrent_content("https://example.invalid/file", cookie="fixture", ua="test", proxy=False) is result
+    assert calls == [{"url": "https://example.invalid/file", "cookie": "fixture", "ua": "test", "proxy": False}]
 
 
 def test_frontend_uses_injected_plugin_instance_id() -> None:

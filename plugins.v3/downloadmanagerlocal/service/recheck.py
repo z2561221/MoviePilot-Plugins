@@ -11,6 +11,7 @@ from app.sdk.logging import logger
 from ..adapter.moviepilot import get_downloader_service
 from ..model.state import SEED_RECHECK_QUEUE_KEY
 from ..utils.torrent_adapter import get_hash, get_label
+from .sync_delete import coordinated, operation_stopped, task_blocked
 
 
 def _queue_lock(plugin) -> threading.RLock:
@@ -194,15 +195,19 @@ def _merge_processed_queue(plugin, before: dict, after: dict) -> None:
         plugin.save_data(SEED_RECHECK_QUEUE_KEY, current)
 
 
+@coordinated
 def process_seed_recheck_once(plugin, queue, stop_event=None):
     """处理一次做种校验队列并返回队列是否发生变化。"""
     changed = False
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     grouped = {}
     stop_event = stop_event or getattr(plugin, "_seed_recheck_stop_event", None)
     for queue_key, item in queue.items():
         downloader_name = item.get("downloader", "")
         grouped.setdefault(downloader_name, []).append((queue_key, item))
     for downloader_name, items in grouped.items():
+        if operation_stopped(plugin, generation) or (stop_event is not None and stop_event.is_set()):
+            return changed
         service = plugin.service_info(downloader_name)
         if not service:
             continue
@@ -215,6 +220,8 @@ def process_seed_recheck_once(plugin, queue, stop_event=None):
         except Exception as exc:
             logger.error(f"做种校验：查询下载器 {downloader_name} 失败: {exc}")
             continue
+        if operation_stopped(plugin, generation) or (stop_event is not None and stop_event.is_set()):
+            return changed
         if poll_error:
             logger.error(f"做种校验：查询下载器 {downloader_name} 失败: {poll_error}")
             continue
@@ -238,6 +245,10 @@ def process_seed_recheck_once(plugin, queue, stop_event=None):
                     changed = True
                     logger.info(f"做种校验：{hash_text} 在下载器中未找到，已移出队列")
                 continue
+            if task_blocked(plugin, downloader_name, task, downloader_type):
+                queue.pop(queue_key, None)
+                changed = True
+                continue
             state = task.get("state") if downloader_type == "qbittorrent" else task.status
             if seed_is_timeout(item, plugin._seed_max_wait_minutes):
                 queue.pop(queue_key, None)
@@ -250,7 +261,7 @@ def process_seed_recheck_once(plugin, queue, stop_event=None):
                 if not getattr(plugin, "_seed_autostart", True):
                     continue
                 try:
-                    if stop_event is not None and stop_event.is_set():
+                    if operation_stopped(plugin, generation) or (stop_event is not None and stop_event.is_set()):
                         return changed
                     if downloader.start_torrents(ids=[hash_text]) is False:
                         raise RuntimeError("下载器未确认开始做种成功")
@@ -310,35 +321,45 @@ def seed_is_timeout(item, max_wait_minutes):
     return elapsed > item.get("max_wait_minutes", max_wait_minutes)
 
 
+@coordinated
 def run_recheck_cycle(plugin) -> None:
     """执行一次定时做种校验循环并兜底扫描可自动开始的暂停任务。"""
     if plugin._is_recheck_running:
         return
 
     plugin._is_recheck_running = True
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     try:
         check_services = _collect_check_services(plugin)
-        if not check_services:
+        if not check_services or operation_stopped(plugin, generation):
             return
 
         if plugin._recheck_torrents:
-            _process_legacy_recheck_queue(plugin, check_services)
+            _process_legacy_recheck_queue(plugin, check_services, generation)
 
-        sweep_paused_seed_tasks(plugin, check_services)
+        sweep_paused_seed_tasks(plugin, check_services, generation)
     except Exception as exc:
         logger.error(f"做种校验服务执行失败: {exc}")
     finally:
         plugin._is_recheck_running = False
 
 
-def sweep_paused_seed_tasks(plugin, check_services: list[Any]) -> None:
+def sweep_paused_seed_tasks(plugin, check_services: list[Any], stop_generation=None) -> None:
     """兜底扫描已完成但暂停的转移或铺种任务，并自动开始做种。"""
     if not getattr(plugin, "_seed_autostart", True):
         return
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) if stop_generation is None else stop_generation
     for service in check_services:
+        if operation_stopped(plugin, generation):
+            return
         try:
             downloader = service.instance
-            torrents, _ = downloader.get_torrents()
+            torrents, error = downloader.get_torrents()
+            if operation_stopped(plugin, generation):
+                return
+            if error or torrents is None:
+                continue
+            torrents = [t for t in torrents or [] if not task_blocked(plugin, service.name, t, service.type)]
             if not torrents:
                 continue
             ready_hashes, source_counts = _collect_ready_seed_hashes(
@@ -347,7 +368,7 @@ def sweep_paused_seed_tasks(plugin, check_services: list[Any]) -> None:
                 downloader_type=service.type,
                 only_tagged_sources=True,
             )
-            if ready_hashes and getattr(plugin, "_seed_autostart", True):
+            if ready_hashes and getattr(plugin, "_seed_autostart", True) and not operation_stopped(plugin, generation):
                 source_text = "，".join(
                     f"{source} {count} 个" for source, count in source_counts.items()
                 )
@@ -393,11 +414,14 @@ def _collect_check_services(plugin) -> list[Any]:
     return check_services
 
 
-def _process_legacy_recheck_queue(plugin, check_services: list[Any]) -> None:
+def _process_legacy_recheck_queue(plugin, check_services: list[Any], stop_generation=None) -> None:
     """处理入口层历史内存队列中的待做种校验任务。"""
     if not getattr(plugin, "_seed_autostart", True):
         return
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) if stop_generation is None else stop_generation
     for service in check_services:
+        if operation_stopped(plugin, generation):
+            return
         recheck_items = plugin._recheck_torrents.get(service.name, {})
         if isinstance(recheck_items, list):
             recheck_items = {hash_id: "历史队列" for hash_id in recheck_items}
@@ -410,7 +434,13 @@ def _process_legacy_recheck_queue(plugin, check_services: list[Any]) -> None:
             f"做种校验服务：开始检查下载器 {service.name} 的校验任务，共 {len(recheck_torrents)} 个 ..."
         )
         downloader = service.instance
-        torrents, _ = downloader.get_torrents(ids=recheck_torrents)
+        torrents, error = downloader.get_torrents(ids=recheck_torrents)
+        if operation_stopped(plugin, generation):
+            return
+        if error or torrents is None:
+            logger.warning(f"做种校验服务：下载器 {service.name} 查询失败，保留校验队列")
+            continue
+        torrents = [t for t in torrents or [] if not task_blocked(plugin, service.name, t, service.type)]
         if torrents:
             ready_hashes, source_counts = _collect_ready_seed_hashes(
                 plugin=plugin,
@@ -418,7 +448,7 @@ def _process_legacy_recheck_queue(plugin, check_services: list[Any]) -> None:
                 downloader_type=service.type,
                 recheck_items=recheck_items,
             )
-            if ready_hashes and getattr(plugin, "_seed_autostart", True):
+            if ready_hashes and getattr(plugin, "_seed_autostart", True) and not operation_stopped(plugin, generation):
                 source_text = "，".join(
                     f"{source} {count} 个" for source, count in source_counts.items()
                 ) or f"{len(ready_hashes)} 个"
@@ -430,8 +460,6 @@ def _process_legacy_recheck_queue(plugin, check_services: list[Any]) -> None:
                 plugin._recheck_torrents[service.name] = recheck_items
             else:
                 logger.info("做种校验服务：没有新的任务校验完成，将在下次周期继续检查 ...")
-        elif torrents is None:
-            logger.info(f"做种校验服务：下载器 {service.name} 查询校验任务失败，将在下次继续查询 ...")
         else:
             logger.info(f"做种校验服务：下载器 {service.name} 中没有需要检查的校验任务，清空待处理列表")
             plugin._recheck_torrents[service.name] = {}
@@ -489,9 +517,8 @@ def _resolve_seed_source(
     return None
 
 __all__ = (
-    "ensure_seed_recheck_worker",
-    "stop_seed_recheck_worker",
     "can_seed_paused_torrent",
+    "ensure_seed_recheck_worker",
     "load_seed_recheck_queue",
     "process_seed_recheck_once",
     "register_seed_recheck",
@@ -503,5 +530,6 @@ __all__ = (
     "seed_is_timeout",
     "seed_recheck_loop",
     "seed_should_remove_missing",
+    "stop_seed_recheck_worker",
     "sweep_paused_seed_tasks",
 )

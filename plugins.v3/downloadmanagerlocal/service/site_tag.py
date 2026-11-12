@@ -453,9 +453,13 @@ def tag_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_tags: list,
 
         # 设置标签
         if dl_type == "qbittorrent":
-            dl.set_torrents_tag(ids=torrent_hash, tags=[site_tag])
+            success = dl.set_torrents_tag(ids=torrent_hash, tags=[site_tag])
         else:
-            dl.set_torrent_tag(ids=torrent_hash, tags=[site_tag])
+            success = dl.set_torrent_tag(ids=torrent_hash, tags=[site_tag], org_tags=torrent_tags)
+        # 旧宿主的 qB 接口成功时返回 None，仅明确 False 表示写入失败。
+        if success is False:
+            logger.warning(f"转移后标签失败: hash={torrent_hash} tag={site_tag}")
+            return False
         logger.info(f"转移后标签成功: hash={torrent_hash} tag={site_tag}")
         return True
     except Exception as e:

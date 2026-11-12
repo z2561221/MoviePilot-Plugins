@@ -6,6 +6,7 @@ function isStandardEnvelope(response) {
     && keys[1] === 'message'
     && keys[2] === 'success'
     && typeof response.success === 'boolean'
+    && typeof response.message === 'string'
 }
 
 function pluginPath(pluginId, path = '') {
@@ -17,8 +18,18 @@ function pluginPath(pluginId, path = '') {
 
 export function unwrapResponse(response) {
   if (!isStandardEnvelope(response)) return response
-  if (!response.success) throw new Error(response.message || '请求失败')
+  if (!response.success) {
+    const error = new Error(response.message || '请求失败')
+    error.name = 'PluginApiError'
+    error.payload = response
+    throw error
+  }
   return response.data
+}
+export function isApiRequestCancellation(reason) {
+  if (!reason || typeof reason !== 'object') return false
+  return Boolean(reason.__CANCEL__) || reason.code === 'ERR_CANCELED'
+    || reason.name === 'AbortError' || reason.name === 'CanceledError'
 }
 export async function postPluginApi(api, pluginId, path, payload = {}, options = {}) {
   if (!api?.post) throw new Error('MoviePilot 插件 API 未就绪')

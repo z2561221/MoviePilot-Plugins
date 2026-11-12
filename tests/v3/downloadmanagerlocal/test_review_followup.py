@@ -26,8 +26,8 @@ def test_autostart_off_retains_ready_task_without_start():
     assert len(started) == 1 and not queue
 
 
-def test_failed_cleanup_retries_then_deduplicates_success():
-    """删除失败不占用去重窗口，成功后的重复事件才跳过。"""
+def test_hash_only_cleanup_cannot_bypass_media_scope():
+    """旧 hash 入口无具体媒体范围，重复调用也不能执行破坏性操作。"""
     calls = []
 
     def delete(**kwargs):
@@ -41,9 +41,9 @@ def test_failed_cleanup_retries_then_deduplicates_success():
         service_info=lambda _: SimpleNamespace(instance=SimpleNamespace(delete_torrents=delete)),
     )
     assert cleanup.cleanup_by_hash(plugin, "source")["transfer_deleted"] == 0
-    assert cleanup.cleanup_by_hash(plugin, "source")["transfer_deleted"] == 1
+    assert cleanup.cleanup_by_hash(plugin, "source")["transfer_deleted"] == 0
     assert cleanup.cleanup_by_hash(plugin, "source")["skipped"] is True
-    assert len(calls) == 2
+    assert calls == []
 
 
 def test_iyuu_failure_count_is_independent_of_success(monkeypatch):

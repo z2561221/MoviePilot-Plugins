@@ -80,6 +80,20 @@ jobs:
         working-directory: MoviePilot
         run: uv sync --locked
 
+      - name: Set up Node.js for DownloadManagerLocal tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up pnpm for DownloadManagerLocal tests
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+
+      - name: Install DownloadManagerLocal frontend test dependencies
+        working-directory: MoviePilot-Plugins/plugins.v3/downloadmanagerlocal/frontend
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
       - name: Run V3 plugin tests
         env:
           MOVIEPILOT_BACKEND_PATH: ${{ github.workspace }}/MoviePilot

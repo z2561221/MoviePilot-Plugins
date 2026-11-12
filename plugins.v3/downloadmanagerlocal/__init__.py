@@ -1,5 +1,5 @@
 """
-DownloadManagerLocal v3.3.12 - MoviePilot V3 本地插件
+DownloadManagerLocal v3.3.13 - MoviePilot V3 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 from threading import Event as ThreadEvent
@@ -40,13 +40,13 @@ class DownloadManagerLocal(_PluginBase):
     # 插件名称
     plugin_name = "下载中心"
     # 插件描述
-    plugin_desc = "转移做种 + IYUU辅种 + 种子重命名 + 站点标签，一站式下载管理。"
+    plugin_desc = "「未来道具研究所」出品 · EL PSY CONGROO！"
     # 插件图标
     plugin_icon = "download.png"
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.3.12"
+    plugin_version = "3.3.13"
     # 插件作者
     plugin_author = "Kurisu"
     # 作者主页

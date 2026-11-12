@@ -1,17 +1,25 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
-import { getPluginApi, postPluginApi } from './api'
+import { getPluginApi, postPluginApi, isApiRequestCancellation } from './api'
+import SyncDeletePane from './SyncDeletePane.vue'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
   pluginId: { type: String, default: 'DownloadManagerLocal' },
   sourcePluginId: { type: String, default: 'DownloadManagerLocal' },
+  show_switch: { type: Boolean, default: true },
 })
+
+const canManage = ref(false)
+const permissionError = ref('')
+
+
 const emit = defineEmits(['close', 'switch'])
 const getApi = (path, options = {}) => getPluginApi(props.api, props.pluginId, path, options)
 const postApi = (path, payload = {}, options = {}) => postPluginApi(props.api, props.pluginId, path, payload, options)
 
 const activeTab = ref('overview')
+const syncDeletePane = ref(null)
 const overview = ref(null)
 const diagnostics = ref(null)
 const records = ref([])
@@ -43,10 +51,31 @@ function isCurrentPageRequest(request) {
     && request.pluginId === props.pluginId && request.tab === activeTab.value
 }
 
+let pageContextRevision = 0
+function pageActionScope() {
+  const revision = pageContextRevision
+  const pluginId = props.pluginId
+  const api = props.api
+  const tab = activeTab.value
+  return () => !pageDisposed && revision === pageContextRevision
+    && pluginId === props.pluginId && api === props.api && tab === activeTab.value
+}
+watch(() => [props.pluginId, props.api, activeTab.value], () => {
+  pageContextRevision++
+  pageRequestRevision++
+  loading.value = false
+  actionMsg.value = ''
+  retrying.value = false
+  retryingHash.value = ''
+  restoringHash.value = ''
+  deletingHash.value = ''
+}, { flush: 'sync' })
+
 const tabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' },
   { key: 'history', title: '命名历史', icon: 'mdi-history' },
   { key: 'archive', title: '归档记录', icon: 'mdi-archive-outline' },
+  { key: 'sync_delete', title: '同步删除', icon: 'mdi-delete-outline' },
   { key: 'diagnostics', title: '运行诊断', icon: 'mdi-stethoscope' },
 ]
 
@@ -238,6 +267,7 @@ async function loadOverview({ silent = false } = {}) {
       : overviewResp?.upload_limit
     overview.value = { ...(overviewResp || {}), upload_limit: uploadStatus || {} }
   } catch (e) {
+    if (isApiRequestCancellation(e)) return
     if (!isCurrentPageRequest(request)) return
     if (silent) console.error('运行总览自动刷新失败:', e)
     else error.value = e?.message || '总览加载失败'
@@ -256,6 +286,7 @@ async function loadHistory() {
     records.value = Array.isArray(resp?.items) ? resp.items : []
     total.value = resp?.total || 0
   } catch (e) {
+    if (isApiRequestCancellation(e)) return
     if (!isCurrentPageRequest(request)) return
     error.value = e?.message || '加载失败'
   } finally {
@@ -279,6 +310,7 @@ async function loadArchive() {
     archiveRecords.value = Array.isArray(resp?.items) ? resp.items : []
     archiveTotal.value = resp?.total || 0
   } catch (e) {
+    if (isApiRequestCancellation(e)) return
     if (!isCurrentPageRequest(request)) return
     error.value = e?.message || '归档加载失败'
   } finally {
@@ -299,6 +331,7 @@ async function loadDiagnostics() {
     }
     diagnostics.value = resp
   } catch (e) {
+    if (isApiRequestCancellation(e)) return
     if (!isCurrentPageRequest(request)) return
     error.value = e?.message || '诊断失败'
   } finally {
@@ -314,6 +347,7 @@ async function selectTab(key) {
 }
 
 async function refreshActive() {
+  if (activeTab.value === 'sync_delete') return syncDeletePane.value?.refresh()
   if (activeTab.value === 'overview') return loadOverview()
   if (activeTab.value === 'history') return loadHistory()
   if (activeTab.value === 'archive') return loadArchive()
@@ -373,97 +407,121 @@ function handleVisibilityChange() {
 }
 
 async function doRecovery(hash) {
+  const owns = pageActionScope()
   actionMsg.value = ''
   actionOk.value = false
   try {
     const resp = await postApi('recovery_torrent', { hash })
+    if (!owns()) return
     actionMsg.value = resp?.msg || (resp?.code === 0 ? '恢复成功' : '恢复失败')
     actionOk.value = resp?.code === 0
     if (resp?.code === 0) await loadHistory()
   } catch (e) {
+    if (isApiRequestCancellation(e)) return
+    if (!owns()) return
     actionMsg.value = e?.message || '恢复失败'
   }
 }
 
 async function doDelete(hash) {
+  const owns = pageActionScope()
   actionMsg.value = ''
   actionOk.value = false
   try {
     const resp = await postApi('delete_rename_history', { hash })
+    if (!owns()) return
     actionOk.value = resp?.code === 0
     actionMsg.value = resp?.msg || '已删除'
     if (resp?.code === 0) await loadHistory()
   } catch (e) {
+    if (isApiRequestCancellation(e)) return
+    if (!owns()) return
     actionMsg.value = e?.message || '删除失败'
   }
 }
 
 async function doRetryRenames() {
+  const owns = pageActionScope()
   actionMsg.value = ''
   actionOk.value = false
   retrying.value = true
   try {
     const resp = await postApi('retry_renames', {})
+    if (!owns()) return
     actionMsg.value = resp?.msg || (resp?.code === 0 ? '补刀完成' : '补刀失败')
     actionOk.value = resp?.code === 0
     if (resp?.code === 0) await refreshActive()
   } catch (e) {
+    if (isApiRequestCancellation(e)) return
+    if (!owns()) return
     actionOk.value = false
     actionMsg.value = e?.message || '补刀失败'
   } finally {
-    retrying.value = false
+    if (owns()) retrying.value = false
   }
 }
 
 async function doRetryRename(hash) {
   if (!hash || retryingHash.value) return
   const fromArchive = activeTab.value === 'archive'
+  const owns = pageActionScope()
   actionMsg.value = ''
   actionOk.value = false
   retryingHash.value = hash
   try {
     const resp = await postApi('retry_rename', { hash })
+    if (!owns()) return
     actionMsg.value = resp?.msg || (resp?.code === 0 ? '补刀完成' : '补刀失败')
     actionOk.value = resp?.code === 0
     if (resp?.code === 0 && !fromArchive) await loadHistory()
   } catch (e) {
+    if (isApiRequestCancellation(e)) return
+    if (!owns()) return
     actionOk.value = false
     actionMsg.value = e?.message || '补刀失败'
   } finally {
-    if (fromArchive) await loadArchive()
-    retryingHash.value = ''
+    if (fromArchive && owns()) await loadArchive()
+    if (owns()) retryingHash.value = ''
   }
 }
 
 async function restoreArchive(hash) {
+  const owns = pageActionScope()
   actionMsg.value = ''
   actionOk.value = false
   restoringHash.value = hash
   try {
     const resp = await postApi('restore_rename_archive', { hash })
+    if (!owns()) return
     actionMsg.value = resp?.msg || (resp?.code === 0 ? '已恢复' : '恢复失败')
     actionOk.value = resp?.code === 0
     if (resp?.code === 0) await loadArchive()
   } catch (e) {
+    if (isApiRequestCancellation(e)) return
+    if (!owns()) return
     actionMsg.value = e?.message || '恢复失败'
   } finally {
-    restoringHash.value = ''
+    if (owns()) restoringHash.value = ''
   }
 }
 
 async function deleteArchive(hash) {
+  const owns = pageActionScope()
   actionMsg.value = ''
   actionOk.value = false
   deletingHash.value = hash
   try {
     const resp = await postApi('delete_rename_archive', { hash })
+    if (!owns()) return
     actionMsg.value = resp?.msg || (resp?.code === 0 ? '已删除' : '删除失败')
     actionOk.value = resp?.code === 0
     if (resp?.code === 0) await loadArchive()
   } catch (e) {
+    if (isApiRequestCancellation(e)) return
+    if (!owns()) return
     actionMsg.value = e?.message || '删除失败'
   } finally {
-    deletingHash.value = ''
+    if (owns()) deletingHash.value = ''
   }
 }
 
@@ -491,16 +549,33 @@ onBeforeUnmount(() => {
   stopOverviewAutoRefresh()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
+
+let permissionsRevision = 0
+watch(() => [props.api, props.pluginId], async () => {
+  const revision = ++permissionsRevision
+  const api = props.api
+  const id = props.pluginId
+  const current = () => !pageDisposed && revision === permissionsRevision && api === props.api && id === props.pluginId
+  canManage.value = false
+  permissionError.value = ''
+  try {
+    const value = await getPluginApi(api, id, 'permissions', { feedback: 'silent' })
+    if (current()) canManage.value = value?.can_manage === true
+  } catch (reason) {
+    if (current() && !isApiRequestCancellation(reason)) permissionError.value = '权限读取失败，请重新打开页面。'
+  }
+}, { immediate: true, flush: 'sync' })
 </script>
 
 <template>
   <div class="dm-page">
+    <VAlert v-if="!canManage" type="info" variant="tonal" density="compact">{{ permissionError || '当前为只读模式，管理操作需要管理员权限。' }}</VAlert>
     <VToolbar density="comfortable" class="dm-toolbar">
       <VIcon icon="mdi-download" class="ms-3 me-2" color="primary" />
       <div class="text-h6">下载中心</div>
       <VSpacer />
       <VBtn variant="text" size="small" prepend-icon="mdi-refresh" class="text-none me-2" @click="refreshActive" :loading="loading">刷新</VBtn>
-      <VBtn variant="text" prepend-icon="mdi-cog-outline" class="text-none" @click="emit('switch')">设置</VBtn>
+      <VBtn v-if="props.show_switch" :disabled="!canManage" variant="text" prepend-icon="mdi-cog-outline" class="text-none" @click="emit('switch')">设置</VBtn>
       <VBtn icon="mdi-close" variant="text" @click="emit('close')" />
     </VToolbar>
     <VDivider />
@@ -699,11 +774,15 @@ onBeforeUnmount(() => {
           </section>
         </section>
 
+        <section v-else-if="activeTab === 'sync_delete'" class="dm-pane">
+          <SyncDeletePane :can-manage="canManage" ref="syncDeletePane" :api="props.api" :plugin-id="props.pluginId" />
+        </section>
+
         <section v-else-if="activeTab === 'history'" class="dm-pane">
           <div class="d-flex align-center mb-3">
             <div class="text-subtitle-2">命名历史</div>
             <VSpacer />
-            <VBtn variant="tonal" size="small" prepend-icon="mdi-auto-fix" class="text-none" @click="doRetryRenames" :loading="retrying">补刀</VBtn>
+            <VBtn :disabled="!canManage" variant="tonal" size="small" prepend-icon="mdi-auto-fix" class="text-none" @click="doRetryRenames" :loading="retrying">补刀</VBtn>
           </div>
           <div v-if="records.length === 0" class="dm-state text-center text-medium-emphasis">
             <VIcon icon="mdi-history" size="48" color="grey-lighten-1" class="mb-2" />
@@ -729,9 +808,9 @@ onBeforeUnmount(() => {
                   <td><VChip size="x-small" :color="r.success ? 'success' : 'error'" variant="tonal">{{ r.success ? '成功' : (r.reason || '失败') }}</VChip></td>
                   <td>
                     <div class="d-flex ga-1">
-                      <VBtn size="x-small" variant="tonal" color="primary" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
-                      <VBtn v-if="r.success" size="x-small" variant="tonal" color="warning" @click="doRecovery(r.hash)">恢复</VBtn>
-                      <VBtn size="x-small" variant="text" color="error" @click="doDelete(r.hash)">删除</VBtn>
+                      <VBtn :disabled="!canManage" size="x-small" variant="tonal" color="primary" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
+                      <VBtn :disabled="!canManage" v-if="r.success" size="x-small" variant="tonal" color="warning" @click="doRecovery(r.hash)">恢复</VBtn>
+                      <VBtn :disabled="!canManage" size="x-small" variant="text" color="error" @click="doDelete(r.hash)">删除</VBtn>
                     </div>
                   </td>
                 </tr>
@@ -759,9 +838,9 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
                 <div class="dm-record-actions">
-                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
-                  <VBtn v-if="r.success" size="x-small" variant="tonal" color="warning" prepend-icon="mdi-undo" @click="doRecovery(r.hash)">恢复</VBtn>
-                  <VBtn size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="doDelete(r.hash)">删除</VBtn>
+                  <VBtn :disabled="!canManage" size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
+                  <VBtn :disabled="!canManage" v-if="r.success" size="x-small" variant="tonal" color="warning" prepend-icon="mdi-undo" @click="doRecovery(r.hash)">恢复</VBtn>
+                  <VBtn :disabled="!canManage" size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="doDelete(r.hash)">删除</VBtn>
                 </div>
               </article>
             </div>
@@ -801,9 +880,9 @@ onBeforeUnmount(() => {
                   <td class="text-caption dm-ellipsis" :title="r.archive_reason || r.reason">{{ r.archive_reason || r.reason }}</td>
                   <td>
                     <div class="d-flex ga-1">
-                      <VBtn size="x-small" variant="tonal" color="primary" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash" :disabled="!!retryingHash || restoringHash === r.hash || deletingHash === r.hash">补刀</VBtn>
-                      <VBtn size="x-small" variant="tonal" color="primary" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash" :disabled="retryingHash === r.hash">恢复</VBtn>
-                      <VBtn size="x-small" variant="text" color="error" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash" :disabled="retryingHash === r.hash">删除</VBtn>
+                      <VBtn size="x-small" variant="tonal" color="primary" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash" :disabled="!canManage || !!retryingHash || restoringHash === r.hash || deletingHash === r.hash">补刀</VBtn>
+                      <VBtn size="x-small" variant="tonal" color="primary" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash" :disabled="!canManage || retryingHash === r.hash">恢复</VBtn>
+                      <VBtn size="x-small" variant="text" color="error" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash" :disabled="!canManage || retryingHash === r.hash">删除</VBtn>
                     </div>
                   </td>
                 </tr>
@@ -831,9 +910,9 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
                 <div class="dm-record-actions">
-                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash" :disabled="!!retryingHash || restoringHash === r.hash || deletingHash === r.hash">补刀</VBtn>
-                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-archive-arrow-up-outline" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash" :disabled="retryingHash === r.hash">恢复</VBtn>
-                  <VBtn size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash" :disabled="retryingHash === r.hash">删除</VBtn>
+                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash" :disabled="!canManage || !!retryingHash || restoringHash === r.hash || deletingHash === r.hash">补刀</VBtn>
+                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-archive-arrow-up-outline" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash" :disabled="!canManage || retryingHash === r.hash">恢复</VBtn>
+                  <VBtn size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash" :disabled="!canManage || retryingHash === r.hash">删除</VBtn>
                 </div>
               </article>
             </div>

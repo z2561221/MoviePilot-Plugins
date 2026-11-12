@@ -9,6 +9,8 @@ from app.schemas import ServiceInfo
 from app.schemas.types import MessageType
 from app.sdk.config import settings
 from app.sdk.logging import logger
+
+from .sync_delete import coordinated, task_blocked
 from bencode import bdecode, bencode
 
 from ..adapter.moviepilot import is_downloader_type
@@ -245,6 +247,7 @@ def _save_transfer_state(plugin, from_service, to_service, source_hash: str,
     )
 
 
+@coordinated
 def transfer(plugin, trigger_source: str = "手动/定时"):
     """开始转移做种"""
     logger.info(f"开始转移做种任务，触发来源：{trigger_source} ...")
@@ -276,6 +279,8 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
             logger.info("转移服务停止")
             return
 
+        if task_blocked(plugin, from_service.name, torrent, from_service.type):
+            continue
         hash_str = plugin.get_hash(torrent, from_service.type)
         save_path = plugin.get_save_path(torrent, from_service.type)
 

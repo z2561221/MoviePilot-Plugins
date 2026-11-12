@@ -24,6 +24,7 @@ from .speed_worker import (
     stop_speed_monitor_worker,
 )
 from .transfer import validate_config
+from .sync_delete import start_runtime as start_sync_delete, stop_runtime as stop_sync_delete
 from .upload_limit_worker import (
     start_upload_limit_worker,
     stop_upload_limit_worker,
@@ -52,12 +53,11 @@ def initialize_plugin(plugin, config: dict = None) -> None:
     if plugin._transfer_active or plugin._onlyonce:
         if not validate_config(plugin):
             _disable_invalid_transfer_config(plugin, config)
-            return
-
-        plugin._scheduler = BackgroundScheduler(timezone=settings.TZ)
-        restore_transfer_schedule(plugin)
-        _schedule_transfer_once(plugin, config)
-        _start_scheduler_if_needed(plugin, print_jobs=True)
+        else:
+            plugin._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            restore_transfer_schedule(plugin)
+            _schedule_transfer_once(plugin, config)
+            _start_scheduler_if_needed(plugin, print_jobs=True)
 
     if plugin._iyuu_enabled and plugin._iyuu_token and plugin._iyuu_downloaders:
         plugin.iyuu_helper = IyuuHelper(token=plugin._iyuu_token)
@@ -69,13 +69,14 @@ def initialize_plugin(plugin, config: dict = None) -> None:
 
     if getattr(plugin, "_enabled", False) and load_seed_recheck_queue(plugin):
         ensure_seed_recheck_worker(plugin)
+    start_sync_delete(plugin)
 
 
 def _disable_invalid_transfer_config(plugin, config: dict) -> None:
-    """在转移配置无效时按旧逻辑关闭转移开关并持久化。"""
-    plugin._enabled = False
+    """转移配置无效只关闭该能力，保留其它能力及总开关。"""
+    plugin._transfer_enabled = False
     plugin._onlyonce = False
-    config["enabled"] = plugin._enabled
+    config["transfer_enabled"] = plugin._transfer_enabled
     config["onlyonce"] = plugin._onlyonce
     plugin.update_config(config=config)
 
@@ -126,6 +127,7 @@ def stop_plugin_service(plugin) -> None:
     event = getattr(plugin, "_event", None)
     if event is not None:
         event.set()
+    stop_sync_delete(plugin)
     clear_transfer_schedule(plugin)
     try:
         if not plugin._scheduler:

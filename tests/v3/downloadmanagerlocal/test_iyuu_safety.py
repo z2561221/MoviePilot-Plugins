@@ -4,7 +4,7 @@ import threading
 from types import SimpleNamespace
 
 import pytest
-from app.plugins.downloadmanagerlocal.service import cleanup, iyuu
+from app.plugins.downloadmanagerlocal.service import cleanup, iyuu, sync_delete
 
 
 def test_split_downloader_history_cleans_actual_destination(monkeypatch):
@@ -30,9 +30,11 @@ def test_split_downloader_history_cleans_actual_destination(monkeypatch):
     monkeypatch.setattr(iyuu, "iyuu_auto_service_info", lambda p: target)
     monkeypatch.setattr(iyuu, "iyuu_download_torrent", lambda p, **kw: (added.append(kw["service"].name) or True))
     iyuu.iyuu_seed_torrents(plugin, [{"hash": "mother", "save_path": "/fake"}], source)
-    cleanup._cleanup_iyuu_targets(plugin, "mother")
+    nodes = sync_delete.related_nodes(state, {("QB1", "mother")})
+    cleanup.cleanup_by_hash(plugin, "mother")
     assert added == ["QB2"]
-    assert deleted == [("QB2", ["child"])]
+    assert ("QB2", "child") in nodes
+    assert deleted == []  # 没有具体媒体范围的 hash 入口不再整包删盘。
 
 
 @pytest.mark.parametrize("kind", ["qbittorrent", "transmission"])

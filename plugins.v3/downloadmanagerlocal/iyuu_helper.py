@@ -19,6 +19,7 @@ class IyuuHelper(object):
     _sid_sha1 = None
 
     def __init__(self, token: str):
+        """初始化当前实例的认证来源和站点缓存。"""
         self._token = token
         self._sites = {}
         self._sid_sha1 = None
