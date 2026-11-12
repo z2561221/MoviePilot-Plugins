@@ -162,6 +162,11 @@ def test_source_plan_enforces_shared_file_limit_before_actions(monkeypatch):
 @pytest.mark.parametrize("state", [0, 1])
 def test_deleted_download_history_is_not_treated_as_an_active_file_reference(state):
     plugin, adapter, event = case()
+    adapter.put("local", "/seed", "dir")
+    adapter.put("local", "/seed/A.mkv")
+    adapter.source_root = lambda path: "/seed" if path.startswith("/seed/") else "/downloads"
+    for task in adapter.tasks.values():
+        task.update(save_path="/seed", files=["/seed/A.mkv"], identity=[task["id"], 100, "/seed"])
     original = adapter.download_files
     def download_files(torrent_hash="", path=""):
         return original(torrent_hash, path) + [
@@ -188,6 +193,11 @@ def test_existing_new_library_reference_blocks_target_copy_deletion():
 @pytest.mark.parametrize("stage", ["planning", "after-pause"])
 def test_file_claimed_by_new_download_is_preserved_even_before_transfer_history(stage):
     plugin, adapter, event = case()
+    adapter.put("local", "/seed", "dir")
+    adapter.put("local", "/seed/A.mkv")
+    adapter.source_root = lambda path: "/seed" if path.startswith("/seed/") else "/downloads"
+    for task in adapter.tasks.values():
+        task.update(save_path="/seed", files=["/seed/A.mkv"], identity=[task["id"], 100, "/seed"])
     original = adapter.download_files
     claimed = stage == "planning"
     def download_files(torrent_hash="", path=""):
@@ -211,6 +221,19 @@ def test_file_claimed_by_new_download_is_preserved_even_before_transfer_history(
         with pytest.raises(DeleteRejected, match="其它下载"):
             runtime.execute(job, adapter)
         assert not any(call[0] in {"file", "remove"} for call in adapter.calls)
+
+
+def test_pending_new_download_with_absent_file_does_not_block_old_task_retirement():
+    plugin, adapter, event = case()
+    original = adapter.download_files
+    def download_files(torrent_hash="", path=""):
+        return original(torrent_hash, path) + [
+            {"downloader": "QB1", "download_hash": "new-download", "fullpath": path, "state": 1}]
+    adapter.download_files = download_files
+    runtime, job = queued(plugin, adapter, event)
+    runtime.execute(job, adapter)
+    assert not adapter.tasks and job["state"] == "completed"
+    assert not any(call[0] in {"file", "record", "mark"} for call in adapter.calls)
 
 
 @pytest.mark.parametrize("flag", ["sync_delete_torrents", "sync_delete_source"])

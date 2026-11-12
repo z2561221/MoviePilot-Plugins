@@ -22,6 +22,9 @@ from .sync_delete import _snapshot_file, related_nodes, relation_records
 
 def check_download_references(adapter, path, nodes):
     """旧任务不能删除被另一条下载记录引用的同路径文件。"""
+    if adapter.lookup("local", path, adapter.source_root(path)) is None:
+        # 文件已不存在时只移除旧任务元数据，delete_file=False 不影响等待中的新下载。
+        return
     hashes = {node[1] for node in nodes}
     for row in adapter.download_files(path=path):
         # 宿主保留已删除记录（state=0）；它们不再构成文件占用。
