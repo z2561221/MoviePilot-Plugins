@@ -31,6 +31,12 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
 
+## 2026-11-12 Transmission 站点标签保留
+
+- 站点标签是追加操作：TR `set_torrent_tag` 默认整组替换，必须传入目标回读的 `org_tags`；不要重新混入已按 `remainoldtag=false` 排除的源标签。
+- 转种、IYUU 与重命名补刀共用 `service/site_tag.py`，站名已存在时继续幂等跳过。接口明确返回 `False` 时不记录成功；兼容旧 qB 宿主成功返回 `None`。
+- 回归 `tests/v3/downloadmanagerlocal/test_site_tag.py` 使用宿主真实标签方法与内存 RPC，覆盖保留开关、两类下载器、前缀、幂等及写入失败，不操作真实下载器。
+
 ## 2026-11-06 同步删除集成
 
 - `model/sync_delete.py`：配置默认值、路径边界和精简事件；`adapter/sync_delete.py`：历史查询、115 和本地文件身份核验、QB/TR 文件清单与任务控制；`service/sync_delete.py`：关联规划、持久队列、逐目标执行和失败恢复。

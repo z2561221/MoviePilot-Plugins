@@ -2,7 +2,7 @@
 
 下载中心是 MoviePilot V3 原生插件，把转移做种、IYUU 辅种、同步删除、种子重命名、站点标签、做种校验、下载速度监控和上传限速聚合到一个插件里，并通过 Vue 联邦页面提供配置、运行总览与只读诊断。
 
-`v3.3.13`：[1]集成Emby同步删除;[2]关联转辅种与115路径;[3]合集保留未删内容;[4]管理操作限定管理员;[5]修正设置入口显示
+`v3.3.13`：[1]集成同步删除与路径关联;[2]合集保留未删内容;[3]管理操作限定管理员;[4]修正设置入口显示;[5]修复TR标签覆盖
 
 ## 能力构成
 
@@ -33,6 +33,7 @@
 - `nolabels`、`includelabels`、`includecategory`、`nopaths`：转移任务的标签、分类与路径筛选。
 - `frompath`、`topath`：源与目标下载器之间的保存路径映射。
 - `deletesource`、`deleteduplicate`、`add_torrent_tags`、`remainoldcat`、`remainoldtag`：转移后的处置与标签保留策略。
+- `remainoldtag=true` 保留源标签，关闭时仅写入配置的附加标签；后续添加站名会保留目标现有标签，qBittorrent 与 Transmission 行为一致。
 - `rename_movie_format`、`rename_tv_format`、`rename_exclude_dirs`：重命名模板与排除目录。
 - `tag_siteprefix`、`tag_tracker_mappings_str`：站点标签前缀与自定义 tracker 映射。
 - `iyuu_sites`、`iyuu_nolabels`、`iyuu_nopaths`、`iyuu_size`、`iyuu_labelsafterseed`、`iyuu_categoryafterseed`：辅种范围与辅种后的标签分类。
