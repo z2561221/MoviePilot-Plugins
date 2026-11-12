@@ -1,5 +1,5 @@
 import { computed, onScopeDispose, reactive, ref, watch } from 'vue'
-import { getPluginApi, postPluginApi } from './api.js'
+import { getPluginApi, postPluginApi, isApiRequestCancellation } from './api.js'
 
 const OPTIONS_CACHE_TTL_MS = 5 * 60 * 1000
 const PROFILE_CACHE_TTL_MS = 60 * 1000
@@ -240,6 +240,10 @@ export function useAgentRankState(api, pluginId) {
       if (isCurrent()) state.updatedAt = Date.now()
       return result
     } catch (err) {
+      if (isApiRequestCancellation(err)) {
+        if (settings.throwOnError === false) return settings.fallback ?? null
+        throw err
+      }
       if (isCurrent()) {
         state.error = err
         state.retry = typeof retry === 'function' ? retry : null

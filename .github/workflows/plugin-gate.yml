@@ -33,6 +33,10 @@ jobs:
         working-directory: plugins.v3/backupcenter/frontend
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - name: Install AgentRank frontend test dependencies
+        working-directory: plugins.v3/agentrank/frontend
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
       - name: Check frontend instance routing
         run: node --test tests/v3/*/*.test.mjs
 

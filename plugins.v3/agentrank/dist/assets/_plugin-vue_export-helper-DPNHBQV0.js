@@ -47,6 +47,7 @@ function extractFastApiDetail(detail) {
  * 统一提取 Axios/FastAPI/普通异常中的可读错误。
  */
 function normalizeApiError(error, fallback = 'Agent榜单请求失败') {
+  if (isApiRequestCancellation(error)) return error
   const envelope = error?.response?.data;
   const detail = envelope?.data?.detail ?? envelope?.detail;
   const fastApiDetail = extractFastApiDetail(detail);
@@ -106,6 +107,11 @@ async function savePluginConfig(api, pluginId, payload = {}) {
   }
 }
 
+/** 取消是正常控制流，保留宿主原始标记供状态层和页面共同判断。 */
+function isApiRequestCancellation(error) {
+  return Boolean(error && typeof error === 'object' && (error.__CANCEL__ || error.code === 'ERR_CANCELED' || error.name === 'AbortError' || error.name === 'CanceledError'))
+}
+
 const _export_sfc = (sfc, props) => {
   const target = sfc.__vccOpts || sfc;
   for (const [key, val] of props) {
@@ -114,4 +120,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { _export_sfc as _, getPluginApi as g, postPluginApi as p, savePluginConfig as s };
+export { _export_sfc as _, getPluginApi as g, isApiRequestCancellation as i, postPluginApi as p, savePluginConfig as s };

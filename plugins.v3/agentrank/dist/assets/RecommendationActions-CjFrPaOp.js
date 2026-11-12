@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { g as getPluginApi, p as postPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-C3tB_UbJ.js';
+import { i as isApiRequestCancellation, g as getPluginApi, p as postPluginApi, _ as _export_sfc } from './_plugin-vue_export-helper-DPNHBQV0.js';
 
 const {computed: computed$1,onScopeDispose,reactive,ref: ref$1,watch} = await importShared('vue');
 
@@ -242,6 +242,10 @@ function useAgentRankState(api, pluginId) {
       if (isCurrent()) state.updatedAt = Date.now();
       return result
     } catch (err) {
+      if (isApiRequestCancellation(err)) {
+        if (settings.throwOnError === false) return settings.fallback ?? null
+        throw err
+      }
       if (isCurrent()) {
         state.error = err;
         state.retry = typeof retry === 'function' ? retry : null;
@@ -1199,7 +1203,6 @@ const _hoisted_3 = {
   class: "ar-actions__error text-error",
   role: "alert"
 };
-
 const {computed,inject,ref} = await importShared('vue');
 
 
@@ -1348,6 +1351,7 @@ async function handleSubscribe() {
     if (result?.code === 'PERMISSION_DENIED') return
     nativeSubscribeError.value = result?.message || '原生订阅未受理，请检查媒体信息后重试';
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     const cancelled = error?.__CANCEL__ || error?.code === 'ERR_CANCELED'
       || ['AbortError', 'CanceledError'].includes(error?.name);
     if (!cancelled) nativeSubscribeError.value = error?.message || '原生订阅暂时不可用，请重试';
@@ -1493,6 +1497,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d4fd657c"]]);
+const RecommendationActions = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d791d440"]]);
 
 export { RecommendationActions as R, useAgentRankState as u };

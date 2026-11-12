@@ -1,13 +1,12 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-D0rzat89.js';
-import Page from './__federation_expose_Page-C7HTnAHo.js';
-import { _ as _export_sfc, s as savePluginConfig } from './_plugin-vue_export-helper-C3tB_UbJ.js';
+import { _ as _export_sfc, s as savePluginConfig, i as isApiRequestCancellation } from './_plugin-vue_export-helper-DPNHBQV0.js';
+import Config from './__federation_expose_Config-DhJBe1MO.js';
+import Page from './__federation_expose_Page-CFt1dyE4.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock,createVNode:_createVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,createElementBlock:_createElementBlock} = await importShared('vue');
 
 
 const _hoisted_1 = ["data-nav-key", "data-plugin-id"];
-
 const {onBeforeUnmount,onMounted,ref} = await importShared('vue');
 
 const hostScrollLockClass = 'ar-app-page-host-lock';
@@ -74,6 +73,7 @@ async function saveSettings(config) {
     pageKey.value += 1;
     snackbar.value = { show: true, message: '设置已保存', color: 'success' };
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     snackbar.value = {
       show: true,
       message: error?.message || '设置保存失败',
@@ -136,6 +136,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5330f5c7"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-834a617d"]]);
 
 export { AppPage as default };

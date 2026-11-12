@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-BAIatVc-.js';
-import { _ as _export_sfc } from './_plugin-vue_export-helper-C3tB_UbJ.js';
+import { _ as _export_sfc, i as isApiRequestCancellation } from './_plugin-vue_export-helper-DPNHBQV0.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CjFrPaOp.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode} = await importShared('vue');
 
@@ -18,7 +18,6 @@ const _hoisted_7 = { class: "d-flex flex-wrap ga-1 mt-1" };
 const _hoisted_8 = { class: "ar-dashboard__copy text-caption" };
 const _hoisted_9 = { class: "ar-dashboard__copy text-caption text-medium-emphasis" };
 const _hoisted_10 = { class: "ar-dashboard__controls" };
-
 const {computed,onBeforeUnmount,onMounted,ref} = await importShared('vue');
 
 
@@ -139,6 +138,7 @@ async function runItemAction(action, successMessage) {
     const result = await action();
     snackbar.value = { show: true, message: result?.message || successMessage, color: 'success' };
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     snackbar.value = { show: true, message: error?.message || '操作失败', color: 'error' };
   }
 }
@@ -408,6 +408,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f1eb1fa8"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8458b973"]]);
 
 export { Dashboard as default };
