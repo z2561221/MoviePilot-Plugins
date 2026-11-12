@@ -1,4 +1,5 @@
 <script setup>
+import { isApiRequestCancellation } from './api'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 
@@ -83,6 +84,7 @@ async function send() {
     await scrollToEnd()
     startPolling()
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     localError.value = error?.message || '消息发送失败，草稿已保留'
     try { await props.state.loadConversation({ markRead: true }) } catch (_) { /* 对话读取错误由共享状态展示。 */ }
     await scrollToEnd()
@@ -97,6 +99,7 @@ async function retryMessage(messageId) {
     await scrollToEnd()
     startPolling()
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     localError.value = error?.message || '重试失败'
     try { await props.state.loadConversation({ markRead: true }) } catch (_) { /* 对话读取错误由共享状态展示。 */ }
   }
@@ -108,6 +111,7 @@ async function respondCommand(command, action) {
     await props.state.respondConversationCommand(command.command_id, action)
     emit('pending-change')
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     localError.value = error?.message || '待执行操作失败'
   }
 }

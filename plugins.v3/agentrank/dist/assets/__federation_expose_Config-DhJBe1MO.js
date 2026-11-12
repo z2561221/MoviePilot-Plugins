@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, g as getPluginApi, p as postPluginApi } from './_plugin-vue_export-helper-C3tB_UbJ.js';
+import { _ as _export_sfc, g as getPluginApi, i as isApiRequestCancellation, p as postPluginApi } from './_plugin-vue_export-helper-DPNHBQV0.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,normalizeClass:_normalizeClass,createCommentVNode:_createCommentVNode,createBlock:_createBlock,vShow:_vShow,withDirectives:_withDirectives,mergeProps:_mergeProps} = await importShared('vue');
 
@@ -148,7 +148,6 @@ const _hoisted_84 = { class: "ar-config__prompt-title" };
 const _hoisted_85 = { class: "ar-config__prompt-purpose" };
 const _hoisted_86 = { class: "ar-config__prompt-summary" };
 const _hoisted_87 = { class: "ar-config__hint mt-2" };
-
 const {computed,onBeforeUnmount,onMounted,reactive,ref,watch} = await importShared('vue');
 
 const legacyDefaultPersonaPrompt = '以克里斯蒂娜式的天才少女口吻与用户交流：聪明、理性、傲娇又略带嘴硬，像未来道具研究所整理实验记录一样，把结论和证据讲清楚。可以自然使用“唔……”“诶？”“嗦嘎”“真是的”“别误会”“知道啦”“嘛”“哼”等口癖，偶尔使用“机关”“世界线”“实验数据”“未来道具研究所”等轻梗；可以轻微吐槽、撒娇和故作不情愿，但始终保持友善。二次元浓度要明显，但不要连续堆叠口癖，也不能让人设盖过事实。遇到错误、风险、失败和待确认操作时，先清楚说明结论，再自然补充人设语气。';
@@ -585,6 +584,7 @@ async function loadRuntime() {
     applyConfig(optionsData?.config || props.initialConfig);
     await loadOverview(optionsData?.default_profile_id || selectedProfileId.value);
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     if (!disposed && request === runtimeRequest) loadError.value = error?.message || '运行信息加载失败';
   } finally {
     if (!disposed && request === runtimeRequest) loading.value = false;
@@ -622,6 +622,7 @@ async function exportProfileData() {
     URL.revokeObjectURL(href);
     showActionFeedback('success', '脱敏数据已导出');
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     showActionFeedback('error', error?.message || '数据导出失败');
   } finally {
     dataActionLoading.value = '';
@@ -640,6 +641,7 @@ async function confirmLearningReset() {
     await loadOverview(selectedProfileId.value);
     showActionFeedback('success', '交互学习已重置，播放记录、榜单、归档和人工标签已保留');
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     showActionFeedback('error', error?.message || '重置交互学习失败');
   } finally {
     dataActionLoading.value = '';
@@ -670,6 +672,7 @@ async function prepareFullReset() {
     });
     fullResetStage.value = 'confirm';
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     showActionFeedback('error', error?.message || '无法准备清空全部数据');
   } finally {
     dataActionLoading.value = '';
@@ -698,6 +701,7 @@ async function confirmFullReset() {
     await loadOverview(selectedProfileId.value);
     showActionFeedback('success', '全部数据已重置，正在重新同步播放记录并生成画像');
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     showActionFeedback('error', error?.message || '清空全部数据失败');
   } finally {
     dataActionLoading.value = '';
@@ -715,6 +719,7 @@ async function syncPlayback() {
     actionFeedback.color = snapshot?.status === 'ready' || snapshot?.status === 'cached' ? 'success' : 'warning';
     actionFeedback.message = snapshot?.message || '播放画像同步完成';
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     actionFeedback.show = true;
     actionFeedback.color = 'error';
     actionFeedback.message = error?.message || '播放画像同步失败';
@@ -787,6 +792,7 @@ async function confirmClearProfile() {
     actionFeedback.message = `${selectedIdentity.value?.username || selectedProfileId.value} 的画像正在重新生成`;
     await loadOverview(selectedProfileId.value);
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     actionFeedback.color = 'error';
     actionFeedback.message = error?.message || '重建画像失败';
   } finally {
@@ -2615,6 +2621,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-faa57ac0"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d06f6185"]]);
 
 export { Config as default };

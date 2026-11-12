@@ -1,12 +1,12 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-BzL18AHz.js';
-import Page from './__federation_expose_Page-CqtqanZ6.js';
-import { _ as _export_sfc, u as useRequestScope, g as getPluginConfig, s as savePluginConfig } from './useRequestScope-Dkqwm-Un.js';
+import Config from './__federation_expose_Config-BfK9aL_k.js';
+import Page from './__federation_expose_Page-B8-2fPES.js';
+import { _ as _export_sfc, g as getPluginConfig, s as savePluginConfig } from './_plugin-vue_export-helper-bVvXBjcW.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock,resolveComponent:_resolveComponent,createCommentVNode:_createCommentVNode,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,createElementBlock:_createElementBlock} = await importShared('vue');
 
 
-const _hoisted_1 = { class: "dc-app-page" };
+const _hoisted_1 = { class: "bc-app-page" };
 
 const {ref} = await importShared('vue');
 
@@ -15,9 +15,8 @@ const _sfc_main = {
   __name: 'AppPage',
   props: {
   api: { type: [Object, Function], default: null },
-  nativeSubscribe: { type: Function, default: null },
   navKey: { type: String, default: 'main' },
-  pluginId: { type: String, default: 'DoubanCenter' },
+  pluginId: { type: String, default: 'BackupCenter' },
 },
   setup(__props) {
 
@@ -29,46 +28,31 @@ const savingSettings = ref(false);
 const settingsConfig = ref({});
 const pageKey = ref(0);
 const snackbar = ref({ show: false, message: '', color: 'success' });
-const requestScope = useRequestScope(() => props.pluginId, () => {
-  settingsDialog.value = false;
-  loadingSettings.value = false;
-  savingSettings.value = false;
-  snackbar.value.show = false;
-});
 
 async function openSettings() {
-  if (loadingSettings.value || !requestScope.isActive()) return
-  const current = requestScope.capture();
   loadingSettings.value = true;
   try {
-    const config = await getPluginConfig(props.api, props.pluginId);
-    if (!current()) return
-    settingsConfig.value = config;
+    settingsConfig.value = await getPluginConfig(props.api, props.pluginId);
     settingsDialog.value = true;
   } catch (error) {
-    if (!current()) return
     snackbar.value = { show: true, message: error?.message || '设置加载失败', color: 'error' };
   } finally {
-    if (current()) loadingSettings.value = false;
+    loadingSettings.value = false;
   }
 }
 
 async function saveSettings(config) {
-  if (savingSettings.value || !requestScope.isActive()) return
-  const current = requestScope.capture();
   savingSettings.value = true;
   try {
     await savePluginConfig(props.api, props.pluginId, config);
-    if (!current()) return
     settingsConfig.value = { ...(config || {}) };
     settingsDialog.value = false;
     pageKey.value += 1;
     snackbar.value = { show: true, message: '设置已保存', color: 'success' };
   } catch (error) {
-    if (!current()) return
     snackbar.value = { show: true, message: error?.message || '设置保存失败', color: 'error' };
   } finally {
-    if (current()) savingSettings.value = false;
+    savingSettings.value = false;
   }
 }
 
@@ -82,11 +66,10 @@ return (_ctx, _cache) => {
       key: `${props.pluginId}-${props.navKey}-${pageKey.value}`,
       api: props.api,
       "plugin-id": props.pluginId,
-      "native-subscribe": props.nativeSubscribe,
-      "app-page": "",
+      "show-close": false,
       "show-settings": "",
       onSwitch: openSettings
-    }, null, 8, ["api", "plugin-id", "native-subscribe"])),
+    }, null, 8, ["api", "plugin-id"])),
     _createVNode(_component_VDialog, {
       modelValue: settingsDialog.value,
       "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((settingsDialog).value = $event)),
@@ -130,6 +113,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ce306a17"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3ccf4829"]]);
 
 export { AppPage as default };

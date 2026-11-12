@@ -1,4 +1,5 @@
 <script setup>
+import { isApiRequestCancellation } from './api'
 import { computed, inject, ref } from 'vue'
 
 const props = defineProps({
@@ -139,6 +140,7 @@ async function handleSubscribe() {
     if (result?.code === 'PERMISSION_DENIED') return
     nativeSubscribeError.value = result?.message || '原生订阅未受理，请检查媒体信息后重试'
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     const cancelled = error?.__CANCEL__ || error?.code === 'ERR_CANCELED'
       || ['AbortError', 'CanceledError'].includes(error?.name)
     if (!cancelled) nativeSubscribeError.value = error?.message || '原生订阅暂时不可用，请重试'

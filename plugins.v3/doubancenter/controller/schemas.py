@@ -238,7 +238,14 @@ class RepairFolioPostersData(RootModel[RepairFolioPostersPayload]):
     """豆瓣时间线海报修复响应。"""
 
 
+class PermissionsData(BaseModel):
+    """当前调用者的只读管理能力。"""
+
+    can_manage: bool
+
+
 API_RESPONSE_MODELS = {
+    "/permissions": PermissionsData,
     "/folio_data": FolioData,
     "/overview": OverviewData,
     "/config": ConfigData,

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, u as useRequestScope, a as getPluginApi } from './useRequestScope-Dkqwm-Un.js';
+import { _ as _export_sfc, u as useRequestScope, a as getPluginApi } from './useRequestScope-CDEhkzJg.js';
 
 const {createElementVNode:_createElementVNode$4,resolveComponent:_resolveComponent$4,createVNode:_createVNode$4,withCtx:_withCtx$4,vShow:_vShow$3,withDirectives:_withDirectives$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$4} = await importShared('vue');
 

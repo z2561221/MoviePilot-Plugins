@@ -1,4 +1,5 @@
 <script setup>
+import { isApiRequestCancellation } from './api'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { getPluginApi, postPluginApi } from './api'
 
@@ -429,6 +430,7 @@ async function loadRuntime() {
     applyConfig(optionsData?.config || props.initialConfig)
     await loadOverview(optionsData?.default_profile_id || selectedProfileId.value)
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     if (!disposed && request === runtimeRequest) loadError.value = error?.message || '运行信息加载失败'
   } finally {
     if (!disposed && request === runtimeRequest) loading.value = false
@@ -466,6 +468,7 @@ async function exportProfileData() {
     URL.revokeObjectURL(href)
     showActionFeedback('success', '脱敏数据已导出')
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     showActionFeedback('error', error?.message || '数据导出失败')
   } finally {
     dataActionLoading.value = ''
@@ -484,6 +487,7 @@ async function confirmLearningReset() {
     await loadOverview(selectedProfileId.value)
     showActionFeedback('success', '交互学习已重置，播放记录、榜单、归档和人工标签已保留')
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     showActionFeedback('error', error?.message || '重置交互学习失败')
   } finally {
     dataActionLoading.value = ''
@@ -514,6 +518,7 @@ async function prepareFullReset() {
     })
     fullResetStage.value = 'confirm'
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     showActionFeedback('error', error?.message || '无法准备清空全部数据')
   } finally {
     dataActionLoading.value = ''
@@ -542,6 +547,7 @@ async function confirmFullReset() {
     await loadOverview(selectedProfileId.value)
     showActionFeedback('success', '全部数据已重置，正在重新同步播放记录并生成画像')
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     showActionFeedback('error', error?.message || '清空全部数据失败')
   } finally {
     dataActionLoading.value = ''
@@ -559,6 +565,7 @@ async function syncPlayback() {
     actionFeedback.color = snapshot?.status === 'ready' || snapshot?.status === 'cached' ? 'success' : 'warning'
     actionFeedback.message = snapshot?.message || '播放画像同步完成'
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     actionFeedback.show = true
     actionFeedback.color = 'error'
     actionFeedback.message = error?.message || '播放画像同步失败'
@@ -631,6 +638,7 @@ async function confirmClearProfile() {
     actionFeedback.message = `${selectedIdentity.value?.username || selectedProfileId.value} 的画像正在重新生成`
     await loadOverview(selectedProfileId.value)
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     actionFeedback.color = 'error'
     actionFeedback.message = error?.message || '重建画像失败'
   } finally {

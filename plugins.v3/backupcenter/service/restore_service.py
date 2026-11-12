@@ -139,6 +139,7 @@ class RestoreService:
         target_major = self._major_version(APP_VERSION)
         return {
             "manifest": manifest,
+            "excluded_plugin_ids": sorted(set(manifest.get("selected_plugin_ids") or []) & self.backup_service.backup_family_ids()),
             "verified_files": verification["verified_files"],
             "online_restore_allowed": source_major == target_major and bool(source_major),
             "database_restore_mode": (
@@ -590,9 +591,8 @@ class RestoreService:
         selected_plugin_ids = self._resolve_selected_plugin_ids(
             public_manifest.get("selected_plugin_ids") or [], plugin_ids
         )
-        own_plugin_id = self.plugin.__class__.__name__
-        if own_plugin_id in selected_plugin_ids:
-            raise RestoreServiceError("不允许在线恢复备份中心自身的插件数据")
+        if set(selected_plugin_ids) & self.backup_service.backup_family_ids():
+            raise RestoreServiceError("不允许在线恢复备份中心本体或同源分身；请选择其他插件")
         if (
             selection.plugin_settings
             or selection.plugin_data

@@ -1,4 +1,5 @@
 <script setup>
+import { isApiRequestCancellation } from './api'
 import { computed, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 
@@ -43,6 +44,7 @@ async function submit() {
     emit('submitted', result)
     close()
   } catch (error) {
+    if (isApiRequestCancellation(error)) return
     localError.value = error?.message || '评论提交失败'
   }
 }
