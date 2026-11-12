@@ -43,7 +43,7 @@ function fixture(postResult = null) {
   })
   scope.run(() => vm.runInContext(`${source}\nglobalThis.state = {
     prepareRestore, restoreLogical, preview, selectedBackupId, restoreDialog,
-    restoreForm, actionLoading, feedback,
+    restoreForm, actionLoading, feedback, restorePluginOptions,
   }`, context))
   return {
     ...context.state, props, requests, posts,
@@ -149,5 +149,16 @@ test('an in-flight restore cannot submit twice or start another preview', async 
   assert.equal(page.posts[0].payload.backup_id, 'backup-A')
   response.resolve({ emergency_backup_id: 'lab-only' })
   await restoring
+  page.unmount()
+})
+
+
+test('legacy backup hides the backup family but keeps other restore targets', async () => {
+  const page = fixture()
+  const loading = page.prepareRestore('backup-old')
+  page.requests[0].resolve({ ...preview('backup-old'), excluded_plugin_ids: ['BackupSibling'],
+    manifest: { backup_id: 'backup-old', scope: { plugin_settings: true }, selected_plugin_ids: ['BackupSibling', 'Other'] } })
+  await loading
+  assert.deepEqual(Array.from(page.restorePluginOptions.value, item => item.value), ['Other'])
   page.unmount()
 })

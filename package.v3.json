@@ -102,9 +102,9 @@
   },
   "BackupCenter": {
     "name": "备份中心",
-    "description": "备份插件设置与数据，调用 MoviePilot 主程序保护数据库。",
+    "description": "「未来道具研究所」出品 · EL PSY CONGROO！",
     "labels": "系统工具,数据安全",
-    "version": "3.0.8",
+    "version": "3.0.9",
     "icon": "backup.png",
     "color": "#00897B",
     "author": "Kurisu",
@@ -113,6 +113,7 @@
     "system_version": ">=3.0.0",
     "release": true,
     "history": {
+      "v3.0.9": "[1]排除备份中心全部分身;[2]旧备份恢复跳过自身;[3]统一插件说明",
       "v3.0.8": "[1]恢复预检绑定正确备份;[2]恢复后刷新接口与命令",
       "v3.0.7": "[1]修复空目录恢复;[2]拦截缺失负载的备份",
       "v3.0.6": "[1]修复恢复前误回滚;[2]数据库使用一致性快照",

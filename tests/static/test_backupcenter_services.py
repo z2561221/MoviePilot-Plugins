@@ -467,7 +467,7 @@ def test_available_plugin_ids_include_virtual_instances(tmp_path, monkeypatch):
     }
     manager_module = ModuleType("app.sdk.plugin.manager")
     manager_module.PluginManager = lambda: SimpleNamespace(
-        get_plugin_instances=lambda: {"DemoPluginClone": object()}
+        get_plugin_instances=lambda: {"DemoPluginClone": SimpleNamespace(source_plugin_id="DemoPlugin")}
     )
     monkeypatch.setitem(sys.modules, "app.sdk.plugin.manager", manager_module)
 
@@ -656,7 +656,7 @@ def test_automatic_bundle_can_restore_one_plugins_data_only(tmp_path, monkeypatc
     manifest_module.ManifestService.write_json(
         payload / "manifest.json", public_manifest
     )
-    backup_service = SimpleNamespace(
+    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"},
         read_public_manifest=lambda backup_id: public_manifest,
         create_backup=lambda *_args, **_kwargs: {"backup_id": "backup-emergency"},
     )
@@ -707,7 +707,7 @@ def test_restore_stops_before_plugin_emergency_backup_when_host_backup_fails(
         "selected_plugin_ids": ["PluginA"],
     }
     calls = []
-    backup_service = SimpleNamespace(
+    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"},
         read_public_manifest=lambda _backup_id: manifest,
         create_backup=lambda *_args, **_kwargs: calls.append("plugin")
         or {"backup_id": "backup-emergency"},
@@ -752,7 +752,7 @@ def test_restore_rejects_content_missing_from_backup():
         "selected_plugin_ids": ["PluginA"],
         "database": {"included": False},
     }
-    backup_service = SimpleNamespace(read_public_manifest=lambda _backup_id: manifest)
+    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"}, read_public_manifest=lambda _backup_id: manifest)
     service = restore_module.RestoreService(SimpleNamespace(), backup_service)
 
     with pytest.raises(restore_module.RestoreServiceError, match="不在这份备份中"):
@@ -771,7 +771,7 @@ def test_encrypted_preview_does_not_require_password_before_dialog():
         "database": {"included": False},
         "encryption": {"enabled": True},
     }
-    backup_service = SimpleNamespace(
+    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"},
         verify_backup=lambda backup_id: {
             "manifest": manifest,
             "verified_files": ["payload.enc", "manifest.public.json"],
@@ -915,7 +915,7 @@ def test_plugin_data_restore_replaces_all_selected_plugins_via_public_api(tmp_pa
         "PluginB": {"old": 2},
         "PluginC": {"keep": 3},
     }
-    service = restore_module.RestoreService(plugin, SimpleNamespace())
+    service = restore_module.RestoreService(plugin, SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"}, ))
 
     restored = service._restore_plugin_data(payload, ["PluginA", "PluginB"])
 
@@ -943,7 +943,7 @@ def test_plugin_data_restore_rolls_back_when_any_write_fails(tmp_path):
     plugin.plugin_records = {"PluginA": {"old": {"enabled": True}}}
     original = copy.deepcopy(plugin.plugin_records)
     plugin.fail_on_save = "fail"
-    service = restore_module.RestoreService(plugin, SimpleNamespace())
+    service = restore_module.RestoreService(plugin, SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"}, ))
 
     with pytest.raises(restore_module.RestoreServiceError, match="已自动回滚"):
         service._restore_plugin_data(payload, ["PluginA"])
@@ -961,7 +961,7 @@ def test_invalid_plugin_data_is_rejected_before_public_api_writes(tmp_path):
     plugin = _Plugin(tmp_path)
     plugin.plugin_records = {"PluginA": {"old": 1}}
     original = copy.deepcopy(plugin.plugin_records)
-    service = restore_module.RestoreService(plugin, SimpleNamespace())
+    service = restore_module.RestoreService(plugin, SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"}, ))
 
     with pytest.raises(restore_module.RestoreServiceError, match="插件数据项无效"):
         service._restore_plugin_data(payload, ["PluginA"])
@@ -1026,7 +1026,7 @@ def test_plugin_file_restore_removes_successful_rollback_directory(tmp_path):
     target = settings.PLUGIN_DATA_PATH / "PluginA"
     target.mkdir()
     (target / "state.txt").write_text("old", encoding="utf-8")
-    backup_service = SimpleNamespace(settings=settings)
+    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"}, settings=settings)
     service = restore_module.RestoreService(SimpleNamespace(), backup_service)
 
     assert service._restore_plugin_files(payload, ["PluginA"]) == ["PluginA"]
@@ -1111,7 +1111,7 @@ def test_restore_rolls_back_config_data_and_files_together(tmp_path, monkeypatch
     )
 
     settings = _service_settings(tmp_path)
-    backup_service = SimpleNamespace(
+    backup_service = SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"},
         settings=settings,
         get_backup_root=lambda: tmp_path / "backups",
         read_public_manifest=lambda _backup_id: manifest,
@@ -1291,7 +1291,7 @@ def test_restore_failure_preserves_writes_outside_restore(tmp_path, monkeypatch,
         """返回隔离的已校验负载。"""
         yield tmp_path
 
-    service = restore_module.RestoreService(plugin, SimpleNamespace(
+    service = restore_module.RestoreService(plugin, SimpleNamespace(backup_family_ids=lambda: {"BackupCenter"},
         read_public_manifest=lambda _: manifest, create_backup=emergency_backup,
     ))
     monkeypatch.setattr(service, "_payload_directory", payload_directory)
@@ -1455,3 +1455,43 @@ def test_required_payload_checksum_online_and_offline(tmp_path, encrypted, damag
          "-BackupRoot", str(root)], capture_output=True, check=False,
     )
     assert (result.returncode == 0) == (damage == "intact"), result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("current", ["BackupCenter", "BackupCenterCloneA"])
+def test_backup_scope_excludes_entire_family_by_source(tmp_path, monkeypatch, current):
+    """本体与分身都排除整个家族，不误排名称相近的普通插件。"""
+    plugin = type(current, (_Plugin,), {"plugin_source_id": "BackupCenter"})(tmp_path)
+    plugin.systemconfig.all = lambda: {"UserInstalledPlugins": ["BackupCenter", "DemoPlugin", "BackupCenterHelper"]}
+    instances = {"BackupCenterCloneA": SimpleNamespace(source_plugin_id="BackupCenter"),
+                 "IndependentName": {"source_plugin_id": "BackupCenter"},
+                 "DemoClone": SimpleNamespace(source_plugin_id="DemoPlugin")}
+    monkeypatch.setattr(app_sdk_plugin_manager_module, "PluginManager", lambda: SimpleNamespace(get_plugin_instances=lambda: instances))
+    service = backup_module.BackupService(plugin, _service_settings(tmp_path))
+    assert service.available_plugin_ids() == ["DemoPlugin", "BackupCenterHelper", "DemoClone"]
+    result = service.create_backup(backup_model.BackupScope(plugin_settings=False, plugin_data=False, plugin_files=True), backup_kind="automatic")
+    assert result["selected_plugin_ids"] == ["DemoPlugin", "BackupCenterHelper", "DemoClone"]
+    with zipfile.ZipFile(service.get_backup_path(result["backup_id"]) / "payload.zip") as package:
+        assert not any("/IndependentName/" in name or "/BackupCenterCloneA/" in name for name in package.namelist())
+
+
+def test_legacy_backup_preview_and_restore_protect_sibling(tmp_path, monkeypatch):
+    """旧包可查看但同源分身不能写回，拒绝发生在创建恢复点之前。"""
+    plugin = type("BackupCenter", (_Plugin,), {})(tmp_path)
+    service = backup_module.BackupService(plugin, _service_settings(tmp_path))
+    manifest = {"selected_plugin_ids": ["Sibling", "DemoPlugin"], "source_mp_version": "v3.0.0", "scope": {"plugin_data": True}}
+    monkeypatch.setattr(service, "backup_family_ids", lambda: {"BackupCenter", "Sibling"})
+    monkeypatch.setattr(service, "verify_backup", lambda _: {"manifest": manifest, "verified_files": []})
+    monkeypatch.setattr(service, "read_public_manifest", lambda _: manifest)
+    restore = restore_module.RestoreService(plugin, service)
+    assert restore.preview("backup-old")["excluded_plugin_ids"] == ["Sibling"]
+    monkeypatch.setattr(restore, "_create_host_database_backup", lambda: pytest.fail("must reject before recovery point"))
+    with pytest.raises(restore_module.RestoreServiceError, match="同源分身"):
+        restore.restore_logical("backup-old", backup_model.RestoreSelection(plugin_data=True), ["Sibling"])
+
+
+def test_unknown_instance_source_fails_closed(tmp_path, monkeypatch):
+    """目录不完整不能把备份中心分身错误收入范围。"""
+    plugin = _Plugin(tmp_path)
+    monkeypatch.setattr(app_sdk_plugin_manager_module, "PluginManager", lambda: SimpleNamespace(get_plugin_instances=lambda: {"Unknown": object()}))
+    with pytest.raises(backup_module.BackupServiceError, match="来源不明确"):
+        backup_module.BackupService(plugin, _service_settings(tmp_path)).available_plugin_ids()

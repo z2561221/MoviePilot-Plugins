@@ -18,10 +18,10 @@ class BackupCenter(_PluginBase):
     """为 MoviePilot 提供插件逻辑备份与选择性恢复。"""
 
     plugin_name = "备份中心"
-    plugin_desc = "备份插件设置与数据，调用 MoviePilot 主程序保护数据库。"
+    plugin_desc = "「未来道具研究所」出品 · EL PSY CONGROO！"
     plugin_icon = "backup.png"
     plugin_color = "#00897B"
-    plugin_version = "3.0.8"
+    plugin_version = "3.0.9"
     plugin_label = "系统工具,数据安全"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
