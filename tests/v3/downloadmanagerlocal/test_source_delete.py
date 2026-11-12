@@ -159,6 +159,24 @@ def test_source_plan_enforces_shared_file_limit_before_actions(monkeypatch):
     assert not adapter.calls
 
 
+@pytest.mark.parametrize("state", [0, 1])
+def test_deleted_download_history_is_not_treated_as_an_active_file_reference(state):
+    plugin, adapter, event = case()
+    original = adapter.download_files
+    def download_files(torrent_hash="", path=""):
+        return original(torrent_hash, path) + [
+            {"downloader": "QB1", "download_hash": "past-download", "fullpath": path, "state": state}]
+    adapter.download_files = download_files
+    if state == 1:
+        with pytest.raises(DeleteRejected, match="其它下载"):
+            source_delete.build_source_plan(plugin, event, service.config_for(plugin), adapter)
+        assert not adapter.calls
+    else:
+        runtime, job = queued(plugin, adapter, event)
+        runtime.execute(job, adapter)
+        assert not adapter.tasks and job["state"] == "completed"
+
+
 def test_existing_new_library_reference_blocks_target_copy_deletion():
     plugin, adapter, event = case()
     adapter.records.append({"id": 2, "src": "/downloads/A.mkv", "dest": "/new/A.mkv"})

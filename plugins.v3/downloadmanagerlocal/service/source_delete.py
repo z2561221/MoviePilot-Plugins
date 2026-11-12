@@ -24,6 +24,9 @@ def check_download_references(adapter, path, nodes):
     """旧任务不能删除被另一条下载记录引用的同路径文件。"""
     hashes = {node[1] for node in nodes}
     for row in adapter.download_files(path=path):
+        # 宿主保留已删除记录（state=0）；它们不再构成文件占用。
+        if row.get("state") == 0:
+            continue
         torrent_hash = text(row.get("download_hash"))
         downloader = text(row.get("downloader"))
         if (torrent_hash not in hashes or
