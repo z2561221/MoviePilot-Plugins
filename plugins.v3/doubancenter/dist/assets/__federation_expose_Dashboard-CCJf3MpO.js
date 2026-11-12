@@ -1,8 +1,8 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, u as useRequestScope, t as toPosterThumbnail, a as getPluginApi, p as postPluginApi, o as openNativeSubscription } from './useRequestScope-Dkqwm-Un.js';
-import { d as doubanDispatchUrl, u as useRankMediaActions, s as sourceDescriptor } from './useRankMediaActions-BgIPihDT.js';
+import { u as useManagementPermissions, d as doubanDispatchUrl, a as useRankMediaActions, s as sourceDescriptor } from './useRankMediaActions-DA74ZBLE.js';
+import { _ as _export_sfc, u as useRequestScope, t as toPosterThumbnail, a as getPluginApi, p as postPluginApi, o as openNativeSubscription } from './useRequestScope-CDEhkzJg.js';
 
-const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,unref:_unref,normalizeStyle:_normalizeStyle} = await importShared('vue');
+const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,normalizeStyle:_normalizeStyle} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "dc-load-alert__content" };
@@ -47,7 +47,6 @@ const _hoisted_21 = {
   key: 5,
   class: "text-center text-medium-emphasis py-4 text-caption"
 };
-
 const {ref,computed,onMounted,watch} = await importShared('vue');
 
 const TIMELINE_MONTH_LIMIT = 3;
@@ -72,6 +71,8 @@ const props = __props;
 const dashboardPluginId = computed(
   () => String(props.pluginId || props.config?.id || 'DoubanCenter').trim() || 'DoubanCenter',
 );
+
+const { canManage, permissionError } = useManagementPermissions(() => props.api, () => dashboardPluginId.value);
 
 const config = ref({});
 const rankHistory = ref({});
@@ -454,13 +455,15 @@ return (_ctx, _cache) => {
             "prepend-icon": "mdi-refresh",
             class: "text-none",
             loading: refreshing.value,
+            disabled: !_unref(canManage),
+            title: _unref(canManage) ? '刷新榜单' : _unref(permissionError) || '刷新榜单需要管理员权限',
             onClick: refreshDashboard
           }, {
             default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
               _createTextVNode("刷新", -1)
             ]))]),
             _: 1
-          }, 8, ["loading"])
+          }, 8, ["loading", "disabled", "title"])
         ]),
         default: _withCtx(() => [
           _createVNode(_component_VCardTitle, null, {
@@ -796,6 +799,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a29975a2"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-dc1240ff"]]);
 
 export { Dashboard as default };

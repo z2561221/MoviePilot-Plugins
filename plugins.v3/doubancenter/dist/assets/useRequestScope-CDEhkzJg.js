@@ -96,6 +96,10 @@ async function openNativeSubscription(nativeSubscribe, media) {
   return result
 }
 
+function isApiRequestCancellation(error) {
+  return Boolean(error && typeof error === 'object' && (error.__CANCEL__ || error.code === 'ERR_CANCELED' || error.name === 'AbortError' || error.name === 'CanceledError'))
+}
+
 const {getCurrentInstance,nextTick,onActivated,onBeforeUnmount,onDeactivated,onScopeDispose,watch} = await importShared('vue');
 
 
@@ -162,4 +166,4 @@ function useRequestScope(owner, onInvalidate = () => {}) {
   return { capture, invalidate, pause, resume, wait, later, isActive: () => active }
 }
 
-export { _export_sfc as _, getPluginApi as a, getPluginConfig as g, openNativeSubscription as o, postPluginApi as p, savePluginConfig as s, toPosterThumbnail as t, useRequestScope as u };
+export { _export_sfc as _, getPluginApi as a, getPluginConfig as g, isApiRequestCancellation as i, openNativeSubscription as o, postPluginApi as p, savePluginConfig as s, toPosterThumbnail as t, useRequestScope as u };

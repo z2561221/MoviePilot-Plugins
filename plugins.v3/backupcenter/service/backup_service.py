@@ -54,25 +54,45 @@ class BackupService:
             raise BackupServiceError("备份不存在")
         return path
 
-    def _installed_plugin_ids(self, config: Dict[str, Any]) -> List[str]:
-        """读取物理插件和虚拟分身 ID，并排除备份中心自身。"""
-        raw = config.get(SystemConfigKey.UserInstalledPlugins.value, [])
-        installed = normalize_plugin_ids(raw) if isinstance(raw, list) else []
+    @staticmethod
+    def _plugin_instances() -> dict:
+        """读取宿主实例目录；旧宿主无入口时兼容，读取异常时停止备份。"""
         try:
             from app.sdk.plugin.manager import PluginManager
+            getter = getattr(PluginManager(), "get_plugin_instances", None)
+            if not callable(getter):
+                return {}
+            instances = getter()
+            if not isinstance(instances, dict):
+                raise BackupServiceError("无法核对插件实例目录")
+            return instances
+        except ImportError:
+            return {}
+        except BackupServiceError:
+            raise
+        except Exception as error:
+            raise BackupServiceError("读取插件实例目录失败，未执行备份或恢复") from error
 
-            instances = PluginManager().get_plugin_instances()
-            for instance_id in (instances or {}):
-                if instance_id not in installed:
-                    installed.append(instance_id)
-        except (AttributeError, TypeError, ImportError):
-            # 旧宿主没有虚拟实例查询口时继续使用物理安装清单。
-            pass
-        own_ids = {
-            str(self.plugin.__class__.__name__),
-            str(getattr(self.plugin, "plugin_source_id", "") or ""),
-        }
-        return [plugin_id for plugin_id in installed if plugin_id not in own_ids]
+    def backup_family_ids(self, instances: dict | None = None) -> set[str]:
+        """按真实来源排除备份中心整个实例家族，不按名称前缀猜测。"""
+        instances = self._plugin_instances() if instances is None else instances
+        source = str(getattr(self.plugin, "plugin_source_id", "") or "BackupCenter")
+        family = {"BackupCenter", source, str(self.plugin.__class__.__name__)}
+        for instance_id, instance in instances.items():
+            owner = instance.get("source_plugin_id") if isinstance(instance, dict) else getattr(instance, "source_plugin_id", None)
+            if not isinstance(owner, str) or not owner:
+                raise BackupServiceError("插件实例来源不明确，无法安全选择备份范围")
+            if owner in {"BackupCenter", source}:
+                family.add(instance_id)
+        return family
+
+    def _installed_plugin_ids(self, config: Dict[str, Any]) -> List[str]:
+        """读取物理插件及分身，排除备份中心本体与全部同源分身。"""
+        raw = config.get(SystemConfigKey.UserInstalledPlugins.value, [])
+        installed = normalize_plugin_ids(raw) if isinstance(raw, list) else []
+        instances = self._plugin_instances()
+        family = self.backup_family_ids(instances)
+        return [plugin_id for plugin_id in dict.fromkeys([*installed, *instances]) if plugin_id not in family]
 
     def _plugin_data_path(self, plugin_id: str) -> Path:
         """返回按运行实例隔离的插件数据目录，兼容旧宿主回退路径。"""

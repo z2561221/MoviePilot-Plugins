@@ -248,6 +248,8 @@ class BackupLogsData(BaseModel):
 class RestorePreviewData(BaseModel):
     """描述在线恢复前的公开预检结果。"""
 
+    excluded_plugin_ids: list[str] = Field(default_factory=list)
+
     model_config = ConfigDict(extra="forbid")
 
     manifest: BackupManifestData
