@@ -7,7 +7,9 @@ from typing import Any, Callable, Dict, List
 from app import schemas
 from app.sdk.logging import logger
 from app.sdk.media import resolve_media_identity
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
+
+from .security import permissions, require_admin
 
 from ..service import dashboard as dash
 from ..service import folio, folio_repair
@@ -24,6 +26,7 @@ def _response_model(path: str):
 def get_api(plugin) -> List[Dict[str, Any]]:
     """返回 MoviePilot V3 插件 API 路由声明。"""
     definitions = [
+        ("/permissions", permissions, ["GET"], "读取当前用户管理权限"),
         ("/folio_data", plugin.api_folio_data, ["GET"], "获取豆瓣时间数据"),
         ("/overview", plugin.api_overview, ["GET"], "获取运行总览"),
         ("/config", plugin.api_config, ["GET"], "获取插件配置"),
@@ -53,6 +56,7 @@ def get_api(plugin) -> List[Dict[str, Any]]:
             "auth": "bear",
             "summary": summary,
             "response_model": _response_model(path),
+            "dependencies": [Depends(require_admin)] if "POST" in methods and path != "/subscribe" else [],
         }
         for path, endpoint, methods, summary in definitions
     ]

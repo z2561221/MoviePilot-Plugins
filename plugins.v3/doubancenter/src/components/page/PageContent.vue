@@ -1,5 +1,6 @@
 <script setup>
 defineProps({
+  canManage: { type: Boolean, default: false },
   page: { type: Object, required: true },
 })
 </script>
@@ -24,8 +25,8 @@ defineProps({
             </div>
           </div>
           <VChip size="x-small" :color="page.archiveColor(item)" variant="tonal" class="dc-row-status">{{ page.archiveStatus(item) }}</VChip>
-          <VBtn icon="mdi-restore" variant="text" size="x-small" color="primary" class="dc-row-action" :loading="page.actionKey === page.rowKey('archive-restore', item, i)" @click="page.restoreArchive(item, i)" />
-          <VBtn icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="page.actionKey === page.rowKey('archive-delete', item, i)" @click="page.deleteArchive(item, i)" />
+          <VBtn :disabled="!canManage" icon="mdi-restore" variant="text" size="x-small" color="primary" class="dc-row-action" :loading="page.actionKey === page.rowKey('archive-restore', item, i)" @click="page.restoreArchive(item, i)" />
+          <VBtn :disabled="!canManage" icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="page.actionKey === page.rowKey('archive-delete', item, i)" @click="page.deleteArchive(item, i)" />
         </div>
       </div>
       <div v-else-if="!page.loading" class="text-center text-medium-emphasis py-4 text-caption">暂无归档记录</div>
@@ -78,7 +79,7 @@ defineProps({
           <VAvatar size="28" class="mr-2 flex-shrink-0" color="error" variant="tonal"><VIcon icon="mdi-block-helper" size="14" /></VAvatar>
           <div class="dc-history-info"><div class="dc-history-title">{{ item.title || '未命名条目' }}</div><div class="dc-history-meta"><span class="text-caption text-medium-emphasis">{{ item.time || '' }}</span></div></div>
           <VChip size="x-small" color="error" variant="tonal" class="dc-row-status">{{ item.detail || item.reason || '黑名拦截' }}</VChip>
-          <VBtn icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="page.actionKey === page.rowKey('log', item, i)" @click="page.deleteAntiCheatLog(item, i)" />
+          <VBtn :disabled="!canManage" icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="page.actionKey === page.rowKey('log', item, i)" @click="page.deleteAntiCheatLog(item, i)" />
         </div>
       </div>
       <div v-else-if="!page.loading" class="text-center text-medium-emphasis py-4 text-caption">暂无被黑名单筛选的条目</div>
@@ -110,7 +111,7 @@ defineProps({
             <div class="dc-history-meta"><VChip size="x-small" :style="page.rankChipStyle(item.rank_key)" variant="tonal" class="dc-rank-chip mr-1">{{ item.rank_name || page.rankNameOf(item.rank_key, item) }}</VChip><span class="text-caption text-medium-emphasis">{{ item.time ? item.time.split(' ')[0] : '' }}</span></div>
           </div>
           <VChip size="x-small" :color="item.status === 'failed' ? 'error' : 'success'" variant="tonal" class="dc-row-status">{{ item.status === 'failed' ? '订阅失败' : '订阅成功' }}</VChip>
-          <VBtn icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="page.actionKey === page.rowKey('sub', item, i)" @click="page.deleteSubscribeHistory(item, i)" />
+          <VBtn :disabled="!canManage" icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="page.actionKey === page.rowKey('sub', item, i)" @click="page.deleteSubscribeHistory(item, i)" />
         </div>
       </div>
       <div v-else-if="!page.loading" class="text-center text-medium-emphasis py-4 text-caption">暂无订阅记录</div>
@@ -128,7 +129,7 @@ defineProps({
           <VAvatar rounded="sm" class="dc-history-poster mr-2 flex-shrink-0"><VImg v-if="log.poster" :src="page.toPosterThumbnail(log.poster)" cover /><VIcon v-else icon="mdi-filmstrip" size="14" /></VAvatar>
           <div class="dc-history-info"><div class="dc-history-title">{{ log.title }}</div><div class="dc-history-meta"><VChip size="x-small" :style="page.rankChipStyle(log.rank_key)" variant="tonal" class="dc-rank-chip mr-1">{{ log.rank_name || log.rank_key || '观察日志' }}</VChip><span class="text-caption text-medium-emphasis">{{ log.time ? log.time.split(' ')[0] : '' }}</span></div></div>
           <VChip size="x-small" color="warning" variant="tonal" class="dc-row-status">{{ log.reason || '观察日志' }}</VChip>
-          <VBtn icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="page.actionKey === page.rowKey('log', log, i)" @click="page.deleteAntiCheatLog(log, i)" />
+          <VBtn :disabled="!canManage" icon="mdi-delete-outline" variant="text" size="x-small" color="error" class="dc-row-action" :loading="page.actionKey === page.rowKey('log', log, i)" @click="page.deleteAntiCheatLog(log, i)" />
         </div>
       </div>
       <div v-else-if="!page.loading" class="text-center text-medium-emphasis py-4 text-caption">暂无观察日志</div>
