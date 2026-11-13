@@ -74,7 +74,7 @@ class Adapter:
         return "/downloads"
 
     def download_files(self, torrent_hash="", path=""):
-        return [{"downloader": "QB1", "download_hash": "source", "fullpath": path,
+        return [{"id": 11, "downloader": "QB1", "download_hash": "source", "fullpath": path,
                  "savepath": "/downloads", "state": 1}]
 
     def children(self, parent):
@@ -100,6 +100,9 @@ class Adapter:
 
     def mark_source_deleted(self, path):
         self.calls.append(("mark", path))
+
+    def mark_download_record_deleted(self, record):
+        self.calls.append(("download_record", record["id"]))
 
     def delete_record(self, row):
         self.calls.append(("record", row["id"]))

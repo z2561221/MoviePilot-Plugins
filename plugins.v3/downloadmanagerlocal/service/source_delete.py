@@ -20,6 +20,25 @@ from ..model.sync_delete import (
 from .sync_delete import _snapshot_file, related_nodes, relation_records
 
 
+def source_record_snapshot(adapter, source, source_hash, downloader=""):
+    """只在收到新事件时保存旧记录身份，后续重试不抓取新下载记录。"""
+    result, seen = [], set()
+    for row in adapter.download_files(path=source):
+        if (row.get("state") != 1 or text(row.get("download_hash")) != source_hash
+                or text(row.get("fullpath")) != source
+                or (downloader and text(row.get("downloader")) != downloader)):
+            continue
+        record_id = row.get("id")
+        if not isinstance(record_id, int) or isinstance(record_id, bool) or record_id <= 0 or record_id in seen:
+            raise DeleteRejected("下载文件记录缺少唯一身份，停止状态更新")
+        seen.add(record_id)
+        result.append({key: row.get(key) for key in
+                       ("id", "downloader", "download_hash", "fullpath", "savepath", "state")})
+        if len(result) > MAX_TARGETS:
+            raise DeleteRejected("源删除下载文件记录超过单次上限")
+    return result
+
+
 def check_download_references(adapter, path, nodes):
     """旧任务不能删除被另一条下载记录引用的同路径文件。"""
     if adapter.lookup("local", path, adapter.source_root(path)) is None:
@@ -39,6 +58,8 @@ def check_download_references(adapter, path, nodes):
 
 def build_source_plan(plugin, event, config, adapter=None):
     """只展开已知转种/辅种关系，按文件范围保留合集剩余内容。"""
+    if event.get("source_records_error"):
+        raise DeleteRejected(event["source_records_error"])
     adapter = adapter or SyncDeleteAdapter(plugin, config)
     source = path_text(event["paths"][0])
     root = adapter.source_root(source)
@@ -83,6 +104,11 @@ def build_source_plan(plugin, event, config, adapter=None):
             "config_fingerprint": fingerprint(config), "cloud_files": [],
             "source_files": [], "tasks": [], "records": [], "sources": [],
             "relations": relations, "source_guards": [{"path": source, "root": root}]}
+    # 旧事件没有受理时的快照，不能以执行/重试时的新记录替代。
+    plan["download_records"] = [dict(row) for row in event.get("source_records", [])
+                                if text(row.get("fullpath")) == source
+                                and text(row.get("download_hash")) == source_hash
+                                and text(row.get("downloader")) == next(iter(owners))]
     plan["related_nodes"] = [list(node) for node in sorted(nodes)]
     targets = {}
     guarded_paths = {source}
@@ -122,7 +148,7 @@ def build_source_plan(plugin, event, config, adapter=None):
                     status="pending", remaining=remaining)
         plan["tasks"].append(task)
     if not plan["tasks"]:
-        raise DeleteRejected("关联任务已不存在，无需删除")
+        plan["skip_reason"] = "关联任务已不存在，无需删除"
     plan["source_files"] = list(targets.values())
     return plan
 
@@ -178,6 +204,12 @@ def receive_source_deleted(plugin, event, trigger=""):
         snapshot = {"channel": "download", "event": text(trigger), "paths": [source],
                     "source_hash": source_hash, "source_downloader": text(data.get("downloader")),
                     "observed_at": time(), "name": PurePosixPath(source).name, "timestamp": ""}
+        try:
+            snapshot["source_records"] = source_record_snapshot(
+                adapter, source, source_hash, snapshot["source_downloader"])
+        except Exception as error:  # noqa: BLE001 -- 快照失败保留为待核验，不在重试时重抓新记录。
+            snapshot["source_records_error"] = (str(error) if isinstance(error, DeleteRejected)
+                                                else f"下载文件记录快照读取失败：{type(error).__name__}")
         plan = None
         try:
             plan = build_source_plan(plugin, snapshot, config, adapter)
