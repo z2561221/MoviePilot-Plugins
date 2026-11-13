@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.application.torrent.download import TorrentHelper
+from app.chain.download import DownloadChain
 from app.db.oper.downloadhistory import DownloadHistoryOper
 from app.db.oper.site import SiteOper
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
+from app.sdk.media import TorrentInfo
 from app.sdk.network import RequestUtils, SitesHelper
 from app.sdk.services import DownloaderHelper
 from app.sdk.utilities import StringUtils
@@ -162,9 +165,53 @@ def check_site(domain: str):
     return SitesHelper().check(domain)
 
 
-def download_torrent_content(url: str, cookie=None, ua=None, proxy=None):
-    """通过 MoviePilot TorrentHelper 下载种子内容。"""
+def download_torrent_content(url: str, cookie=None, ua=None, proxy=None, site_id=None, site_name=""):
+    """编码配方交由宿主取内容阶段换票，保留插件原有通知与错误处理。"""
+    if url.startswith("["):
+        torrent = TorrentInfo(enclosure=url, site=site_id, site_name=site_name,
+                              site_cookie=cookie or "", site_ua=ua or "", site_proxy=bool(proxy),
+                              title="IYUU辅种")
+        # v3.2.6 的公共 download_torrent 会发送宿主失败通知；仅复用已核验
+        # 的取内容阶段，避免绕过下载中心通知开关或添加资源下载历史。
+        get_content = getattr(DownloadChain(), "_get_torrent_content", None)
+        result = get_content(torrent) if callable(get_content) else None
+        if result is None:
+            return None, None, "", [], "换票失败：当前宿主无法获取配方内容"
+        content, folder, files, error = result
+        return None, content, folder, files, error
     return TorrentHelper().download_torrent(url=url, cookie=cookie, ua=ua, proxy=proxy)
+
+
+def native_iyuu_site(site: dict) -> str:
+    """仅识别本次已核验的新协议站点，不把普通 NexusPHP 模板当成 API。"""
+    raw = str(site.get("url") or site.get("domain") or "").strip()
+    host = (urlsplit(raw if "://" in raw else "https://" + raw).hostname or "").lower()
+    if host in {"piggo.me", "www.piggo.me", "api.piggo.me"}:
+        return "piggo"
+    if host in {"hxpt.org", "www.hxpt.org"}:
+        return "fluxtorrent"
+    return ""
+
+
+def native_iyuu_download_url(site: dict, torrent_id) -> str:
+    """委托宿主站点适配生成下载配方；此步骤不请求网络或签发下载票据。"""
+    tid = str(torrent_id or "")
+    if not tid.isascii() or not tid.isdecimal() or tid.startswith("0"):
+        raise ValueError("站内种子 ID 必须是正整数")
+    if not (str(site.get("apikey") or "").strip() or str(site.get("token") or "").strip()):
+        raise ValueError("站点未配置 API Key/Token")
+    kind = native_iyuu_site(site)
+    if kind == "piggo":
+        from app.modules.indexer.spider.piggo import PiggoSpider
+        return PiggoSpider(site).get_download_url(tid)
+    if kind == "fluxtorrent":
+        from app.modules.indexer.spider.fluxtorrent import FluxTorrentSpider
+        normalized = dict(site, apikey=str(site.get("apikey") or "").strip())
+        spider = FluxTorrentSpider(normalized)
+        # v3.2.6 尚无公共生成方法；仅此已记录的旧宿主兼容入口。
+        builder = getattr(spider, "get_download_url", None) or spider._build_download_url
+        return builder(tid)
+    raise ValueError("站点不属于本次 native 下载适配范围")
 
 
 def request_get_res(url: str, params: dict | None = None, **kwargs):

@@ -121,6 +121,30 @@ class SyncDeleteAdapter:
         self.check_write()
         DownloadHistoryOper().delete_file_by_fullpath(path)
 
+    def mark_download_record_deleted(self, record: dict) -> None:
+        """按已保存 ID 更新旧行；新下载追加的同路径行不在写入范围内。"""
+        oper = DownloadHistoryOper()
+        current = next((row for row in oper.get_files_by_fullpath(record["fullpath"])
+                        if plain(row).get("id") == record["id"]), None)
+        if current is None:
+            return
+        snapshot = plain(current)
+        if any(snapshot.get(key) != record.get(key) for key in
+               ("id", "fullpath", "download_hash", "downloader", "savepath")):
+            raise DeleteRejected("下载文件记录身份已变化，保留新记录")
+        if snapshot.get("state") == 0:
+            return
+        if snapshot.get("state") != 1:
+            raise DeleteRejected("下载文件记录状态未知")
+        self.check_write()
+        # 已核验的 v3.2.4 Oper 事务入口只把此游离旧行的 state 设为脏字段，
+        # UPDATE 使用旧主键，不调用按 fullpath 批量置零的删除接口。
+        oper._stage_update(current, {"state": 0})
+        remaining = next((plain(row) for row in oper.get_files_by_fullpath(record["fullpath"])
+                          if plain(row).get("id") == record["id"]), None)
+        if remaining is not None and remaining.get("state") != 0:
+            raise DeleteRejected("下载文件记录删除状态未确认")
+
     def source_root(self, path: str) -> str:
         """下载源只能在显式允许目录内，且必须排除保护路径。"""
         path = path_text(path)

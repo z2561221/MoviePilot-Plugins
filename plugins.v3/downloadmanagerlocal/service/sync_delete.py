@@ -28,6 +28,7 @@ from ..model.sync_delete import (
     MEDIA_EXTENSIONS,
     PLAN_VERSION,
     SIDECAR_EXTENSIONS,
+    TERMINAL_STATES,
     DeleteRejected,
     config_for,
     event_key,
@@ -525,7 +526,7 @@ class DeleteRuntime:
         with self.lock:
             jobs = self.jobs()
             jobs[job["id"]] = deepcopy(job)
-            completed = sorted((row for row in jobs.values() if row["state"] == "completed"),
+            completed = sorted((row for row in jobs.values() if row["state"] in TERMINAL_STATES),
                                key=lambda row: row.get("updated_at", 0))
             for row in completed:
                 if len(jobs) <= MAX_JOBS and time() - row.get("updated_at", 0) <= 30 * 86400:
@@ -550,7 +551,7 @@ class DeleteRuntime:
             jobs = self.jobs()
             if job_id:
                 job = deepcopy(jobs.get(job_id))
-                if not job or job["state"] in {"queued", "running", "completed"}:
+                if not job or job["state"] in {"queued", "running"} | TERMINAL_STATES:
                     raise DeleteRejected("该记录不能重试")
                 if job.get("plan") and job["plan"].get("version") != PLAN_VERSION:
                     raise DeleteRejected("旧版本删除计划需人工核验，不能直接重试")
@@ -559,9 +560,9 @@ class DeleteRuntime:
             else:
                 key = event_key(event)
                 for row in jobs.values():
-                    if row["event_key"] == key and (row["state"] != "completed" or time() - row["updated_at"] < 120):
+                    if row["event_key"] == key and (row["state"] not in TERMINAL_STATES or time() - row["updated_at"] < 120):
                         return row["id"]
-                if sum(row["state"] != "completed" for row in jobs.values()) >= MAX_PENDING:
+                if sum(row["state"] not in TERMINAL_STATES for row in jobs.values()) >= MAX_PENDING:
                     raise DeleteRejected("未完成记录已达上限，请先处理失败任务")
                 job = {"id": uuid4().hex, "event_key": key, "event": event, "plan": deepcopy(plan),
                        "created_at": time(), "records_done": [], "sources_marked": []}
@@ -660,6 +661,14 @@ class DeleteRuntime:
             self.save(job)
         job["entities_complete"] = True
         self.save(job)
+        for record in plan.get("download_records", []):
+            self.check(config)
+            check_source_plan(self.plugin, plan, adapter)
+            done = job.setdefault("download_records_done", [])
+            if record["id"] not in done:
+                adapter.mark_download_record_deleted(record)
+                done.append(record["id"])
+                self.save(job)
         for src in plan["sources"]:
             self.check(config)
             if src not in job["sources_marked"]:
@@ -681,9 +690,10 @@ class DeleteRuntime:
             if task["status"] == "removed" and blocks.get(key, {}).get("job_id") == job["id"]:
                 blocks.pop(key, None)
         self.plugin.save_data(BLOCKS_KEY, blocks)
-        job.update(state="completed", updated_at=time(), error="")
+        job.update(state="skipped" if plan.get("skip_reason") else "completed", updated_at=time(), error="")
         self.save(job)
-        logger.info(f"同步删除完成 {_log_target(job)}：{_log_result(job)}")
+        logger.info(f"同步删除{'无需处理' if job['state'] == 'skipped' else '完成'} {_log_target(job)}："
+                    f"{plan.get('skip_reason') or _log_result(job)}")
 
     def run(self):
         """串行消费删除任务并保留故障阶段，停止时退出后续操作。"""
@@ -725,8 +735,9 @@ class DeleteRuntime:
                 self.queue.task_done()
             if job and not self.stop.is_set() and getattr(self.plugin, "_sync_delete_notify", False):
                 try:
-                    self.plugin.post_message(mtype=MessageType.Plugin, title="同步删除完成" if job["state"] == "completed" else "同步删除待处理",
-                                             text=f"{job['event'].get('name') or '媒体'}\n{job.get('error') or '关联清理完成，可在下载中心查看明细'}")
+                    title = {"completed": "同步删除完成", "skipped": "同步删除无需处理"}.get(job["state"], "同步删除待处理")
+                    self.plugin.post_message(mtype=MessageType.Plugin, title=title,
+                                             text=f"{job['event'].get('name') or '媒体'}\n{job.get('error') or (job.get('plan') or {}).get('skip_reason') or '关联清理完成，可在下载中心查看明细'}")
                 except Exception as error:  # noqa: BLE001 -- 通知失败不改变已核验的删除结果。
                     logger.warning(f"同步删除通知失败：{type(error).__name__}")
 

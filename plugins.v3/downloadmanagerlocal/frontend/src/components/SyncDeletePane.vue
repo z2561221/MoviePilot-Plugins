@@ -57,9 +57,9 @@ let loadRevision = 0
 let retryRevision = 0
 let disposed = false
 const pages = computed(() => Math.max(1, Math.ceil(total.value / 15)))
-const labels = { queued: '等待执行', running: '处理中', failed: '待处理', completed: '完成', pending: '待执行', deleted: '已删除', absent: '已不存在', removed: '已移除', paused: '保留并暂停' }
+const labels = { queued: '等待执行', running: '处理中', failed: '待处理', completed: '完成', skipped: '无需处理', pending: '待执行', deleted: '已删除', absent: '已不存在', removed: '已移除', paused: '保留并暂停' }
 const label = state => labels[state] || state
-const color = state => state === 'completed' ? 'success' : state === 'failed' ? 'warning' : 'info'
+const color = state => ['completed', 'skipped'].includes(state) ? 'success' : state === 'failed' ? 'warning' : 'info'
 const dateText = stamp => stamp ? new Date(stamp * 1000).toLocaleString() : '—'
 const current = (ticket, id) => !disposed && revision === ticket && props.pluginId === id
 
@@ -189,11 +189,13 @@ defineExpose({ refresh: load })
           </div>
           <div class="text-caption text-medium-emphasis mt-1">{{ dateText(job.updated_at) }}</div>
           <div v-if="job.error" class="text-warning mt-2">{{ job.error }}</div>
+          <div v-if="job.state === 'skipped'" class="text-medium-emphasis mt-2">{{ job.plan?.skip_reason }}</div>
           <details class="mt-3">
             <summary>查看关联明细</summary>
             <div v-for="file in [...(job.plan?.cloud_files || []), ...(job.plan?.source_files || [])]" :key="`${file.storage}:${file.path}`" class="dm-sync-path mt-2">{{ label(file.status) }} · {{ file.storage }} · {{ file.path }}</div>
             <div v-for="task in job.plan?.tasks || []" :key="`${task.downloader}:${task.id}`" class="dm-sync-path mt-2">{{ label(task.status) }} · {{ task.downloader }} · {{ task.id }}</div>
             <div class="text-caption mt-2">整理记录已处理 {{ job.records_done?.length || 0 }} / {{ job.plan?.records?.length || 0 }}</div>
+            <div v-if="job.plan?.download_records?.length" class="text-caption mt-2">旧下载记录已标记 {{ job.download_records_done?.length || 0 }} / {{ job.plan.download_records.length }}</div>
           </details>
           <VBtn v-if="job.state === 'failed'" class="mt-3" color="warning" variant="tonal" size="small" :loading="retryId === job.id" :disabled="!props.canManage || !enabled || Boolean(retryId)" @click="retry(job)">核验后重试</VBtn>
         </VCardText>

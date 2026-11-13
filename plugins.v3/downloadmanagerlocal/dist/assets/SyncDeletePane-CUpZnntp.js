@@ -109,8 +109,16 @@ const _hoisted_25 = {
   key: 0,
   class: "text-warning mt-2"
 };
-const _hoisted_26 = { class: "mt-3" };
-const _hoisted_27 = { class: "text-caption mt-2" };
+const _hoisted_26 = {
+  key: 1,
+  class: "text-medium-emphasis mt-2"
+};
+const _hoisted_27 = { class: "mt-3" };
+const _hoisted_28 = { class: "text-caption mt-2" };
+const _hoisted_29 = {
+  key: 0,
+  class: "text-caption mt-2"
+};
 
 const {computed,onBeforeUnmount,ref,watch} = await importShared('vue');
 
@@ -175,9 +183,9 @@ let loadRevision = 0;
 let retryRevision = 0;
 let disposed = false;
 const pages = computed(() => Math.max(1, Math.ceil(total.value / 15)));
-const labels = { queued: '等待执行', running: '处理中', failed: '待处理', completed: '完成', pending: '待执行', deleted: '已删除', absent: '已不存在', removed: '已移除', paused: '保留并暂停' };
+const labels = { queued: '等待执行', running: '处理中', failed: '待处理', completed: '完成', skipped: '无需处理', pending: '待执行', deleted: '已删除', absent: '已不存在', removed: '已移除', paused: '保留并暂停' };
 const label = state => labels[state] || state;
-const color = state => state === 'completed' ? 'success' : state === 'failed' ? 'warning' : 'info';
+const color = state => ['completed', 'skipped'].includes(state) ? 'success' : state === 'failed' ? 'warning' : 'info';
 const dateText = stamp => stamp ? new Date(stamp * 1000).toLocaleString() : '—';
 const current = (ticket, id) => !disposed && revision === ticket && props.pluginId === id;
 
@@ -548,7 +556,10 @@ return (_ctx, _cache) => {
                     (job.error)
                       ? (_openBlock(), _createElementBlock("div", _hoisted_25, _toDisplayString(job.error), 1))
                       : _createCommentVNode("", true),
-                    _createElementVNode("details", _hoisted_26, [
+                    (job.state === 'skipped')
+                      ? (_openBlock(), _createElementBlock("div", _hoisted_26, _toDisplayString(job.plan?.skip_reason), 1))
+                      : _createCommentVNode("", true),
+                    _createElementVNode("details", _hoisted_27, [
                       _cache[18] || (_cache[18] = _createElementVNode("summary", null, "查看关联明细", -1)),
                       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList([...(job.plan?.cloud_files || []), ...(job.plan?.source_files || [])], (file) => {
                         return (_openBlock(), _createElementBlock("div", {
@@ -562,11 +573,14 @@ return (_ctx, _cache) => {
                           class: "dm-sync-path mt-2"
                         }, _toDisplayString(label(task.status)) + " · " + _toDisplayString(task.downloader) + " · " + _toDisplayString(task.id), 1))
                       }), 128)),
-                      _createElementVNode("div", _hoisted_27, "整理记录已处理 " + _toDisplayString(job.records_done?.length || 0) + " / " + _toDisplayString(job.plan?.records?.length || 0), 1)
+                      _createElementVNode("div", _hoisted_28, "整理记录已处理 " + _toDisplayString(job.records_done?.length || 0) + " / " + _toDisplayString(job.plan?.records?.length || 0), 1),
+                      (job.plan?.download_records?.length)
+                        ? (_openBlock(), _createElementBlock("div", _hoisted_29, "旧下载记录已标记 " + _toDisplayString(job.download_records_done?.length || 0) + " / " + _toDisplayString(job.plan.download_records.length), 1))
+                        : _createCommentVNode("", true)
                     ]),
                     (job.state === 'failed')
                       ? (_openBlock(), _createBlock(_component_VBtn, {
-                          key: 1,
+                          key: 2,
                           class: "mt-3",
                           color: "warning",
                           variant: "tonal",
@@ -607,6 +621,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const SyncDeletePane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-61ba0169"]]);
+const SyncDeletePane = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0db16a57"]]);
 
 export { SyncDeletePane as S, _export_sfc as _, postPluginApi as a, getPluginApi as g, isApiRequestCancellation as i, postPluginJsonApi as p };

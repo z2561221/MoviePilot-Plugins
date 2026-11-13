@@ -28,7 +28,8 @@ BLOCKS_KEY = "sync_delete_blocks"
 MAX_TARGETS = 5000
 MAX_JOBS = 1000
 MAX_PENDING = 100
-PLAN_VERSION = 2
+PLAN_VERSION = 3
+TERMINAL_STATES = {"completed", "skipped"}
 MEDIA_EXTENSIONS = {
     ".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".iso",
     ".mpg", ".mpeg", ".flv", ".webm", ".m4v", ".rmvb", ".strm",

@@ -47,7 +47,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - `/sync_delete/options`、`/sync_delete/history` 返回裸模型；`/sync_delete/preview`、`/sync_delete/retry` 返回标准 Response。预览和重试验证超管身份，重试只接受服务端任务 ID。
 - 配置页分本地与 STRM 两组，目录使用全宽自动增高输入框，无批量/分列模式切换。网盘处理继续由 `sync_delete_cloud` 独立开关控制，填写或改动目录不会自动启用；三段、四段路径格式及后端关联规则保持兼容。
 - 普通通知、手动预览、无记录强删入口从配置页移除；保存时将 `sync_delete_library_deleted`、`sync_delete_force_cloud` 置 false，并丢弃全空映射行。后端旧字段及诊断预览 API 继续兼容。源目录、保护目录收在默认折叠的“高级设置 · 删除范围”，折叠不清空配置或放宽边界。
-- 新增宿主兼容例外：`DownloadHistoryOper.get_files_by_hash/get_files_by_fullpath/delete_file_by_fullpath` 和 `TransferHistoryOper.delete`。当前部署 v3.2.4 的查询 SDK 不覆盖下载文件状态及整理记录删除，故在 adapter 内按次创建 Oper，返回普通字典并不缓存 Session；不导入宿主 ORM Model。宿主提供等价稳定 SDK 后移除这些兼容调用。相关测试以替身验证实体成功后才更新记录。
+- 新增宿主兼容例外：`DownloadHistoryOper.get_files_by_hash/get_files_by_fullpath/delete_file_by_fullpath/_stage_update` 和 `TransferHistoryOper.delete`。当前部署 v3.2.4 的查询 SDK 不覆盖下载文件状态及整理记录删除，故在 adapter 内按次创建 Oper，返回普通字典并不缓存 Session；不导入宿主 ORM Model。宿主提供等价稳定 SDK 后移除这些兼容调用。源删除事件保存 DownloadFiles 主键与字段快照，使用继承的 `_stage_update` 短事务只更新旧 ID 的 state，并回读；不调用按路径批量更新入口。宿主基线 `338687bee8ed288644e775e408536a5e556a6252` 已核验该方法，SQLite 集成回归覆盖同路径新行保护。缺少记录快照的历史任务不补抓新行。相关测试验证实体成功后才更新记录。
 - 115 自动删除限定已核验的 P115Disk 3.0.3 提供方：直接 `StorageChain.list_files` 的异常返回 None，与空列表区分；不用普通 REST 的空数组判定不存在。从固定网盘根 ID 逐层目录回读，避免路径/文件 ID 缓存命中已移动目标。若提供方语义变化则重新核验。
 - 转种、辅种批次和做种校验与同步删除使用实例互斥；IYUU 原有重叠触发跳过逻辑保留。配置修改/停用使旧执行器停止，重载未决任务留待重试，不自动执行删除。
 - 核心流程参考神医媒体文件同步删除及 115 STRM 助手的使用方式；实现为下载中心原生模块，不依赖它们的数据空间或执行器。
@@ -478,3 +478,10 @@ $env:Path = "$nodeDir;$env:Path"
 ## 管理权限
 
 所有有副作用的HTTP路由由controller.security.require_admin统一保护，包括会自动清理标签的扫描。permissions接口只返回当前已认证用户的can_manage；前端禁用管理按钮，实际授权仍由服务端逐次检查。后台任务继续通过内部服务运行，不受HTTP依赖影响。
+
+## issue #52 站点下载协议
+
+- 猪猪与好学按规范域名使用宿主站点适配，不使用 IYUU 的旧 NexusPHP 下载模板或详情页回退。猪猪经 PiggoSpider.get_download_url 生成配方，编码配方交给 DownloadChain 的 `_get_torrent_content` 阶段解析，保留下载中心原有通知和错误处理，最终种子 GET 不带 Bearer 或 Cookie。
+- 好学复用 FluxTorrentSpider：v3.2.6 使用 `_build_download_url`，后续公共 `get_download_url` 存在时优先使用。兼容依据为官方 v3.2.6 `44606a00448361e20f4131323b7c97d27a258b43`，SDK 提供按站内 ID 生成下载入口后移除直接 Spider 兼容调用。仅加载已识别站点的对应模块；旧宿主缺少模块时保持可重试失败，不转到错误网页协议。
+- 下载配方的 Base64 前缀与 apikey 查询值均隐藏；换票失败、存取令牌失效、必读公告与限流进入可重试缓存。针对回归见 `tests/v3/downloadmanagerlocal/test_iyuu_native_download.py`，使用 v3.2.6 宿主及 HTTP 替身，不连接真实站点。
+- `DownloadChain._get_torrent_content` 为已核验 v3.2.6 的内容阶段兼容调用，返回内容、目录、文件列表及错误；公共 `download_torrent` 会额外发送宿主失败通知，故不使用它。缺少内容阶段时返回可重试错误，不向二进制 helper 传编码配方。宿主提供稳定 SDK 的无通知内容接口后移除此兼容调用，对应真实宿主下载链回归验证 401 时没有额外通知。
