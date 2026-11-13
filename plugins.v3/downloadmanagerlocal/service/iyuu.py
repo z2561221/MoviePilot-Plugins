@@ -23,6 +23,8 @@ from ..adapter.moviepilot import (
     get_url_domain,
     is_downloader_type,
     list_custom_site_dicts,
+    native_iyuu_download_url,
+    native_iyuu_site,
     request_get_res,
     request_post_res,
 )
@@ -429,6 +431,7 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         plugin._iyuu_fail += 1
         return False
 
+    native_site = bool(native_iyuu_site(site_info))
     torrent_url = iyuu_get_download_url(plugin, seed=seed, site=site_info, base_url=download_page)
     if not torrent_url:
         append_iyuu_cache(plugin._iyuu_error_caches, seed.get("info_hash"))
@@ -438,7 +441,7 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
 
     def __with_https_param(url: str) -> str:
         """为特殊站点下载链接补充 https=1 参数。"""
-        if not url or not __is_special_site(url) or "https=1" in url:
+        if not url or native_site or not __is_special_site(url) or "https=1" in url:
             return url
         return url + ("&https=1" if "?" in url else "?https=1")
 
@@ -447,9 +450,11 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
 
     _, content, _, _, error_msg = download_torrent_content(
         url=torrent_url,
-        cookie=site_info.get("cookie"),
+        cookie=None if native_site else site_info.get("cookie"),
         ua=site_info.get("ua") or settings.USER_AGENT,
         proxy=site_info.get("proxy"),
+        site_id=site_info.get("id"),
+        site_name=site_info.get("name") or "",
     )
     if _transfer_stopped(plugin, generation):
         return False
@@ -458,7 +463,7 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         error_msg = "下载到的内容不是有效 torrent 文件，疑似登录页或错误页"
         content = None
 
-    if not content:
+    if not content and not native_site:
         logger.warning(
             f"IYUU辅种：下载种子文件失败，准备回退详情页获取：站点={site_info.get('name')}，"
             f"info_hash={seed.get('info_hash')}，url={safe_torrent_url}，原因={error_msg or '未知'}"
@@ -488,7 +493,8 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
     if not content:
         plugin._iyuu_fail += 1
         transient_keywords = ('无法打开链接', '触发站点流控', '403', '401', '429', 'Cloudflare',
-                              'cloudflare', 'timeout', 'Timeout', 'Connection', '连接', '登录', 'Cookie')
+                              'cloudflare', 'timeout', 'Timeout', 'Connection', '连接', '登录', 'Cookie',
+                              '换票失败', '临时下载地址失效', '存取令牌', '必读公告', '站点限流')
         if error_msg and any(keyword in error_msg for keyword in transient_keywords):
             append_iyuu_cache(plugin._iyuu_error_caches, seed.get("info_hash"))
         else:
@@ -731,6 +737,13 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
 
 def iyuu_get_download_url(plugin, seed: dict, site: dict, base_url: str, force_page: bool = False) -> Optional[str]:
     """获取站点种子下载链接（移植自原版 IYUU 插件，含特殊站点处理）"""
+    if native_iyuu_site(site):
+        try:
+            return native_iyuu_download_url(site, seed.get("torrent_id"))
+        except (ImportError, AttributeError, ValueError) as error:
+            logger.warning(f"IYUU辅种：{site.get('name')} 站点下载配方不可用，"
+                           f"请核对 API Key/Token 与宿主适配：{type(error).__name__}")
+            return None
 
     def __is_mteam(url: str):
         """判断站点地址是否属于 m-team。"""
