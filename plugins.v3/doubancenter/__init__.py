@@ -1,5 +1,5 @@
 """
-DoubanCenter v3.0.15 - MoviePilot V3 本地插件
+DoubanCenter v3.0.21 - MoviePilot V3 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """
 import threading
@@ -40,7 +40,7 @@ class DoubanCenter(_PluginBase):
     plugin_desc = "「未来道具研究所」出品 · EL PSY CONGROO！"
     plugin_icon = "douban.png"
     plugin_color = "#2E7D32"
-    plugin_version = "3.0.20"
+    plugin_version = "3.0.21"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
     plugin_config_prefix = "doubancenter_"
@@ -90,6 +90,7 @@ class DoubanCenter(_PluginBase):
         self._wait_process: Optional[Dict[str, Any]] = None
         self._sync_lock = threading.Lock()
         self._rank_lock = threading.RLock()
+        self._folio_poster_lock = threading.RLock()
         self._folio_repair_plans: dict[str, Any] = {}
         lifecycle.start(self)
 
@@ -151,6 +152,7 @@ class DoubanCenter(_PluginBase):
             custom_rank_sources=[rank.get("route") for rank in self._custom_ranks],
         )
         migration.normalize_legacy_subscribe_usernames()
+        dash.maintain_records(self)
         if self._onlyonce:
             self._onlyonce = False
             self.__update_config()

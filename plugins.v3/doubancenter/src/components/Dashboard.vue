@@ -42,6 +42,7 @@ watch(showDialog, open => {
 }, { flush: 'sync' })
 const timelineImageFailed = ref({})
 let loadEpoch = 0
+let rankEpoch = 0
 let refreshEpoch = 0
 let subscribeEpoch = 0
 const requestScope = useRequestScope(() => dashboardPluginId.value, () => {
@@ -139,6 +140,7 @@ async function load() {
   if (!requestScope.isActive()) return
   const owner = requestScope.capture()
   const epoch = ++loadEpoch
+  const rankRequestEpoch = rankEpoch
   const current = () => owner() && epoch === loadEpoch
   loading.value = true
   folioLoading.value = true
@@ -160,7 +162,7 @@ async function load() {
       }
       const data = normalizeApiData(result.value)
       if (index === 0) config.value = data || {}
-      else rankHistory.value = data || {}
+      else if (rankRequestEpoch === rankEpoch) rankHistory.value = data || {}
       return
     }
     errors.push(coreRequests[index].label)
@@ -192,12 +194,11 @@ async function refreshDashboard() {
   const current = () => owner() && epoch === refreshEpoch
   refreshing.value = true
   refreshResult.value = ''
-  await load()
-  if (!current()) return
   try {
     const res = await postPluginApi(props.api, dashboardPluginId.value, 'refresh_rss', {})
     if (!current()) return
     if (res.success) {
+      rankEpoch += 1
       if (res.data) rankHistory.value = res.data
       refreshResult.value = 'RSS 已刷新'
     } else {

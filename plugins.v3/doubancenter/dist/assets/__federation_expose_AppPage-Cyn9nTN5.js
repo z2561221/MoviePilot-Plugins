@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-DFG1Pk-C.js';
-import Page from './__federation_expose_Page-aXBvDskF.js';
+import Config from './__federation_expose_Config-D5qi-JKk.js';
+import Page from './__federation_expose_Page-Cp30welr.js';
 import { _ as _export_sfc, u as useRequestScope, g as getPluginConfig, s as savePluginConfig } from './useRequestScope-CDEhkzJg.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock,resolveComponent:_resolveComponent,createCommentVNode:_createCommentVNode,withCtx:_withCtx,createVNode:_createVNode,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,createElementBlock:_createElementBlock} = await importShared('vue');
@@ -86,7 +86,7 @@ return (_ctx, _cache) => {
       "app-page": "",
       "show-settings": "",
       onSwitch: openSettings
-    }, null, 8, ["api", "plugin-id", "native-subscribe"])),
+    }, null, 8 /* PROPS */, ["api", "plugin-id", "native-subscribe"])),
     _createVNode(_component_VDialog, {
       modelValue: settingsDialog.value,
       "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((settingsDialog).value = $event)),
@@ -100,7 +100,7 @@ return (_ctx, _cache) => {
               indeterminate: "",
               color: "primary"
             }))
-          : _createCommentVNode("", true),
+          : _createCommentVNode("v-if", true),
         (!loadingSettings.value)
           ? (_openBlock(), _createBlock(Config, {
               key: 1,
@@ -109,11 +109,11 @@ return (_ctx, _cache) => {
               "initial-config": settingsConfig.value,
               onSave: saveSettings,
               onClose: _cache[0] || (_cache[0] = $event => (settingsDialog.value = false))
-            }, null, 8, ["api", "plugin-id", "initial-config"]))
-          : _createCommentVNode("", true)
+            }, null, 8 /* PROPS */, ["api", "plugin-id", "initial-config"]))
+          : _createCommentVNode("v-if", true)
       ]),
-      _: 1
-    }, 8, ["modelValue", "persistent"]),
+      _: 1 /* STABLE */
+    }, 8 /* PROPS */, ["modelValue", "persistent"]),
     _createVNode(_component_VSnackbar, {
       modelValue: snackbar.value.show,
       "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((snackbar.value.show) = $event)),
@@ -121,10 +121,10 @@ return (_ctx, _cache) => {
       timeout: "5000"
     }, {
       default: _withCtx(() => [
-        _createTextVNode(_toDisplayString(snackbar.value.message), 1)
+        _createTextVNode(_toDisplayString(snackbar.value.message), 1 /* TEXT */)
       ]),
-      _: 1
-    }, 8, ["modelValue", "color"])
+      _: 1 /* STABLE */
+    }, 8 /* PROPS */, ["modelValue", "color"])
   ]))
 }
 }

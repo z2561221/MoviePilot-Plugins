@@ -190,14 +190,27 @@ def _add_silent_subscription(sc, title, year, mt, tmdb_id=None, bangumi_id=None)
     )
 
 
+def maintain_records(self):
+    """初始化时治理旧记录，后续写入直接批量归档，页面查询保持只读。"""
+    archive_service.remove_legacy_observation_completed_archives(self)
+    records = storage.read_subscribe_records(self)
+    deduped, changed = _dedupe_subscribe_records(records)
+    if changed or len(deduped) > DETAIL_SECTION_LIMIT:
+        deduped, _ = archive_service.archive_detail_overflow(self, deduped, "subscribe_history", "订阅历史")
+        storage.save_subscribe_records(self, deduped)
+    archives = storage.read_archive_records(self)
+    normalized = [archive_service.normalize_archive_item(item) for item in archives if isinstance(item, dict)]
+    deduped, changed = archive_service.dedupe_archive_records(normalized)
+    if changed or normalized != archives:
+        storage.save_archive_records(self, deduped)
+
+
 def api_stats(self):
     """订阅统计：基于 subscribe_records 统计"""
     from .rank_pipeline import get_rank_definitions
 
     records = storage.read_subscribe_records(self)
-    records, changed = _dedupe_subscribe_records(records)
-    if changed:
-        storage.save_subscribe_records(self, records)
+    records, _ = _dedupe_subscribe_records(records)
     return {"data": dashboard_stats_service.build_stats(records, get_rank_definitions(self))}
 
 

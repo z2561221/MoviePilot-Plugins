@@ -185,6 +185,7 @@ def dedupe_archive_records(archives: list) -> tuple:
     if not isinstance(archives, list):
         return [], False
     merged = []
+    buckets = {}
     changed = False
     for archive in archives:
         if not isinstance(archive, dict):
@@ -193,13 +194,14 @@ def dedupe_archive_records(archives: list) -> tuple:
         source = str(archive.get("source") or "")
         record = archive.get("record") or {}
         duplicate_index = None
-        for index, existing in enumerate(merged):
-            if str(existing.get("source") or "") != source:
-                continue
+        bucket = (source, str(record.get("title") or "") if isinstance(record, dict) else "")
+        for index in buckets.get(bucket, []):
+            existing = merged[index]
             if same_archive_record(source, existing.get("record") or {}, record):
                 duplicate_index = index
                 break
         if duplicate_index is None:
+            buckets.setdefault(bucket, []).append(len(merged))
             merged.append(archive)
             continue
         changed = True
@@ -214,6 +216,14 @@ def archive_record(plugin, source: str, record: dict, source_name: str = "", ded
     if not isinstance(record, dict):
         return None
     archives = storage.read_archive_records(plugin)
+    item, changed = _append_archive(archives, source, record, source_name, dedupe)
+    if changed:
+        storage.save_archive_records(plugin, archives)
+    return item
+
+
+def _append_archive(archives: list, source: str, record: dict, source_name: str, dedupe: bool):
+    """在本次读取的列表内去重追加，不执行持久化。"""
     if dedupe:
         for index, archive in enumerate(archives):
             if not isinstance(archive, dict) or archive.get("source") != source:
@@ -221,9 +231,8 @@ def archive_record(plugin, source: str, record: dict, source_name: str = "", ded
             if same_archive_record(source, archive.get("record") or {}, record):
                 if archive_record_score(record) > archive_record_score(archive.get("record") or {}):
                     archives[index] = update_archive_item_from_record(archive, source, record, source_name)
-                    storage.save_archive_records(plugin, archives)
-                    return archives[index]
-                return archive
+                    return archives[index], True
+                return archive, False
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     archive_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
     copied = dict(record)
@@ -241,8 +250,24 @@ def archive_record(plugin, source: str, record: dict, source_name: str = "", ded
     }
     item = normalize_archive_item(item)
     archives.append(item)
-    storage.save_archive_records(plugin, archives)
-    return item
+    return item, True
+
+
+def archive_records(plugin, source: str, records: list, source_name: str = "") -> None:
+    """批量归档：先保存全部归档成功，调用方才能裁剪原记录。"""
+    if not records:
+        return
+    archives = storage.read_archive_records(plugin)
+    changed = False
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        _, added = _append_archive(archives, source, record, source_name, True)
+        changed = changed or added
+        # 保留原逐条写入时的容量与淘汰顺序。
+        archives = archives[-storage.DETAIL_RECORD_LIMIT:]
+    if changed:
+        storage.save_archive_records(plugin, archives)
 
 
 def remove_archive(plugin, archive_id: str) -> Optional[dict]:
@@ -290,6 +315,7 @@ def archive_detail_overflow(
         return records, False
     keep_indexes = latest_detail_indexes(records, limit)
     kept = []
+    overflow = []
     changed = False
     for index, record in enumerate(records):
         if not isinstance(record, dict):
@@ -300,8 +326,9 @@ def archive_detail_overflow(
             continue
         archived_record = dict(record)
         archived_record.setdefault("reason", record.get("reason") or DETAIL_OVERFLOW_REASON)
-        archive_record(plugin, source, archived_record, source_name, dedupe=True)
+        overflow.append(archived_record)
         changed = True
+    archive_records(plugin, source, overflow, source_name)
     return kept, changed
 
 
@@ -385,12 +412,9 @@ def remove_legacy_observation_completed_archives(plugin) -> bool:
 
 def paginate_archive_records(plugin, page: int = 1, page_size: int = 20) -> dict:
     """返回已去重并按归档时间倒序排列的归档分页。"""
-    remove_legacy_observation_completed_archives(plugin)
     archives = storage.read_archive_records(plugin)
     valid_archives = [normalize_archive_item(item) for item in archives if isinstance(item, dict)]
-    deduped_archives, changed = dedupe_archive_records(valid_archives)
-    if changed or len(valid_archives) != len(archives) or valid_archives != [item for item in archives if isinstance(item, dict)]:
-        storage.save_archive_records(plugin, deduped_archives)
+    deduped_archives, _ = dedupe_archive_records(valid_archives)
     ordered_archives = sorted(deduped_archives, key=lambda item: item.get("archived_at", ""), reverse=True)
     safe_page = max(int(page), 1)
     safe_page_size = max(int(page_size), 1)

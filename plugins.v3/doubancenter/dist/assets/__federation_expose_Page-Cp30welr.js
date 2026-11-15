@@ -52,30 +52,30 @@ return (_ctx, _cache) => {
                     ? (_openBlock$2(), _createBlock$2(_component_VImg, {
                         key: 0,
                         src: __props.page.dialogPoster()
-                      }, null, 8, ["src"]))
+                      }, null, 8 /* PROPS */, ["src"]))
                     : (_openBlock$2(), _createBlock$2(_component_VIcon, {
                         key: 1,
                         icon: "mdi-filmstrip"
                       }))
                 ]),
-                _: 1
+                _: 1 /* STABLE */
               })
             ]),
             default: _withCtx$2(() => [
               _createVNode$2(_component_VCardTitle, { class: "text-body-1 font-weight-bold pa-0" }, {
                 default: _withCtx$2(() => [
-                  _createTextVNode$2(_toDisplayString$2(__props.page.dialogItem?.item?.title || ''), 1)
+                  _createTextVNode$2(_toDisplayString$2(__props.page.dialogItem?.item?.title || ''), 1 /* TEXT */)
                 ]),
-                _: 1
+                _: 1 /* STABLE */
               }),
               _createVNode$2(_component_VCardSubtitle, { class: "text-caption pa-0" }, {
                 default: _withCtx$2(() => [
-                  _createTextVNode$2(_toDisplayString$2(__props.page.dialogItem?.rk ? __props.page.rankNameOf(__props.page.dialogItem.rk, __props.page.dialogItem.item) : ''), 1)
+                  _createTextVNode$2(_toDisplayString$2(__props.page.dialogItem?.rk ? __props.page.rankNameOf(__props.page.dialogItem.rk, __props.page.dialogItem.item) : ''), 1 /* TEXT */)
                 ]),
-                _: 1
+                _: 1 /* STABLE */
               })
             ]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createVNode$2(_component_VDivider),
           (__props.page.dialogResolveError)
@@ -86,8 +86,8 @@ return (_ctx, _cache) => {
                 density: "compact",
                 class: "mx-3 mt-3",
                 text: __props.page.dialogResolveError
-              }, null, 8, ["text"]))
-            : _createCommentVNode$2("", true),
+              }, null, 8 /* PROPS */, ["text"]))
+            : _createCommentVNode$2("v-if", true),
           _createVNode$2(_component_VCardActions, { class: "pa-3 pt-2 dc-dialog-actions" }, {
             default: _withCtx$2(() => [
               _createVNode$2(_component_VBtn, {
@@ -99,10 +99,10 @@ return (_ctx, _cache) => {
                 onClick: __props.page.doSubscribe
               }, {
                 default: _withCtx$2(() => [...(_cache[1] || (_cache[1] = [
-                  _createTextVNode$2("订阅", -1)
+                  _createTextVNode$2("订阅", -1 /* CACHED */)
                 ]))]),
-                _: 1
-              }, 8, ["disabled", "onClick"]),
+                _: 1 /* STABLE */
+              }, 8 /* PROPS */, ["disabled", "onClick"]),
               _createVNode$2(_component_VBtn, {
                 variant: "tonal",
                 "prepend-icon": "mdi-movie-open-outline",
@@ -112,10 +112,10 @@ return (_ctx, _cache) => {
                 onClick: __props.page.doOpenTmdb
               }, {
                 default: _withCtx$2(() => [...(_cache[2] || (_cache[2] = [
-                  _createTextVNode$2("TMDB", -1)
+                  _createTextVNode$2("TMDB", -1 /* CACHED */)
                 ]))]),
-                _: 1
-              }, 8, ["loading", "disabled", "onClick"]),
+                _: 1 /* STABLE */
+              }, 8 /* PROPS */, ["loading", "disabled", "onClick"]),
               _createVNode$2(_component_VBtn, {
                 href: __props.page.sourceButtonHref() || undefined,
                 target: "_blank",
@@ -128,19 +128,19 @@ return (_ctx, _cache) => {
                 onClick: __props.page.openSource
               }, {
                 default: _withCtx$2(() => [
-                  _createTextVNode$2(_toDisplayString$2(__props.page.sourceButtonLabel()), 1)
+                  _createTextVNode$2(_toDisplayString$2(__props.page.sourceButtonLabel()), 1 /* TEXT */)
                 ]),
-                _: 1
-              }, 8, ["href", "color", "prepend-icon", "disabled", "onClick"])
+                _: 1 /* STABLE */
+              }, 8 /* PROPS */, ["href", "color", "prepend-icon", "disabled", "onClick"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
+        _: 1 /* STABLE */
       })
     ]),
-    _: 1
-  }, 8, ["model-value"]))
+    _: 1 /* STABLE */
+  }, 8 /* PROPS */, ["model-value"]))
 }
 }
 
@@ -291,8 +291,8 @@ return (_ctx, _cache) => {
   return (__props.page.archivePage)
     ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_1$1, [
         _createElementVNode$1("div", _hoisted_2$1, [
-          _cache[4] || (_cache[4] = _createTextVNode$1("归档记录 ", -1)),
-          _createElementVNode$1("span", _hoisted_3$1, "（共 " + _toDisplayString$1(__props.page.archiveData.total || 0) + " 条）", 1)
+          _cache[4] || (_cache[4] = _createTextVNode$1("归档记录 ", -1 /* CACHED */)),
+          _createElementVNode$1("span", _hoisted_3$1, "（共 " + _toDisplayString$1(__props.page.archiveData.total || 0) + " 条）", 1 /* TEXT */)
         ]),
         (__props.page.archiveData.items && __props.page.archiveData.items.length)
           ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_4$1, [
@@ -313,17 +313,17 @@ return (_ctx, _cache) => {
                             key: 0,
                             src: __props.page.archivePoster(item),
                             cover: ""
-                          }, null, 8, ["src"]))
+                          }, null, 8 /* PROPS */, ["src"]))
                         : (_openBlock$1(), _createBlock$1(_component_VIcon, {
                             key: 1,
                             icon: __props.page.archiveIcon(item),
                             size: "14"
-                          }, null, 8, ["icon"]))
+                          }, null, 8 /* PROPS */, ["icon"]))
                     ]),
-                    _: 2
-                  }, 1032, ["color"]),
+                    _: 2 /* DYNAMIC */
+                  }, 1032 /* PROPS, DYNAMIC_SLOTS */, ["color"]),
                   _createElementVNode$1("div", _hoisted_5$1, [
-                    _createElementVNode$1("div", _hoisted_6$1, _toDisplayString$1(__props.page.archiveTitle(item)), 1),
+                    _createElementVNode$1("div", _hoisted_6$1, _toDisplayString$1(__props.page.archiveTitle(item)), 1 /* TEXT */),
                     _createElementVNode$1("div", _hoisted_7, [
                       _createVNode$1(_component_VChip, {
                         size: "x-small",
@@ -332,10 +332,10 @@ return (_ctx, _cache) => {
                         class: "mr-1"
                       }, {
                         default: _withCtx$1(() => [
-                          _createTextVNode$1(_toDisplayString$1(__props.page.archiveSourceName(item)), 1)
+                          _createTextVNode$1(_toDisplayString$1(__props.page.archiveSourceName(item)), 1 /* TEXT */)
                         ]),
-                        _: 2
-                      }, 1032, ["color"]),
+                        _: 2 /* DYNAMIC */
+                      }, 1032 /* PROPS, DYNAMIC_SLOTS */, ["color"]),
                       (__props.page.archiveRankName(item))
                         ? (_openBlock$1(), _createBlock$1(_component_VChip, {
                             key: 0,
@@ -345,15 +345,15 @@ return (_ctx, _cache) => {
                             class: "dc-rank-chip mr-1"
                           }, {
                             default: _withCtx$1(() => [
-                              _createTextVNode$1(_toDisplayString$1(__props.page.archiveRankName(item)), 1)
+                              _createTextVNode$1(_toDisplayString$1(__props.page.archiveRankName(item)), 1 /* TEXT */)
                             ]),
-                            _: 2
-                          }, 1032, ["style"]))
-                        : _createCommentVNode$1("", true),
-                      _createElementVNode$1("span", _hoisted_8, _toDisplayString$1(__props.page.archiveTime(item) ? __props.page.archiveTime(item).split(' ')[0] : ''), 1),
+                            _: 2 /* DYNAMIC */
+                          }, 1032 /* PROPS, DYNAMIC_SLOTS */, ["style"]))
+                        : _createCommentVNode$1("v-if", true),
+                      _createElementVNode$1("span", _hoisted_8, _toDisplayString$1(__props.page.archiveTime(item) ? __props.page.archiveTime(item).split(' ')[0] : ''), 1 /* TEXT */),
                       (item.archived_at)
-                        ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_9, "归档 " + _toDisplayString$1(item.archived_at.split(' ')[0]), 1))
-                        : _createCommentVNode$1("", true)
+                        ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_9, "归档 " + _toDisplayString$1(item.archived_at.split(' ')[0]), 1 /* TEXT */))
+                        : _createCommentVNode$1("v-if", true)
                     ])
                   ]),
                   _createVNode$1(_component_VChip, {
@@ -363,10 +363,10 @@ return (_ctx, _cache) => {
                     class: "dc-row-status"
                   }, {
                     default: _withCtx$1(() => [
-                      _createTextVNode$1(_toDisplayString$1(__props.page.archiveStatus(item)), 1)
+                      _createTextVNode$1(_toDisplayString$1(__props.page.archiveStatus(item)), 1 /* TEXT */)
                     ]),
-                    _: 2
-                  }, 1032, ["color"]),
+                    _: 2 /* DYNAMIC */
+                  }, 1032 /* PROPS, DYNAMIC_SLOTS */, ["color"]),
                   _createVNode$1(_component_VBtn, {
                     disabled: !__props.canManage,
                     icon: "mdi-restore",
@@ -376,7 +376,7 @@ return (_ctx, _cache) => {
                     class: "dc-row-action",
                     loading: __props.page.actionKey === __props.page.rowKey('archive-restore', item, i),
                     onClick: $event => (__props.page.restoreArchive(item, i))
-                  }, null, 8, ["disabled", "loading", "onClick"]),
+                  }, null, 8 /* PROPS */, ["disabled", "loading", "onClick"]),
                   _createVNode$1(_component_VBtn, {
                     disabled: !__props.canManage,
                     icon: "mdi-delete-outline",
@@ -386,13 +386,13 @@ return (_ctx, _cache) => {
                     class: "dc-row-action",
                     loading: __props.page.actionKey === __props.page.rowKey('archive-delete', item, i),
                     onClick: $event => (__props.page.deleteArchive(item, i))
-                  }, null, 8, ["disabled", "loading", "onClick"])
+                  }, null, 8 /* PROPS */, ["disabled", "loading", "onClick"])
                 ]))
-              }), 128))
+              }), 128 /* KEYED_FRAGMENT */))
             ]))
           : (!__props.page.loading)
             ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_10, "暂无归档记录"))
-            : _createCommentVNode$1("", true),
+            : _createCommentVNode$1("v-if", true),
         (__props.page.archiveData.total_pages > 1)
           ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_11, [
               _createVNode$1(_component_VBtn, {
@@ -403,8 +403,8 @@ return (_ctx, _cache) => {
                 "aria-label": "上一页",
                 disabled: __props.page.archiveData.page <= 1,
                 onClick: _cache[0] || (_cache[0] = $event => (__props.page.goArchivePage(__props.page.archiveData.page - 1)))
-              }, null, 8, ["disabled"]),
-              _createElementVNode$1("span", _hoisted_12, _toDisplayString$1(__props.page.archiveData.page) + " / " + _toDisplayString$1(__props.page.archiveData.total_pages), 1),
+              }, null, 8 /* PROPS */, ["disabled"]),
+              _createElementVNode$1("span", _hoisted_12, _toDisplayString$1(__props.page.archiveData.page) + " / " + _toDisplayString$1(__props.page.archiveData.total_pages), 1 /* TEXT */),
               _createVNode$1(_component_VBtn, {
                 icon: "mdi-chevron-right",
                 variant: "text",
@@ -413,22 +413,22 @@ return (_ctx, _cache) => {
                 "aria-label": "下一页",
                 disabled: __props.page.archiveData.page >= __props.page.archiveData.total_pages,
                 onClick: _cache[1] || (_cache[1] = $event => (__props.page.goArchivePage(__props.page.archiveData.page + 1)))
-              }, null, 8, ["disabled"])
+              }, null, 8 /* PROPS */, ["disabled"])
             ]))
-          : _createCommentVNode$1("", true)
+          : _createCommentVNode$1("v-if", true)
       ]))
     : (_openBlock$1(), _createElementBlock$1(_Fragment, { key: 1 }, [
         (__props.page.stats)
           ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_13, [
-              _cache[7] || (_cache[7] = _createElementVNode$1("div", { class: "dc-section-title mb-2" }, "订阅统计", -1)),
+              _cache[7] || (_cache[7] = _createElementVNode$1("div", { class: "dc-section-title mb-2" }, "订阅统计", -1 /* CACHED */)),
               _createElementVNode$1("div", _hoisted_14, [
                 _createElementVNode$1("div", _hoisted_15, [
-                  _createElementVNode$1("div", _hoisted_16, _toDisplayString$1(__props.page.stats.total || 0), 1),
-                  _cache[5] || (_cache[5] = _createElementVNode$1("div", { class: "dc-stat-label" }, "总订阅数", -1))
+                  _createElementVNode$1("div", _hoisted_16, _toDisplayString$1(__props.page.stats.total || 0), 1 /* TEXT */),
+                  _cache[5] || (_cache[5] = _createElementVNode$1("div", { class: "dc-stat-label" }, "总订阅数", -1 /* CACHED */))
                 ]),
                 _createElementVNode$1("div", _hoisted_17, [
-                  _createElementVNode$1("div", _hoisted_18, _toDisplayString$1(__props.page.stats.month_new || 0), 1),
-                  _cache[6] || (_cache[6] = _createElementVNode$1("div", { class: "dc-stat-label" }, "本月新增", -1))
+                  _createElementVNode$1("div", _hoisted_18, _toDisplayString$1(__props.page.stats.month_new || 0), 1 /* TEXT */),
+                  _cache[6] || (_cache[6] = _createElementVNode$1("div", { class: "dc-stat-label" }, "本月新增", -1 /* CACHED */))
                 ]),
                 (_openBlock$1(true), _createElementBlock$1(_Fragment, null, _renderList((__props.page.stats.rank_stats || []), (item) => {
                   return (_openBlock$1(), _createElementBlock$1("div", {
@@ -438,19 +438,19 @@ return (_ctx, _cache) => {
                     _createElementVNode$1("div", {
                       class: "dc-stat-value",
                       style: _normalizeStyle({ color: __props.page.rankColorOf(item.key) })
-                    }, _toDisplayString$1(item.count), 5),
-                    _createElementVNode$1("div", _hoisted_19, _toDisplayString$1(item.name || __props.page.rankNameOf(item.key)), 1)
+                    }, _toDisplayString$1(item.count), 5 /* TEXT, STYLE */),
+                    _createElementVNode$1("div", _hoisted_19, _toDisplayString$1(item.name || __props.page.rankNameOf(item.key)), 1 /* TEXT */)
                   ]))
-                }), 128))
+                }), 128 /* KEYED_FRAGMENT */))
               ])
             ]))
-          : _createCommentVNode$1("", true),
+          : _createCommentVNode$1("v-if", true),
         (__props.page.rankHistory && Object.keys(__props.page.rankHistory).length)
           ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_20, [
               _cache[8] || (_cache[8] = _createElementVNode$1("div", { class: "dc-section-title mb-2" }, [
                 _createTextVNode$1("榜单快照 "),
                 _createElementVNode$1("span", { class: "text-caption font-weight-regular text-medium-emphasis" }, "（点击条目订阅或打开来源）")
-              ], -1)),
+              ], -1 /* CACHED */)),
               _createElementVNode$1("div", _hoisted_21, [
                 (_openBlock$1(true), _createElementBlock$1(_Fragment, null, _renderList(Object.entries(__props.page.rankHistory), ([key, items]) => {
                   return (_openBlock$1(), _createElementBlock$1("div", {
@@ -463,8 +463,8 @@ return (_ctx, _cache) => {
                         size: "15",
                         style: _normalizeStyle(__props.page.rankIconStyle(key)),
                         class: "mr-1"
-                      }, null, 8, ["style"]),
-                      _createElementVNode$1("span", null, _toDisplayString$1(__props.page.rankNameOf(key, items?.[0])), 1)
+                      }, null, 8 /* PROPS */, ["style"]),
+                      _createElementVNode$1("span", null, _toDisplayString$1(__props.page.rankNameOf(key, items?.[0])), 1 /* TEXT */)
                     ]),
                     (items && items.length)
                       ? (_openBlock$1(true), _createElementBlock$1(_Fragment, { key: 0 }, _renderList(items.slice(0, 5), (item, i) => {
@@ -484,31 +484,31 @@ return (_ctx, _cache) => {
                                       key: 0,
                                       src: __props.page.toPosterThumbnail(item.poster),
                                       cover: ""
-                                    }, null, 8, ["src"]))
+                                    }, null, 8 /* PROPS */, ["src"]))
                                   : (_openBlock$1(), _createBlock$1(_component_VIcon, {
                                       key: 1,
                                       icon: "mdi-filmstrip",
                                       size: "13"
                                     }))
                               ]),
-                              _: 2
-                            }, 1024),
-                            _createElementVNode$1("span", _hoisted_24, _toDisplayString$1(item.title || ''), 1),
+                              _: 2 /* DYNAMIC */
+                            }, 1024 /* DYNAMIC_SLOTS */),
+                            _createElementVNode$1("span", _hoisted_24, _toDisplayString$1(item.title || ''), 1 /* TEXT */),
                             (key === 'coming' && item.wish_count)
-                              ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_25, _toDisplayString$1(item.wish_count), 1))
-                              : _createCommentVNode$1("", true)
-                          ], 8, _hoisted_23))
-                        }), 128))
+                              ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_25, _toDisplayString$1(item.wish_count), 1 /* TEXT */))
+                              : _createCommentVNode$1("v-if", true)
+                          ], 8 /* PROPS */, _hoisted_23))
+                        }), 128 /* KEYED_FRAGMENT */))
                       : (_openBlock$1(), _createElementBlock$1("div", _hoisted_26, "暂无榜单数据"))
                   ]))
-                }), 128))
+                }), 128 /* KEYED_FRAGMENT */))
               ])
             ]))
-          : _createCommentVNode$1("", true),
+          : _createCommentVNode$1("v-if", true),
         _createElementVNode$1("div", _hoisted_27, [
           _createElementVNode$1("div", _hoisted_28, [
-            _cache[9] || (_cache[9] = _createTextVNode$1(" 黑名拦截 ", -1)),
-            _createElementVNode$1("span", _hoisted_29, "（关键词 " + _toDisplayString$1(__props.page.blacklistKeywords.length) + " 个，最近命中 " + _toDisplayString$1(__props.page.blacklistEntries.length) + " 条）", 1),
+            _cache[9] || (_cache[9] = _createTextVNode$1(" 黑名拦截 ", -1 /* CACHED */)),
+            _createElementVNode$1("span", _hoisted_29, "（关键词 " + _toDisplayString$1(__props.page.blacklistKeywords.length) + " 个，最近命中 " + _toDisplayString$1(__props.page.blacklistEntries.length) + " 条）", 1 /* TEXT */),
             (_openBlock$1(true), _createElementBlock$1(_Fragment, null, _renderList(__props.page.blacklistKeywords, (word, i) => {
               return (_openBlock$1(), _createBlock$1(_component_VChip, {
                 key: `${word}-${i}`,
@@ -518,11 +518,11 @@ return (_ctx, _cache) => {
                 class: "dc-blacklist-chip"
               }, {
                 default: _withCtx$1(() => [
-                  _createTextVNode$1(_toDisplayString$1(word), 1)
+                  _createTextVNode$1(_toDisplayString$1(word), 1 /* TEXT */)
                 ]),
-                _: 2
-              }, 1024))
-            }), 128))
+                _: 2 /* DYNAMIC */
+              }, 1024 /* DYNAMIC_SLOTS */))
+            }), 128 /* KEYED_FRAGMENT */))
           ]),
           (__props.page.blacklistEntries && __props.page.blacklistEntries.length)
             ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_30, [
@@ -543,12 +543,12 @@ return (_ctx, _cache) => {
                           size: "14"
                         })
                       ]),
-                      _: 1
+                      _: 1 /* STABLE */
                     }),
                     _createElementVNode$1("div", _hoisted_31, [
-                      _createElementVNode$1("div", _hoisted_32, _toDisplayString$1(item.title || '未命名条目'), 1),
+                      _createElementVNode$1("div", _hoisted_32, _toDisplayString$1(item.title || '未命名条目'), 1 /* TEXT */),
                       _createElementVNode$1("div", _hoisted_33, [
-                        _createElementVNode$1("span", _hoisted_34, _toDisplayString$1(item.time || ''), 1)
+                        _createElementVNode$1("span", _hoisted_34, _toDisplayString$1(item.time || ''), 1 /* TEXT */)
                       ])
                     ]),
                     _createVNode$1(_component_VChip, {
@@ -558,10 +558,10 @@ return (_ctx, _cache) => {
                       class: "dc-row-status"
                     }, {
                       default: _withCtx$1(() => [
-                        _createTextVNode$1(_toDisplayString$1(item.detail || item.reason || '黑名拦截'), 1)
+                        _createTextVNode$1(_toDisplayString$1(item.detail || item.reason || '黑名拦截'), 1 /* TEXT */)
                       ]),
-                      _: 2
-                    }, 1024),
+                      _: 2 /* DYNAMIC */
+                    }, 1024 /* DYNAMIC_SLOTS */),
                     _createVNode$1(_component_VBtn, {
                       disabled: !__props.canManage,
                       icon: "mdi-delete-outline",
@@ -571,18 +571,18 @@ return (_ctx, _cache) => {
                       class: "dc-row-action",
                       loading: __props.page.actionKey === __props.page.rowKey('log', item, i),
                       onClick: $event => (__props.page.deleteAntiCheatLog(item, i))
-                    }, null, 8, ["disabled", "loading", "onClick"])
+                    }, null, 8 /* PROPS */, ["disabled", "loading", "onClick"])
                   ]))
-                }), 128))
+                }), 128 /* KEYED_FRAGMENT */))
               ]))
             : (!__props.page.loading)
               ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_35, "暂无被黑名单筛选的条目"))
-              : _createCommentVNode$1("", true)
+              : _createCommentVNode$1("v-if", true)
         ]),
         _createElementVNode$1("div", _hoisted_36, [
           _createElementVNode$1("div", _hoisted_37, [
-            _cache[10] || (_cache[10] = _createTextVNode$1("观察队列 ", -1)),
-            _createElementVNode$1("span", _hoisted_38, "（待自动订阅 " + _toDisplayString$1(__props.page.pendingObservations.length) + " 条）", 1)
+            _cache[10] || (_cache[10] = _createTextVNode$1("观察队列 ", -1 /* CACHED */)),
+            _createElementVNode$1("span", _hoisted_38, "（待自动订阅 " + _toDisplayString$1(__props.page.pendingObservations.length) + " 条）", 1 /* TEXT */)
           ]),
           (__props.page.pendingObservations && __props.page.pendingObservations.length)
             ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_39, [
@@ -604,10 +604,10 @@ return (_ctx, _cache) => {
                           size: "14"
                         })
                       ]),
-                      _: 1
+                      _: 1 /* STABLE */
                     }),
                     _createElementVNode$1("div", _hoisted_41, [
-                      _createElementVNode$1("div", _hoisted_42, _toDisplayString$1(item.title), 1),
+                      _createElementVNode$1("div", _hoisted_42, _toDisplayString$1(item.title), 1 /* TEXT */),
                       _createElementVNode$1("div", _hoisted_43, [
                         _createVNode$1(_component_VChip, {
                           size: "x-small",
@@ -616,11 +616,11 @@ return (_ctx, _cache) => {
                           class: "dc-rank-chip mr-1"
                         }, {
                           default: _withCtx$1(() => [
-                            _createTextVNode$1(_toDisplayString$1(item.rank_name || __props.page.rankNameOf(item.rank_key, item)), 1)
+                            _createTextVNode$1(_toDisplayString$1(item.rank_name || __props.page.rankNameOf(item.rank_key, item)), 1 /* TEXT */)
                           ]),
-                          _: 2
-                        }, 1032, ["style"]),
-                        _createElementVNode$1("span", _hoisted_44, "观察 " + _toDisplayString$1(item.elapsed_days || 0) + " / " + _toDisplayString$1(item.observe_days || 0) + " 天", 1)
+                          _: 2 /* DYNAMIC */
+                        }, 1032 /* PROPS, DYNAMIC_SLOTS */, ["style"]),
+                        _createElementVNode$1("span", _hoisted_44, "观察 " + _toDisplayString$1(item.elapsed_days || 0) + " / " + _toDisplayString$1(item.observe_days || 0) + " 天", 1 /* TEXT */)
                       ])
                     ]),
                     _createVNode$1(_component_VChip, {
@@ -630,10 +630,10 @@ return (_ctx, _cache) => {
                       class: "dc-row-status"
                     }, {
                       default: _withCtx$1(() => [
-                        _createTextVNode$1("剩余 " + _toDisplayString$1(item.remaining_days || 0) + " 天", 1)
+                        _createTextVNode$1("剩余 " + _toDisplayString$1(item.remaining_days || 0) + " 天", 1 /* TEXT */)
                       ]),
-                      _: 2
-                    }, 1024),
+                      _: 2 /* DYNAMIC */
+                    }, 1024 /* DYNAMIC_SLOTS */),
                     _createVNode$1(_component_VBtn, {
                       icon: "mdi-delete-outline",
                       variant: "text",
@@ -642,18 +642,18 @@ return (_ctx, _cache) => {
                       class: "dc-row-action",
                       loading: __props.page.actionKey === __props.page.rowKey('obs', item, i),
                       onClick: _withModifiers($event => (__props.page.deleteObservation(item, i)), ["stop"])
-                    }, null, 8, ["loading", "onClick"])
-                  ], 8, _hoisted_40))
-                }), 128))
+                    }, null, 8 /* PROPS */, ["loading", "onClick"])
+                  ], 8 /* PROPS */, _hoisted_40))
+                }), 128 /* KEYED_FRAGMENT */))
               ]))
             : (!__props.page.loading)
               ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_45, "暂无观察期条目"))
-              : _createCommentVNode$1("", true)
+              : _createCommentVNode$1("v-if", true)
         ]),
         _createElementVNode$1("div", _hoisted_46, [
           _createElementVNode$1("div", _hoisted_47, [
-            _cache[11] || (_cache[11] = _createTextVNode$1("订阅历史 ", -1)),
-            _createElementVNode$1("span", _hoisted_48, "（共 " + _toDisplayString$1(__props.page.historyData.total) + " 条）", 1)
+            _cache[11] || (_cache[11] = _createTextVNode$1("订阅历史 ", -1 /* CACHED */)),
+            _createElementVNode$1("span", _hoisted_48, "（共 " + _toDisplayString$1(__props.page.historyData.total) + " 条）", 1 /* TEXT */)
           ]),
           (__props.page.historyData.items && __props.page.historyData.items.length)
             ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_49, [
@@ -672,17 +672,17 @@ return (_ctx, _cache) => {
                               key: 0,
                               src: __props.page.toPosterThumbnail(item.poster),
                               cover: ""
-                            }, null, 8, ["src"]))
+                            }, null, 8 /* PROPS */, ["src"]))
                           : (_openBlock$1(), _createBlock$1(_component_VIcon, {
                               key: 1,
                               icon: "mdi-filmstrip",
                               size: "14"
                             }))
                       ]),
-                      _: 2
-                    }, 1024),
+                      _: 2 /* DYNAMIC */
+                    }, 1024 /* DYNAMIC_SLOTS */),
                     _createElementVNode$1("div", _hoisted_50, [
-                      _createElementVNode$1("div", _hoisted_51, _toDisplayString$1(item.title), 1),
+                      _createElementVNode$1("div", _hoisted_51, _toDisplayString$1(item.title), 1 /* TEXT */),
                       _createElementVNode$1("div", _hoisted_52, [
                         _createVNode$1(_component_VChip, {
                           size: "x-small",
@@ -691,11 +691,11 @@ return (_ctx, _cache) => {
                           class: "dc-rank-chip mr-1"
                         }, {
                           default: _withCtx$1(() => [
-                            _createTextVNode$1(_toDisplayString$1(item.rank_name || __props.page.rankNameOf(item.rank_key, item)), 1)
+                            _createTextVNode$1(_toDisplayString$1(item.rank_name || __props.page.rankNameOf(item.rank_key, item)), 1 /* TEXT */)
                           ]),
-                          _: 2
-                        }, 1032, ["style"]),
-                        _createElementVNode$1("span", _hoisted_53, _toDisplayString$1(item.time ? item.time.split(' ')[0] : ''), 1)
+                          _: 2 /* DYNAMIC */
+                        }, 1032 /* PROPS, DYNAMIC_SLOTS */, ["style"]),
+                        _createElementVNode$1("span", _hoisted_53, _toDisplayString$1(item.time ? item.time.split(' ')[0] : ''), 1 /* TEXT */)
                       ])
                     ]),
                     _createVNode$1(_component_VChip, {
@@ -705,10 +705,10 @@ return (_ctx, _cache) => {
                       class: "dc-row-status"
                     }, {
                       default: _withCtx$1(() => [
-                        _createTextVNode$1(_toDisplayString$1(item.status === 'failed' ? '订阅失败' : '订阅成功'), 1)
+                        _createTextVNode$1(_toDisplayString$1(item.status === 'failed' ? '订阅失败' : '订阅成功'), 1 /* TEXT */)
                       ]),
-                      _: 2
-                    }, 1032, ["color"]),
+                      _: 2 /* DYNAMIC */
+                    }, 1032 /* PROPS, DYNAMIC_SLOTS */, ["color"]),
                     _createVNode$1(_component_VBtn, {
                       disabled: !__props.canManage,
                       icon: "mdi-delete-outline",
@@ -718,13 +718,13 @@ return (_ctx, _cache) => {
                       class: "dc-row-action",
                       loading: __props.page.actionKey === __props.page.rowKey('sub', item, i),
                       onClick: $event => (__props.page.deleteSubscribeHistory(item, i))
-                    }, null, 8, ["disabled", "loading", "onClick"])
+                    }, null, 8 /* PROPS */, ["disabled", "loading", "onClick"])
                   ]))
-                }), 128))
+                }), 128 /* KEYED_FRAGMENT */))
               ]))
             : (!__props.page.loading)
               ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_54, "暂无订阅记录"))
-              : _createCommentVNode$1("", true),
+              : _createCommentVNode$1("v-if", true),
           (__props.page.historyData.total_pages > 1)
             ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_55, [
                 _createVNode$1(_component_VBtn, {
@@ -735,11 +735,11 @@ return (_ctx, _cache) => {
                   onClick: _cache[2] || (_cache[2] = $event => (__props.page.goPage(__props.page.historyData.page - 1)))
                 }, {
                   default: _withCtx$1(() => [...(_cache[12] || (_cache[12] = [
-                    _createTextVNode$1("上一页", -1)
+                    _createTextVNode$1("上一页", -1 /* CACHED */)
                   ]))]),
-                  _: 1
-                }, 8, ["disabled"]),
-                _createElementVNode$1("span", _hoisted_56, _toDisplayString$1(__props.page.historyData.page) + " / " + _toDisplayString$1(__props.page.historyData.total_pages), 1),
+                  _: 1 /* STABLE */
+                }, 8 /* PROPS */, ["disabled"]),
+                _createElementVNode$1("span", _hoisted_56, _toDisplayString$1(__props.page.historyData.page) + " / " + _toDisplayString$1(__props.page.historyData.total_pages), 1 /* TEXT */),
                 _createVNode$1(_component_VBtn, {
                   variant: "text",
                   size: "x-small",
@@ -748,17 +748,17 @@ return (_ctx, _cache) => {
                   onClick: _cache[3] || (_cache[3] = $event => (__props.page.goPage(__props.page.historyData.page + 1)))
                 }, {
                   default: _withCtx$1(() => [...(_cache[13] || (_cache[13] = [
-                    _createTextVNode$1("下一页", -1)
+                    _createTextVNode$1("下一页", -1 /* CACHED */)
                   ]))]),
-                  _: 1
-                }, 8, ["disabled"])
+                  _: 1 /* STABLE */
+                }, 8 /* PROPS */, ["disabled"])
               ]))
-            : _createCommentVNode$1("", true)
+            : _createCommentVNode$1("v-if", true)
         ]),
         _createElementVNode$1("div", _hoisted_57, [
           _createElementVNode$1("div", _hoisted_58, [
-            _cache[14] || (_cache[14] = _createTextVNode$1("观察日志 ", -1)),
-            _createElementVNode$1("span", _hoisted_59, "（最近 " + _toDisplayString$1(__props.page.cheatLogs.length) + " 条）", 1)
+            _cache[14] || (_cache[14] = _createTextVNode$1("观察日志 ", -1 /* CACHED */)),
+            _createElementVNode$1("span", _hoisted_59, "（最近 " + _toDisplayString$1(__props.page.cheatLogs.length) + " 条）", 1 /* TEXT */)
           ]),
           (__props.page.cheatLogs && __props.page.cheatLogs.length)
             ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_60, [
@@ -777,17 +777,17 @@ return (_ctx, _cache) => {
                               key: 0,
                               src: __props.page.toPosterThumbnail(log.poster),
                               cover: ""
-                            }, null, 8, ["src"]))
+                            }, null, 8 /* PROPS */, ["src"]))
                           : (_openBlock$1(), _createBlock$1(_component_VIcon, {
                               key: 1,
                               icon: "mdi-filmstrip",
                               size: "14"
                             }))
                       ]),
-                      _: 2
-                    }, 1024),
+                      _: 2 /* DYNAMIC */
+                    }, 1024 /* DYNAMIC_SLOTS */),
                     _createElementVNode$1("div", _hoisted_61, [
-                      _createElementVNode$1("div", _hoisted_62, _toDisplayString$1(log.title), 1),
+                      _createElementVNode$1("div", _hoisted_62, _toDisplayString$1(log.title), 1 /* TEXT */),
                       _createElementVNode$1("div", _hoisted_63, [
                         _createVNode$1(_component_VChip, {
                           size: "x-small",
@@ -796,11 +796,11 @@ return (_ctx, _cache) => {
                           class: "dc-rank-chip mr-1"
                         }, {
                           default: _withCtx$1(() => [
-                            _createTextVNode$1(_toDisplayString$1(log.rank_name || log.rank_key || '观察日志'), 1)
+                            _createTextVNode$1(_toDisplayString$1(log.rank_name || log.rank_key || '观察日志'), 1 /* TEXT */)
                           ]),
-                          _: 2
-                        }, 1032, ["style"]),
-                        _createElementVNode$1("span", _hoisted_64, _toDisplayString$1(log.time ? log.time.split(' ')[0] : ''), 1)
+                          _: 2 /* DYNAMIC */
+                        }, 1032 /* PROPS, DYNAMIC_SLOTS */, ["style"]),
+                        _createElementVNode$1("span", _hoisted_64, _toDisplayString$1(log.time ? log.time.split(' ')[0] : ''), 1 /* TEXT */)
                       ])
                     ]),
                     _createVNode$1(_component_VChip, {
@@ -810,10 +810,10 @@ return (_ctx, _cache) => {
                       class: "dc-row-status"
                     }, {
                       default: _withCtx$1(() => [
-                        _createTextVNode$1(_toDisplayString$1(log.reason || '观察日志'), 1)
+                        _createTextVNode$1(_toDisplayString$1(log.reason || '观察日志'), 1 /* TEXT */)
                       ]),
-                      _: 2
-                    }, 1024),
+                      _: 2 /* DYNAMIC */
+                    }, 1024 /* DYNAMIC_SLOTS */),
                     _createVNode$1(_component_VBtn, {
                       disabled: !__props.canManage,
                       icon: "mdi-delete-outline",
@@ -823,15 +823,15 @@ return (_ctx, _cache) => {
                       class: "dc-row-action",
                       loading: __props.page.actionKey === __props.page.rowKey('log', log, i),
                       onClick: $event => (__props.page.deleteAntiCheatLog(log, i))
-                    }, null, 8, ["disabled", "loading", "onClick"])
+                    }, null, 8 /* PROPS */, ["disabled", "loading", "onClick"])
                   ]))
-                }), 128))
+                }), 128 /* KEYED_FRAGMENT */))
               ]))
             : (!__props.page.loading)
               ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_65, "暂无观察日志"))
-              : _createCommentVNode$1("", true)
+              : _createCommentVNode$1("v-if", true)
         ])
-      ], 64))
+      ], 64 /* STABLE_FRAGMENT */))
 }
 }
 
@@ -1345,11 +1345,11 @@ return (_ctx, _cache) => {
             default: _withCtx(() => [
               _createVNode(_component_VIcon, { icon: "mdi-book-open-page-variant-outline" })
             ]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createElementVNode("div", _hoisted_1, [
-            _createElementVNode("div", _hoisted_2, _toDisplayString(_unref(page).archivePage ? '豆瓣中心 · 归档记录' : '豆瓣中心 · 运行详情'), 1),
-            _createElementVNode("div", _hoisted_3, _toDisplayString(_unref(page).archivePage ? '删除进入归档，支持恢复或彻底删除' : '榜单刷新 -> 黑名筛选 -> 观察队列 -> 订阅记录'), 1)
+            _createElementVNode("div", _hoisted_2, _toDisplayString(_unref(page).archivePage ? '豆瓣中心 · 归档记录' : '豆瓣中心 · 运行详情'), 1 /* TEXT */),
+            _createElementVNode("div", _hoisted_3, _toDisplayString(_unref(page).archivePage ? '删除进入归档，支持恢复或彻底删除' : '榜单刷新 -> 黑名筛选 -> 观察队列 -> 订阅记录'), 1 /* TEXT */)
           ]),
           _createVNode(_component_VSpacer),
           _createElementVNode("div", _hoisted_4, [
@@ -1368,10 +1368,10 @@ return (_ctx, _cache) => {
                   size: "18",
                   class: "dc-toolbar-icon"
                 }),
-                _cache[5] || (_cache[5] = _createElementVNode("span", { class: "dc-toolbar-label" }, "刷新", -1))
+                _cache[5] || (_cache[5] = _createElementVNode("span", { class: "dc-toolbar-label" }, "刷新", -1 /* CACHED */))
               ]),
-              _: 1
-            }, 8, ["loading"]),
+              _: 1 /* STABLE */
+            }, 8 /* PROPS */, ["loading"]),
             _createVNode(_component_VBtn, {
               variant: "text",
               size: "small",
@@ -1386,11 +1386,11 @@ return (_ctx, _cache) => {
                   icon: _unref(page).archivePage ? 'mdi-arrow-left' : 'mdi-archive-outline',
                   size: "18",
                   class: "dc-toolbar-icon"
-                }, null, 8, ["icon"]),
-                _createElementVNode("span", _hoisted_5, _toDisplayString(_unref(page).archivePage ? '返回' : '归档'), 1)
+                }, null, 8 /* PROPS */, ["icon"]),
+                _createElementVNode("span", _hoisted_5, _toDisplayString(_unref(page).archivePage ? '返回' : '归档'), 1 /* TEXT */)
               ]),
-              _: 1
-            }, 8, ["title", "aria-label", "color"]),
+              _: 1 /* STABLE */
+            }, 8 /* PROPS */, ["title", "aria-label", "color"]),
             (props.show_switch && (props.showSettings || !props.appPage))
               ? (_openBlock(), _createBlock(_component_VBtn, {
                   key: 0,
@@ -1408,11 +1408,11 @@ return (_ctx, _cache) => {
                       size: "18",
                       class: "dc-toolbar-icon"
                     }),
-                    _cache[6] || (_cache[6] = _createElementVNode("span", { class: "dc-toolbar-label" }, "设置", -1))
+                    _cache[6] || (_cache[6] = _createElementVNode("span", { class: "dc-toolbar-label" }, "设置", -1 /* CACHED */))
                   ]),
-                  _: 1
-                }, 8, ["disabled"]))
-              : _createCommentVNode("", true),
+                  _: 1 /* STABLE */
+                }, 8 /* PROPS */, ["disabled"]))
+              : _createCommentVNode("v-if", true),
             (!props.appPage)
               ? (_openBlock(), _createBlock(_component_VBtn, {
                   key: 1,
@@ -1431,12 +1431,12 @@ return (_ctx, _cache) => {
                       class: "dc-toolbar-icon"
                     })
                   ]),
-                  _: 1
+                  _: 1 /* STABLE */
                 }))
-              : _createCommentVNode("", true)
+              : _createCommentVNode("v-if", true)
           ])
         ]),
-        _: 1
+        _: 1 /* STABLE */
       }),
       _createVNode(_component_VDivider),
       (_unref(page).loading)
@@ -1446,7 +1446,7 @@ return (_ctx, _cache) => {
             color: "primary",
             height: "2"
           }))
-        : _createCommentVNode("", true),
+        : _createCommentVNode("v-if", true),
       _createVNode(_component_VCardText, { class: "pa-3 dc-flow" }, {
         default: _withCtx(() => [
           (!_unref(canManage))
@@ -1458,11 +1458,11 @@ return (_ctx, _cache) => {
                 class: "dc-load-alert"
               }, {
                 default: _withCtx(() => [
-                  _createTextVNode(_toDisplayString(_unref(permissionError) || '当前为只读模式，记录维护需要管理员权限。'), 1)
+                  _createTextVNode(_toDisplayString(_unref(permissionError) || '当前为只读模式，记录维护需要管理员权限。'), 1 /* TEXT */)
                 ]),
-                _: 1
+                _: 1 /* STABLE */
               }))
-            : _createCommentVNode("", true),
+            : _createCommentVNode("v-if", true),
           (_unref(page).loadError)
             ? (_openBlock(), _createBlock(_component_VAlert, {
                 key: 1,
@@ -1473,7 +1473,7 @@ return (_ctx, _cache) => {
               }, {
                 default: _withCtx(() => [
                   _createElementVNode("div", _hoisted_6, [
-                    _createElementVNode("span", null, _toDisplayString(_unref(page).loadError), 1),
+                    _createElementVNode("span", null, _toDisplayString(_unref(page).loadError), 1 /* TEXT */),
                     _createVNode(_component_VBtn, {
                       variant: "text",
                       size: "x-small",
@@ -1483,32 +1483,32 @@ return (_ctx, _cache) => {
                       onClick: _cache[4] || (_cache[4] = $event => (_unref(page).archivePage ? _unref(page).loadArchive() : _unref(page).loadAll()))
                     }, {
                       default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
-                        _createTextVNode("重试", -1)
+                        _createTextVNode("重试", -1 /* CACHED */)
                       ]))]),
-                      _: 1
-                    }, 8, ["loading"])
+                      _: 1 /* STABLE */
+                    }, 8 /* PROPS */, ["loading"])
                   ])
                 ]),
-                _: 1
+                _: 1 /* STABLE */
               }))
-            : _createCommentVNode("", true),
+            : _createCommentVNode("v-if", true),
           (_unref(page).actionMessage)
             ? (_openBlock(), _createElementBlock("div", {
                 key: 2,
                 class: _normalizeClass(["dc-action-message", _unref(page).actionOk ? 'text-success' : 'text-error'])
-              }, _toDisplayString(_unref(page).actionMessage), 3))
-            : _createCommentVNode("", true),
+              }, _toDisplayString(_unref(page).actionMessage), 3 /* TEXT, CLASS */))
+            : _createCommentVNode("v-if", true),
           _createVNode(PageContent, {
             page: _unref(page),
             "can-manage": _unref(canManage)
-          }, null, 8, ["page", "can-manage"])
+          }, null, 8 /* PROPS */, ["page", "can-manage"])
         ]),
-        _: 1
+        _: 1 /* STABLE */
       }),
-      _createVNode(PageActionDialog, { page: _unref(page) }, null, 8, ["page"])
+      _createVNode(PageActionDialog, { page: _unref(page) }, null, 8 /* PROPS */, ["page"])
     ]),
-    _: 1
-  }, 8, ["class"]))
+    _: 1 /* STABLE */
+  }, 8 /* PROPS */, ["class"]))
 }
 }
 

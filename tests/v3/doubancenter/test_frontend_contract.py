@@ -125,8 +125,7 @@ def test_dashboard_retries_timeline_without_blocking_core_data():
         "function showActionDialog", 1
     )[0]
     assert "await postPluginApi(props.api, dashboardPluginId.value, 'refresh_rss', {})" in refresh_source
-    assert "await load()" in refresh_source
-    assert refresh_source.index("await load()") < refresh_source.index("await postPluginApi")
+    assert "await load()" not in refresh_source
     assert '@click="refreshDashboard"' in source
 
 

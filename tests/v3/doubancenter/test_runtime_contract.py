@@ -69,6 +69,7 @@ def test_init_stops_previous_run_before_config_migration_and_tasks(monkeypatch):
     """重复初始化必须先停止旧资源，再覆盖配置、迁移数据和启动一次性任务。"""
     events = []
     plugin = object.__new__(DoubanCenter)
+    plugin.get_data = lambda key, **kwargs: None
     plugin.stop_service = lambda: events.append("stop")
     plugin.update_config = lambda config: events.append("config")
     monkeypatch.setattr(

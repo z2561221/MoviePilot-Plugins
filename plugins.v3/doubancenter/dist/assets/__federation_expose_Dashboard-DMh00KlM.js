@@ -96,6 +96,7 @@ watch(showDialog, open => {
 }, { flush: 'sync' });
 const timelineImageFailed = ref({});
 let loadEpoch = 0;
+let rankEpoch = 0;
 let refreshEpoch = 0;
 let subscribeEpoch = 0;
 const requestScope = useRequestScope(() => dashboardPluginId.value, () => {
@@ -188,6 +189,7 @@ async function load() {
   if (!requestScope.isActive()) return
   const owner = requestScope.capture();
   const epoch = ++loadEpoch;
+  const rankRequestEpoch = rankEpoch;
   const current = () => owner() && epoch === loadEpoch;
   loading.value = true;
   folioLoading.value = true;
@@ -209,7 +211,7 @@ async function load() {
       }
       const data = normalizeApiData(result.value);
       if (index === 0) config.value = data || {};
-      else rankHistory.value = data || {};
+      else if (rankRequestEpoch === rankEpoch) rankHistory.value = data || {};
       return
     }
     errors.push(coreRequests[index].label);
@@ -241,12 +243,11 @@ async function refreshDashboard() {
   const current = () => owner() && epoch === refreshEpoch;
   refreshing.value = true;
   refreshResult.value = '';
-  await load();
-  if (!current()) return
   try {
     const res = await postPluginApi(props.api, dashboardPluginId.value, 'refresh_rss', {});
     if (!current()) return
     if (res.success) {
+      rankEpoch += 1;
       if (res.data) rankHistory.value = res.data;
       refreshResult.value = 'RSS 已刷新';
     } else {
@@ -445,7 +446,7 @@ return (_ctx, _cache) => {
             default: _withCtx(() => [
               _createVNode(_component_VIcon, { icon: "mdi-book-open-page-variant-outline" })
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
         append: _withCtx(() => [
@@ -460,26 +461,26 @@ return (_ctx, _cache) => {
             onClick: refreshDashboard
           }, {
             default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
-              _createTextVNode("刷新", -1)
+              _createTextVNode("刷新", -1 /* CACHED */)
             ]))]),
-            _: 1
-          }, 8, ["loading", "disabled", "title"])
+            _: 1 /* STABLE */
+          }, 8 /* PROPS */, ["loading", "disabled", "title"])
         ]),
         default: _withCtx(() => [
           _createVNode(_component_VCardTitle, null, {
             default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
-              _createTextVNode("豆瓣中心", -1)
+              _createTextVNode("豆瓣中心", -1 /* CACHED */)
             ]))]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createVNode(_component_VCardSubtitle, null, {
             default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
-              _createTextVNode("点击榜单条目可选择来源、TMDB 或订阅", -1)
+              _createTextVNode("点击榜单条目可选择来源、TMDB 或订阅", -1 /* CACHED */)
             ]))]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
+        _: 1 /* STABLE */
       }),
       _createVNode(_component_VDivider),
       (loading.value || folioLoading.value)
@@ -489,7 +490,7 @@ return (_ctx, _cache) => {
             color: "primary",
             height: "2"
           }))
-        : _createCommentVNode("", true),
+        : _createCommentVNode("v-if", true),
       _createVNode(_component_VCardText, { class: "pa-3" }, {
         default: _withCtx(() => [
           (loadError.value)
@@ -502,7 +503,7 @@ return (_ctx, _cache) => {
               }, {
                 default: _withCtx(() => [
                   _createElementVNode("div", _hoisted_1, [
-                    _createElementVNode("span", null, _toDisplayString(loadError.value), 1),
+                    _createElementVNode("span", null, _toDisplayString(loadError.value), 1 /* TEXT */),
                     _createVNode(_component_VBtn, {
                       variant: "text",
                       size: "x-small",
@@ -512,15 +513,15 @@ return (_ctx, _cache) => {
                       onClick: load
                     }, {
                       default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
-                        _createTextVNode("重试", -1)
+                        _createTextVNode("重试", -1 /* CACHED */)
                       ]))]),
-                      _: 1
-                    }, 8, ["loading"])
+                      _: 1 /* STABLE */
+                    }, 8 /* PROPS */, ["loading"])
                   ])
                 ]),
-                _: 1
+                _: 1 /* STABLE */
               }))
-            : _createCommentVNode("", true),
+            : _createCommentVNode("v-if", true),
           (subscribeResult.value)
             ? (_openBlock(), _createBlock(_component_VAlert, {
                 key: 1,
@@ -530,8 +531,8 @@ return (_ctx, _cache) => {
                 text: subscribeResult.value,
                 density: "compact",
                 closable: ""
-              }, null, 8, ["type", "text"]))
-            : _createCommentVNode("", true),
+              }, null, 8 /* PROPS */, ["type", "text"]))
+            : _createCommentVNode("v-if", true),
           (refreshResult.value)
             ? (_openBlock(), _createBlock(_component_VAlert, {
                 key: 2,
@@ -541,8 +542,8 @@ return (_ctx, _cache) => {
                 text: refreshResult.value,
                 density: "compact",
                 closable: ""
-              }, null, 8, ["type", "text"]))
-            : _createCommentVNode("", true),
+              }, null, 8 /* PROPS */, ["type", "text"]))
+            : _createCommentVNode("v-if", true),
           (timelineGroups.value.length)
             ? (_openBlock(), _createElementBlock("div", _hoisted_2, [
                 _createElementVNode("div", _hoisted_3, [
@@ -554,7 +555,7 @@ return (_ctx, _cache) => {
                         class: "mr-1",
                         color: "primary"
                       }),
-                      _cache[5] || (_cache[5] = _createTextVNode("追影时间线", -1))
+                      _cache[5] || (_cache[5] = _createTextVNode("追影时间线", -1 /* CACHED */))
                     ]),
                     _createElementVNode("div", _hoisted_6, [
                       _createElementVNode("div", _hoisted_7, [
@@ -565,17 +566,17 @@ return (_ctx, _cache) => {
                               class: "dc-timeline-month"
                             }, [
                               _createElementVNode("div", _hoisted_9, [
-                                _createTextVNode(_toDisplayString(group.label) + " ", 1),
+                                _createTextVNode(_toDisplayString(group.label) + " ", 1 /* TEXT */),
                                 _createVNode(_component_VChip, {
                                   size: "x-small",
                                   color: "primary",
                                   variant: "tonal"
                                 }, {
                                   default: _withCtx(() => [
-                                    _createTextVNode(_toDisplayString(group.items.length), 1)
+                                    _createTextVNode(_toDisplayString(group.items.length), 1 /* TEXT */)
                                   ]),
-                                  _: 2
-                                }, 1024)
+                                  _: 2 /* DYNAMIC */
+                                }, 1024 /* DYNAMIC_SLOTS */)
                               ]),
                               _createElementVNode("div", _hoisted_10, [
                                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(group.items, (item) => {
@@ -596,25 +597,25 @@ return (_ctx, _cache) => {
                                           cover: "",
                                           class: "rounded",
                                           onError: $event => (markTimelineImageFailed(item.key))
-                                        }, null, 8, ["src", "onError"]))
+                                        }, null, 8 /* PROPS */, ["src", "onError"]))
                                       : (_openBlock(), _createElementBlock("div", _hoisted_12, [
                                           _createVNode(_component_VIcon, {
                                             icon: "mdi-filmstrip",
                                             size: "14"
                                           })
                                         ]))
-                                  ], 8, _hoisted_11))
-                                }), 128))
+                                  ], 8 /* PROPS */, _hoisted_11))
+                                }), 128 /* KEYED_FRAGMENT */))
                               ])
                             ]))
-                          }), 128))
+                          }), 128 /* KEYED_FRAGMENT */))
                         ])
                       ])
                     ])
                   ])
                 ])
               ]))
-            : _createCommentVNode("", true),
+            : _createCommentVNode("v-if", true),
           (config.value.dashboard_rank_keys && config.value.dashboard_rank_keys.length)
             ? (_openBlock(), _createElementBlock("div", _hoisted_13, [
                 _createElementVNode("div", _hoisted_14, [
@@ -629,8 +630,8 @@ return (_ctx, _cache) => {
                           size: "15",
                           style: _normalizeStyle(rankIconStyle(rk)),
                           class: "mr-1"
-                        }, null, 8, ["style"]),
-                        _createElementVNode("span", null, _toDisplayString(rankNameOf(rk, rankHistory.value[rk]?.[0])), 1)
+                        }, null, 8 /* PROPS */, ["style"]),
+                        _createElementVNode("span", null, _toDisplayString(rankNameOf(rk, rankHistory.value[rk]?.[0])), 1 /* TEXT */)
                       ]),
                       _createElementVNode("div", _hoisted_16, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((rankHistory.value[rk] || []).slice(0, 5), (item, i) => {
@@ -650,35 +651,35 @@ return (_ctx, _cache) => {
                                       key: 0,
                                       src: _unref(toPosterThumbnail)(item.poster),
                                       cover: ""
-                                    }, null, 8, ["src"]))
+                                    }, null, 8 /* PROPS */, ["src"]))
                                   : (_openBlock(), _createBlock(_component_VIcon, {
                                       key: 1,
                                       icon: "mdi-filmstrip",
                                       size: "13"
                                     }))
                               ]),
-                              _: 2
-                            }, 1024),
-                            _createElementVNode("span", _hoisted_18, _toDisplayString(item.title), 1),
+                              _: 2 /* DYNAMIC */
+                            }, 1024 /* DYNAMIC_SLOTS */),
+                            _createElementVNode("span", _hoisted_18, _toDisplayString(item.title), 1 /* TEXT */),
                             (rk === 'coming' && item.wish_count)
-                              ? (_openBlock(), _createElementBlock("span", _hoisted_19, _toDisplayString(item.wish_count), 1))
-                              : _createCommentVNode("", true)
-                          ], 8, _hoisted_17))
-                        }), 128)),
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_19, _toDisplayString(item.wish_count), 1 /* TEXT */))
+                              : _createCommentVNode("v-if", true)
+                          ], 8 /* PROPS */, _hoisted_17))
+                        }), 128 /* KEYED_FRAGMENT */)),
                         (!(rankHistory.value[rk] || []).length)
                           ? (_openBlock(), _createElementBlock("div", _hoisted_20, "暂无数据"))
-                          : _createCommentVNode("", true)
+                          : _createCommentVNode("v-if", true)
                       ])
                     ]))
-                  }), 128))
+                  }), 128 /* KEYED_FRAGMENT */))
                 ])
               ]))
-            : _createCommentVNode("", true),
+            : _createCommentVNode("v-if", true),
           (!loading.value && !folioLoading.value && !config.value.dashboard_rank_keys?.length && !timelineGroups.value.length)
             ? (_openBlock(), _createElementBlock("div", _hoisted_21, " 请在配置页「仪表显示」中选择要显示的榜单 "))
-            : _createCommentVNode("", true)
+            : _createCommentVNode("v-if", true)
         ]),
-        _: 1
+        _: 1 /* STABLE */
       }),
       _createVNode(_component_VDialog, {
         modelValue: showDialog.value,
@@ -703,30 +704,30 @@ return (_ctx, _cache) => {
                         ? (_openBlock(), _createBlock(_component_VImg, {
                             key: 0,
                             src: dialogPoster()
-                          }, null, 8, ["src"]))
+                          }, null, 8 /* PROPS */, ["src"]))
                         : (_openBlock(), _createBlock(_component_VIcon, {
                             key: 1,
                             icon: "mdi-filmstrip"
                           }))
                     ]),
-                    _: 1
+                    _: 1 /* STABLE */
                   })
                 ]),
                 default: _withCtx(() => [
                   _createVNode(_component_VCardTitle, { class: "text-body-1 font-weight-bold pa-0" }, {
                     default: _withCtx(() => [
-                      _createTextVNode(_toDisplayString(dialogItem.value?.item?.title || ''), 1)
+                      _createTextVNode(_toDisplayString(dialogItem.value?.item?.title || ''), 1 /* TEXT */)
                     ]),
-                    _: 1
+                    _: 1 /* STABLE */
                   }),
                   _createVNode(_component_VCardSubtitle, { class: "text-caption pa-0" }, {
                     default: _withCtx(() => [
-                      _createTextVNode(_toDisplayString(dialogItem.value?.rk ? rankNameOf(dialogItem.value.rk, dialogItem.value.item) : ''), 1)
+                      _createTextVNode(_toDisplayString(dialogItem.value?.rk ? rankNameOf(dialogItem.value.rk, dialogItem.value.item) : ''), 1 /* TEXT */)
                     ]),
-                    _: 1
+                    _: 1 /* STABLE */
                   })
                 ]),
-                _: 1
+                _: 1 /* STABLE */
               }),
               _createVNode(_component_VDivider),
               (dialogResolveError.value)
@@ -737,8 +738,8 @@ return (_ctx, _cache) => {
                     density: "compact",
                     class: "mx-3 mt-3",
                     text: dialogResolveError.value
-                  }, null, 8, ["text"]))
-                : _createCommentVNode("", true),
+                  }, null, 8 /* PROPS */, ["text"]))
+                : _createCommentVNode("v-if", true),
               _createVNode(_component_VCardActions, { class: "pa-3 pt-2 dc-dialog-actions" }, {
                 default: _withCtx(() => [
                   _createVNode(_component_VBtn, {
@@ -750,10 +751,10 @@ return (_ctx, _cache) => {
                     onClick: doSubscribe
                   }, {
                     default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
-                      _createTextVNode("订阅", -1)
+                      _createTextVNode("订阅", -1 /* CACHED */)
                     ]))]),
-                    _: 1
-                  }, 8, ["disabled"]),
+                    _: 1 /* STABLE */
+                  }, 8 /* PROPS */, ["disabled"]),
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
                     "prepend-icon": "mdi-movie-open-outline",
@@ -763,10 +764,10 @@ return (_ctx, _cache) => {
                     onClick: doOpenTmdb
                   }, {
                     default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
-                      _createTextVNode("TMDB", -1)
+                      _createTextVNode("TMDB", -1 /* CACHED */)
                     ]))]),
-                    _: 1
-                  }, 8, ["loading", "disabled"]),
+                    _: 1 /* STABLE */
+                  }, 8 /* PROPS */, ["loading", "disabled"]),
                   _createVNode(_component_VBtn, {
                     href: sourceButtonHref() || undefined,
                     target: "_blank",
@@ -779,26 +780,26 @@ return (_ctx, _cache) => {
                     onClick: openSource
                   }, {
                     default: _withCtx(() => [
-                      _createTextVNode(_toDisplayString(sourceButtonLabel()), 1)
+                      _createTextVNode(_toDisplayString(sourceButtonLabel()), 1 /* TEXT */)
                     ]),
-                    _: 1
-                  }, 8, ["href", "color", "prepend-icon", "disabled"])
+                    _: 1 /* STABLE */
+                  }, 8 /* PROPS */, ["href", "color", "prepend-icon", "disabled"])
                 ]),
-                _: 1
+                _: 1 /* STABLE */
               })
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
-      }, 8, ["modelValue"])
+        _: 1 /* STABLE */
+      }, 8 /* PROPS */, ["modelValue"])
     ]),
-    _: 1
+    _: 1 /* STABLE */
   }))
 }
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-dc1240ff"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8cf88de3"]]);
 
 export { Dashboard as default };

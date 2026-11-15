@@ -24,7 +24,7 @@ return (_ctx, _cache) => {
   const _component_VRow = _resolveComponent$4("VRow");
 
   return _withDirectives$3((_openBlock$4(), _createElementBlock$4("div", _hoisted_1$4, [
-    _cache[2] || (_cache[2] = _createElementVNode$4("div", { class: "dc-section-title" }, "仪表盘选择", -1)),
+    _cache[2] || (_cache[2] = _createElementVNode$4("div", { class: "dc-section-title" }, "仪表盘选择", -1 /* CACHED */)),
     _createVNode$4(_component_VAlert, {
       type: "info",
       variant: "tonal",
@@ -53,9 +53,9 @@ return (_ctx, _cache) => {
               density: "compact",
               variant: "outlined",
               "hide-details": ""
-            }, null, 8, ["modelValue", "items", "onUpdate:modelValue"])
+            }, null, 8 /* PROPS */, ["modelValue", "items", "onUpdate:modelValue"])
           ]),
-          _: 1
+          _: 1 /* STABLE */
         }),
         _createVNode$4(_component_VCol, {
           cols: "12",
@@ -69,14 +69,14 @@ return (_ctx, _cache) => {
               inset: "",
               "hide-details": "",
               label: "开启发现页"
-            }, null, 8, ["modelValue"])
+            }, null, 8 /* PROPS */, ["modelValue"])
           ]),
-          _: 1
+          _: 1 /* STABLE */
         })
       ]),
-      _: 1
+      _: 1 /* STABLE */
     })
-  ], 512)), [
+  ], 512 /* NEED_PATCH */)), [
     [_vShow$3, __props.config.activeSub === 'view']
   ])
 }
@@ -118,7 +118,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock$3(), _createElementBlock$3(_Fragment$3, null, [
     _withDirectives$2(_createElementVNode$3("div", _hoisted_1$3, [
-      _cache[18] || (_cache[18] = _createElementVNode$3("div", { class: "dc-section-title" }, "同步想看", -1)),
+      _cache[18] || (_cache[18] = _createElementVNode$3("div", { class: "dc-section-title" }, "同步想看", -1 /* CACHED */)),
       _createVNode$3(_component_VRow, null, {
         default: _withCtx$3(() => [
           _createVNode$3(_component_VCol, {
@@ -133,9 +133,9 @@ return (_ctx, _cache) => {
                 inset: "",
                 "hide-details": "",
                 label: "启用想看同步"
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createVNode$3(_component_VCol, {
             cols: "12",
@@ -149,9 +149,9 @@ return (_ctx, _cache) => {
                 inset: "",
                 "hide-details": "",
                 label: "立即运行一次"
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createVNode$3(_component_VCol, {
             cols: "12",
@@ -165,9 +165,9 @@ return (_ctx, _cache) => {
                 density: "compact",
                 variant: "outlined",
                 "hide-details": ""
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createVNode$3(_component_VCol, {
             cols: "12",
@@ -186,12 +186,12 @@ return (_ctx, _cache) => {
                 "hide-details": "",
                 hint: "默认 7 天",
                 "persistent-hint": ""
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
+        _: 1 /* STABLE */
       }),
       _createVNode$3(_component_VRow, { class: "mt-2" }, {
         default: _withCtx$3(() => [
@@ -211,9 +211,9 @@ return (_ctx, _cache) => {
                 "hide-details": "",
                 hint: "逐账号读取并合并去重；留空读取 Cookie 所属账号",
                 "persistent-hint": ""
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createVNode$3(_component_VCol, {
             cols: "12",
@@ -227,12 +227,12 @@ return (_ctx, _cache) => {
                 inset: "",
                 "hide-details": "",
                 label: "发送通知"
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
+        _: 1 /* STABLE */
       }),
       _createVNode$3(_component_VAlert, {
         class: "mt-3",
@@ -243,27 +243,27 @@ return (_ctx, _cache) => {
       }),
       _createElementVNode$3("div", _hoisted_2$3, [
         _createElementVNode$3("div", _hoisted_3$3, [
-          _cache[14] || (_cache[14] = _createElementVNode$3("span", null, "队列待处理", -1)),
-          _createElementVNode$3("strong", null, _toDisplayString$3(__props.config.overview?.cards?.folio?.wish?.queue || 0), 1)
+          _cache[14] || (_cache[14] = _createElementVNode$3("span", null, "队列待处理", -1 /* CACHED */)),
+          _createElementVNode$3("strong", null, _toDisplayString$3(__props.config.overview?.cards?.folio?.wish?.queue || 0), 1 /* TEXT */)
         ]),
         _createElementVNode$3("div", _hoisted_4$3, [
-          _cache[15] || (_cache[15] = _createElementVNode$3("span", null, "失败记录", -1)),
-          _createElementVNode$3("strong", null, _toDisplayString$3(__props.config.overview?.cards?.folio?.wish?.failed || 0), 1)
+          _cache[15] || (_cache[15] = _createElementVNode$3("span", null, "失败记录", -1 /* CACHED */)),
+          _createElementVNode$3("strong", null, _toDisplayString$3(__props.config.overview?.cards?.folio?.wish?.failed || 0), 1 /* TEXT */)
         ]),
         _createElementVNode$3("div", _hoisted_5$3, [
-          _cache[16] || (_cache[16] = _createElementVNode$3("span", null, "最近运行", -1)),
-          _createElementVNode$3("strong", null, _toDisplayString$3(__props.config.overview?.cards?.folio?.wish?.last_run || '尚未运行'), 1)
+          _cache[16] || (_cache[16] = _createElementVNode$3("span", null, "最近运行", -1 /* CACHED */)),
+          _createElementVNode$3("strong", null, _toDisplayString$3(__props.config.overview?.cards?.folio?.wish?.last_run || '尚未运行'), 1 /* TEXT */)
         ]),
         _createElementVNode$3("div", _hoisted_6$3, [
-          _cache[17] || (_cache[17] = _createElementVNode$3("span", null, "状态错误", -1)),
-          _createElementVNode$3("strong", _hoisted_7$2, _toDisplayString$3(__props.config.overview?.cards?.folio?.wish?.last_error || '无'), 1)
+          _cache[17] || (_cache[17] = _createElementVNode$3("span", null, "状态错误", -1 /* CACHED */)),
+          _createElementVNode$3("strong", _hoisted_7$2, _toDisplayString$3(__props.config.overview?.cards?.folio?.wish?.last_error || '无'), 1 /* TEXT */)
         ])
       ])
-    ], 512), [
+    ], 512 /* NEED_PATCH */), [
       [_vShow$2, __props.config.activeSub === 'wish']
     ]),
     _withDirectives$2(_createElementVNode$3("div", _hoisted_8$2, [
-      _cache[19] || (_cache[19] = _createElementVNode$3("div", { class: "dc-section-title" }, "同步观影", -1)),
+      _cache[19] || (_cache[19] = _createElementVNode$3("div", { class: "dc-section-title" }, "同步观影", -1 /* CACHED */)),
       _createVNode$3(_component_VRow, null, {
         default: _withCtx$3(() => [
           _createVNode$3(_component_VCol, {
@@ -278,9 +278,9 @@ return (_ctx, _cache) => {
                 inset: "",
                 "hide-details": "",
                 label: "启用豆瓣时间"
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createVNode$3(_component_VCol, {
             cols: "12",
@@ -294,9 +294,9 @@ return (_ctx, _cache) => {
                 inset: "",
                 "hide-details": "",
                 label: "仅自己可见"
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createVNode$3(_component_VCol, {
             cols: "12",
@@ -310,12 +310,12 @@ return (_ctx, _cache) => {
                 inset: "",
                 "hide-details": "",
                 label: "不标记第一集"
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
+        _: 1 /* STABLE */
       }),
       _createVNode$3(_component_VRow, { class: "mt-2" }, {
         default: _withCtx$3(() => [
@@ -331,9 +331,9 @@ return (_ctx, _cache) => {
                 inset: "",
                 "hide-details": "",
                 label: "发送通知"
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createVNode$3(_component_VCol, {
             cols: "12",
@@ -347,12 +347,12 @@ return (_ctx, _cache) => {
                 inset: "",
                 "hide-details": "",
                 label: "排除电视直播源"
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
+        _: 1 /* STABLE */
       }),
       _createVNode$3(_component_VRow, { class: "mt-2" }, {
         default: _withCtx$3(() => [
@@ -368,9 +368,9 @@ return (_ctx, _cache) => {
                 density: "compact",
                 variant: "outlined",
                 "hide-details": ""
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createVNode$3(_component_VCol, {
             cols: "12",
@@ -384,12 +384,12 @@ return (_ctx, _cache) => {
                 density: "compact",
                 variant: "outlined",
                 "hide-details": ""
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
+        _: 1 /* STABLE */
       }),
       _createVNode$3(_component_VRow, { class: "mt-2" }, {
         default: _withCtx$3(() => [
@@ -402,17 +402,17 @@ return (_ctx, _cache) => {
                 density: "compact",
                 variant: "outlined",
                 "hide-details": ""
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
+        _: 1 /* STABLE */
       })
-    ], 512), [
+    ], 512 /* NEED_PATCH */), [
       [_vShow$2, __props.config.activeSub === 'sync']
     ])
-  ], 64))
+  ], 64 /* STABLE_FRAGMENT */))
 }
 }
 
@@ -469,30 +469,30 @@ return (_ctx, _cache) => {
     _createElementVNode$2("div", _hoisted_2$2, [
       _cache[0] || (_cache[0] = _createElementVNode$2("div", { class: "dc-section-title d-flex align-center" }, [
         _createElementVNode$2("span", null, "运行链路")
-      ], -1)),
+      ], -1 /* CACHED */)),
       _createElementVNode$2("div", _hoisted_3$2, [
         (_openBlock$2(true), _createElementBlock$2(_Fragment$2, null, _renderList$2((__props.config.overview?.flows || []), (flow) => {
           return (_openBlock$2(), _createElementBlock$2("div", {
             key: flow.label,
             class: "dc-flow-block"
           }, [
-            _createElementVNode$2("div", _hoisted_4$2, _toDisplayString$2(flow.label), 1),
+            _createElementVNode$2("div", _hoisted_4$2, _toDisplayString$2(flow.label), 1 /* TEXT */),
             (flow.steps?.length)
               ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_5$2, [
                   (_openBlock$2(true), _createElementBlock$2(_Fragment$2, null, _renderList$2(flow.steps, (step, index) => {
                     return (_openBlock$2(), _createElementBlock$2(_Fragment$2, {
                       key: `${flow.label}-${step}`
                     }, [
-                      _createElementVNode$2("span", null, _toDisplayString$2(step), 1),
+                      _createElementVNode$2("span", null, _toDisplayString$2(step), 1 /* TEXT */),
                       (index < flow.steps.length - 1)
                         ? (_openBlock$2(), _createBlock$2(_component_VIcon, {
                             key: 0,
                             icon: "mdi-arrow-right",
                             size: "15"
                           }))
-                        : _createCommentVNode$1("", true)
-                    ], 64))
-                  }), 128))
+                        : _createCommentVNode$1("v-if", true)
+                    ], 64 /* STABLE_FRAGMENT */))
+                  }), 128 /* KEYED_FRAGMENT */))
                 ]))
               : (flow.flows?.length)
                 ? (_openBlock$2(), _createElementBlock$2("div", _hoisted_6$2, [
@@ -501,29 +501,29 @@ return (_ctx, _cache) => {
                         key: `${flow.label}-${subFlow.label}`,
                         class: "dc-flow-sub-block"
                       }, [
-                        _createElementVNode$2("div", _hoisted_7$1, _toDisplayString$2(subFlow.label), 1),
+                        _createElementVNode$2("div", _hoisted_7$1, _toDisplayString$2(subFlow.label), 1 /* TEXT */),
                         _createElementVNode$2("div", _hoisted_8$1, [
                           (_openBlock$2(true), _createElementBlock$2(_Fragment$2, null, _renderList$2(subFlow.steps, (step, index) => {
                             return (_openBlock$2(), _createElementBlock$2(_Fragment$2, {
                               key: `${subFlow.label}-${step}`
                             }, [
-                              _createElementVNode$2("span", null, _toDisplayString$2(step), 1),
+                              _createElementVNode$2("span", null, _toDisplayString$2(step), 1 /* TEXT */),
                               (index < subFlow.steps.length - 1)
                                 ? (_openBlock$2(), _createBlock$2(_component_VIcon, {
                                     key: 0,
                                     icon: "mdi-arrow-right",
                                     size: "15"
                                   }))
-                                : _createCommentVNode$1("", true)
-                            ], 64))
-                          }), 128))
+                                : _createCommentVNode$1("v-if", true)
+                            ], 64 /* STABLE_FRAGMENT */))
+                          }), 128 /* KEYED_FRAGMENT */))
                         ])
                       ]))
-                    }), 128))
+                    }), 128 /* KEYED_FRAGMENT */))
                   ]))
-                : _createCommentVNode$1("", true)
+                : _createCommentVNode$1("v-if", true)
           ]))
-        }), 128))
+        }), 128 /* KEYED_FRAGMENT */))
       ])
     ]),
     _createElementVNode$2("div", _hoisted_9$1, [
@@ -543,46 +543,46 @@ return (_ctx, _cache) => {
                 _createVNode$2(_component_VIcon, {
                   icon: card.icon,
                   size: "17"
-                }, null, 8, ["icon"])
+                }, null, 8 /* PROPS */, ["icon"])
               ]),
-              _: 2
-            }, 1032, ["color"]),
-            _createElementVNode$2("div", _hoisted_11$1, _toDisplayString$2(card.title), 1)
+              _: 2 /* DYNAMIC */
+            }, 1032 /* PROPS, DYNAMIC_SLOTS */, ["color"]),
+            _createElementVNode$2("div", _hoisted_11$1, _toDisplayString$2(card.title), 1 /* TEXT */)
           ]),
-          _createElementVNode$2("div", _hoisted_12$1, _toDisplayString$2(card.value), 1),
-          _createElementVNode$2("div", _hoisted_13$1, _toDisplayString$2(card.desc), 1)
+          _createElementVNode$2("div", _hoisted_12$1, _toDisplayString$2(card.value), 1 /* TEXT */),
+          _createElementVNode$2("div", _hoisted_13$1, _toDisplayString$2(card.desc), 1 /* TEXT */)
         ]))
-      }), 128))
+      }), 128 /* KEYED_FRAGMENT */))
     ]),
     _createElementVNode$2("div", _hoisted_14$1, [
       _createElementVNode$2("div", _hoisted_15$1, [
-        _cache[4] || (_cache[4] = _createElementVNode$2("div", { class: "dc-section-title" }, "待关注", -1)),
+        _cache[4] || (_cache[4] = _createElementVNode$2("div", { class: "dc-section-title" }, "待关注", -1 /* CACHED */)),
         _createElementVNode$2("div", _hoisted_16$1, [
-          _cache[1] || (_cache[1] = _createElementVNode$2("span", null, "观察队列", -1)),
-          _createElementVNode$2("strong", null, _toDisplayString$2(__props.config.overview?.attention?.pending_observations || 0), 1)
+          _cache[1] || (_cache[1] = _createElementVNode$2("span", null, "观察队列", -1 /* CACHED */)),
+          _createElementVNode$2("strong", null, _toDisplayString$2(__props.config.overview?.attention?.pending_observations || 0), 1 /* TEXT */)
         ]),
         _createElementVNode$2("div", _hoisted_17$1, [
-          _cache[2] || (_cache[2] = _createElementVNode$2("span", null, "防刷日志", -1)),
-          _createElementVNode$2("strong", null, _toDisplayString$2(__props.config.overview?.attention?.anti_cheat_logs || 0), 1)
+          _cache[2] || (_cache[2] = _createElementVNode$2("span", null, "防刷日志", -1 /* CACHED */)),
+          _createElementVNode$2("strong", null, _toDisplayString$2(__props.config.overview?.attention?.anti_cheat_logs || 0), 1 /* TEXT */)
         ]),
         _createElementVNode$2("div", _hoisted_18$1, [
-          _cache[3] || (_cache[3] = _createElementVNode$2("span", null, "黑名命中", -1)),
-          _createElementVNode$2("strong", null, _toDisplayString$2(__props.config.overview?.attention?.blacklist_hits || 0), 1)
+          _cache[3] || (_cache[3] = _createElementVNode$2("span", null, "黑名命中", -1 /* CACHED */)),
+          _createElementVNode$2("strong", null, _toDisplayString$2(__props.config.overview?.attention?.blacklist_hits || 0), 1 /* TEXT */)
         ])
       ]),
       _createElementVNode$2("div", _hoisted_19$1, [
-        _cache[8] || (_cache[8] = _createElementVNode$2("div", { class: "dc-section-title" }, "治理概况", -1)),
+        _cache[8] || (_cache[8] = _createElementVNode$2("div", { class: "dc-section-title" }, "治理概况", -1 /* CACHED */)),
         _createElementVNode$2("div", _hoisted_20$1, [
-          _cache[5] || (_cache[5] = _createElementVNode$2("span", null, "忽略条目", -1)),
-          _createElementVNode$2("strong", null, _toDisplayString$2(__props.config.overview?.governance?.ignored_observations || 0), 1)
+          _cache[5] || (_cache[5] = _createElementVNode$2("span", null, "忽略条目", -1 /* CACHED */)),
+          _createElementVNode$2("strong", null, _toDisplayString$2(__props.config.overview?.governance?.ignored_observations || 0), 1 /* TEXT */)
         ]),
         _createElementVNode$2("div", _hoisted_21$1, [
-          _cache[6] || (_cache[6] = _createElementVNode$2("span", null, "订阅记录", -1)),
-          _createElementVNode$2("strong", null, _toDisplayString$2(__props.config.overview?.governance?.subscribe_records || 0), 1)
+          _cache[6] || (_cache[6] = _createElementVNode$2("span", null, "订阅记录", -1 /* CACHED */)),
+          _createElementVNode$2("strong", null, _toDisplayString$2(__props.config.overview?.governance?.subscribe_records || 0), 1 /* TEXT */)
         ]),
         _createElementVNode$2("div", _hoisted_22$1, [
-          _cache[7] || (_cache[7] = _createElementVNode$2("span", null, "防刷日志", -1)),
-          _createElementVNode$2("strong", null, _toDisplayString$2(__props.config.overview?.governance?.anti_cheat_logs || 0), 1)
+          _cache[7] || (_cache[7] = _createElementVNode$2("span", null, "防刷日志", -1 /* CACHED */)),
+          _createElementVNode$2("strong", null, _toDisplayString$2(__props.config.overview?.governance?.anti_cheat_logs || 0), 1 /* TEXT */)
         ])
       ])
     ])
@@ -681,7 +681,7 @@ return (_ctx, _cache) => {
 
   return (_openBlock$1(), _createElementBlock$1(_Fragment$1, null, [
     _withDirectives$1(_createElementVNode$1("div", _hoisted_1$1, [
-      _cache[11] || (_cache[11] = _createElementVNode$1("div", { class: "dc-section-title" }, "基础设置", -1)),
+      _cache[11] || (_cache[11] = _createElementVNode$1("div", { class: "dc-section-title" }, "基础设置", -1 /* CACHED */)),
       _createVNode$1(_component_VRow, null, {
         default: _withCtx$1(() => [
           _createVNode$1(_component_VCol, {
@@ -696,9 +696,9 @@ return (_ctx, _cache) => {
                 inset: "",
                 "hide-details": "",
                 label: "立即运行一次"
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createVNode$1(_component_VCol, {
             cols: "12",
@@ -712,12 +712,12 @@ return (_ctx, _cache) => {
                 density: "compact",
                 variant: "outlined",
                 "hide-details": ""
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
+        _: 1 /* STABLE */
       }),
       _createVNode$1(_component_VRow, { class: "mt-2" }, {
         default: _withCtx$1(() => [
@@ -733,9 +733,9 @@ return (_ctx, _cache) => {
                 inset: "",
                 "hide-details": "",
                 label: "发送观察通知"
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createVNode$1(_component_VCol, {
             cols: "12",
@@ -751,14 +751,14 @@ return (_ctx, _cache) => {
                 density: "compact",
                 variant: "outlined",
                 "hide-details": ""
-              }, null, 8, ["modelValue", "items", "disabled"])
+              }, null, 8 /* PROPS */, ["modelValue", "items", "disabled"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
+        _: 1 /* STABLE */
       }),
-      _cache[12] || (_cache[12] = _createElementVNode$1("div", { class: "text-caption text-medium-emphasis mt-2" }, "新条目进入观察区时通知，同一观察期不重复发送。Telegram 支持立即订阅或移除；其他渠道可打开观察区处理。", -1)),
+      _cache[12] || (_cache[12] = _createElementVNode$1("div", { class: "text-caption text-medium-emphasis mt-2" }, "新条目进入观察区时通知，同一观察期不重复发送。Telegram 支持立即订阅或移除；其他渠道可打开观察区处理。", -1 /* CACHED */)),
       _createVNode$1(_component_VRow, { class: "mt-2" }, {
         default: _withCtx$1(() => [
           _createVNode$1(_component_VCol, { cols: "12" }, {
@@ -772,12 +772,12 @@ return (_ctx, _cache) => {
                 "hide-details": "",
                 hint: "默认 https://rsshub.ddsrem.com，所有榜单共用",
                 "persistent-hint": ""
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
+        _: 1 /* STABLE */
       }),
       _createVNode$1(_component_VAlert, {
         class: "mt-3",
@@ -786,14 +786,14 @@ return (_ctx, _cache) => {
         density: "compact",
         text: "订阅用户名统一为「豆瓣中心」。即将上映支持评分、地区、想看筛选；空或 0 表示不限。"
       })
-    ], 512), [
+    ], 512 /* NEED_PATCH */), [
       [_vShow$1, __props.config.activeSub === 'basic']
     ]),
     _withDirectives$1(_createElementVNode$1("div", _hoisted_2$1, [
       _createElementVNode$1("div", _hoisted_3$1, [
         _createElementVNode$1("div", null, [
-          _cache[13] || (_cache[13] = _createElementVNode$1("div", { class: "dc-section-title mb-1" }, "榜单列表", -1)),
-          _createElementVNode$1("div", _hoisted_4$1, "已启用 " + _toDisplayString$1(__props.config.enabledRankCount) + " 个 · 自定义 " + _toDisplayString$1(__props.config.customRankCount) + " 个", 1)
+          _cache[13] || (_cache[13] = _createElementVNode$1("div", { class: "dc-section-title mb-1" }, "榜单列表", -1 /* CACHED */)),
+          _createElementVNode$1("div", _hoisted_4$1, "已启用 " + _toDisplayString$1(__props.config.enabledRankCount) + " 个 · 自定义 " + _toDisplayString$1(__props.config.customRankCount) + " 个", 1 /* TEXT */)
         ]),
         _createVNode$1(_component_VBtn, {
           icon: "",
@@ -813,13 +813,13 @@ return (_ctx, _cache) => {
               location: "top"
             }, {
               default: _withCtx$1(() => [...(_cache[14] || (_cache[14] = [
-                _createTextVNode$1("新增自定义榜单", -1)
+                _createTextVNode$1("新增自定义榜单", -1 /* CACHED */)
               ]))]),
-              _: 1
+              _: 1 /* STABLE */
             })
           ]),
-          _: 1
-        }, 8, ["onClick"])
+          _: 1 /* STABLE */
+        }, 8 /* PROPS */, ["onClick"])
       ]),
       _createVNode$1(_component_VAlert, {
         type: "info",
@@ -836,8 +836,8 @@ return (_ctx, _cache) => {
             density: "compact",
             class: "mb-2",
             text: __props.config.customRankError
-          }, null, 8, ["text"]))
-        : _createCommentVNode("", true),
+          }, null, 8 /* PROPS */, ["text"]))
+        : _createCommentVNode("v-if", true),
       _createElementVNode$1("div", _hoisted_5$1, [
         (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(__props.config.rankDefs, (rank) => {
           return (_openBlock$1(), _createElementBlock$1("div", {
@@ -857,10 +857,10 @@ return (_ctx, _cache) => {
                   _createVNode$1(_component_VIcon, {
                     icon: __props.config.isExpanded(rank.key) ? 'mdi-chevron-down' : 'mdi-chevron-right',
                     size: "20"
-                  }, null, 8, ["icon"])
+                  }, null, 8 /* PROPS */, ["icon"])
                 ]),
-                _: 2
-              }, 1032, ["aria-label", "onClick"]),
+                _: 2 /* DYNAMIC */
+              }, 1032 /* PROPS, DYNAMIC_SLOTS */, ["aria-label", "onClick"]),
               _createVNode$1(_component_VCheckbox, {
                 modelValue: __props.config.form.rank_configs[rank.key].enabled,
                 "onUpdate:modelValue": $event => ((__props.config.form.rank_configs[rank.key].enabled) = $event),
@@ -869,13 +869,13 @@ return (_ctx, _cache) => {
                 density: "compact",
                 class: "dc-rank-check",
                 "aria-label": `启用${rank.name}`
-              }, null, 8, ["modelValue", "onUpdate:modelValue", "aria-label"]),
+              }, null, 8 /* PROPS */, ["modelValue", "onUpdate:modelValue", "aria-label"]),
               _createElementVNode$1("div", {
                 class: "dc-rank-summary-main",
                 onClick: $event => (__props.config.toggleRank(rank.key))
               }, [
                 _createElementVNode$1("div", _hoisted_8, [
-                  _createElementVNode$1("span", null, _toDisplayString$1(rank.name), 1),
+                  _createElementVNode$1("span", null, _toDisplayString$1(rank.name), 1 /* TEXT */),
                   (rank.custom)
                     ? (_openBlock$1(), _createBlock$1(_component_VChip, {
                         key: 0,
@@ -884,29 +884,29 @@ return (_ctx, _cache) => {
                         variant: "tonal"
                       }, {
                         default: _withCtx$1(() => [...(_cache[15] || (_cache[15] = [
-                          _createTextVNode$1("自定义", -1)
+                          _createTextVNode$1("自定义", -1 /* CACHED */)
                         ]))]),
-                        _: 1
+                        _: 1 /* STABLE */
                       }))
-                    : _createCommentVNode("", true)
+                    : _createCommentVNode("v-if", true)
                 ]),
                 _createElementVNode$1("div", _hoisted_9, [
-                  _createElementVNode$1("span", null, "数量 " + _toDisplayString$1(__props.config.form.rank_configs[rank.key]?.count || '不限'), 1),
+                  _createElementVNode$1("span", null, "数量 " + _toDisplayString$1(__props.config.form.rank_configs[rank.key]?.count || '不限'), 1 /* TEXT */),
                   (rank.filters.includes('vote'))
-                    ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_10, "评分 " + _toDisplayString$1(__props.config.form.rank_configs[rank.key]?.vote || '不限'), 1))
-                    : _createCommentVNode("", true),
-                  _createElementVNode$1("span", null, "地区 " + _toDisplayString$1((__props.config.form.rank_configs[rank.key]?.regions || []).join('、') || '不限'), 1),
+                    ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_10, "评分 " + _toDisplayString$1(__props.config.form.rank_configs[rank.key]?.vote || '不限'), 1 /* TEXT */))
+                    : _createCommentVNode("v-if", true),
+                  _createElementVNode$1("span", null, "地区 " + _toDisplayString$1((__props.config.form.rank_configs[rank.key]?.regions || []).join('、') || '不限'), 1 /* TEXT */),
                   (rank.filters.includes('year'))
-                    ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_11, "年份 " + _toDisplayString$1(__props.config.form.rank_configs[rank.key]?.year || '不限'), 1))
-                    : _createCommentVNode("", true),
+                    ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_11, "年份 " + _toDisplayString$1(__props.config.form.rank_configs[rank.key]?.year || '不限'), 1 /* TEXT */))
+                    : _createCommentVNode("v-if", true),
                   (rank.filters.includes('wish_count'))
-                    ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_12, "想看 " + _toDisplayString$1(__props.config.form.rank_configs[rank.key]?.wish_count || '不限'), 1))
-                    : _createCommentVNode("", true),
+                    ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_12, "想看 " + _toDisplayString$1(__props.config.form.rank_configs[rank.key]?.wish_count || '不限'), 1 /* TEXT */))
+                    : _createCommentVNode("v-if", true),
                   (rank.filters.includes('air_days'))
-                    ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_13, _toDisplayString$1(__props.config.rankDateSummary(rank)), 1))
-                    : _createCommentVNode("", true)
+                    ? (_openBlock$1(), _createElementBlock$1("span", _hoisted_13, _toDisplayString$1(__props.config.rankDateSummary(rank)), 1 /* TEXT */))
+                    : _createCommentVNode("v-if", true)
                 ])
-              ], 8, _hoisted_7),
+              ], 8 /* PROPS */, _hoisted_7),
               _createElementVNode$1("div", _hoisted_14, [
                 (rank.custom)
                   ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
@@ -928,14 +928,14 @@ return (_ctx, _cache) => {
                           location: "top"
                         }, {
                           default: _withCtx$1(() => [...(_cache[16] || (_cache[16] = [
-                            _createTextVNode$1("删除自定义榜单", -1)
+                            _createTextVNode$1("删除自定义榜单", -1 /* CACHED */)
                           ]))]),
-                          _: 1
+                          _: 1 /* STABLE */
                         })
                       ]),
-                      _: 1
-                    }, 8, ["aria-label", "onClick"]))
-                  : _createCommentVNode("", true)
+                      _: 1 /* STABLE */
+                    }, 8 /* PROPS */, ["aria-label", "onClick"]))
+                  : _createCommentVNode("v-if", true)
               ])
             ]),
             _createVNode$1(_Transition, { name: "dc-rank-details" }, {
@@ -951,10 +951,10 @@ return (_ctx, _cache) => {
                           "hide-details": "",
                           density: "compact",
                           class: "dc-rank-detail-enable"
-                        }, null, 8, ["modelValue", "onUpdate:modelValue"]),
+                        }, null, 8 /* PROPS */, ["modelValue", "onUpdate:modelValue"]),
                         (!rank.custom)
-                          ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_17, "路由：" + _toDisplayString$1(rank.route), 1))
-                          : _createCommentVNode("", true)
+                          ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_17, "路由：" + _toDisplayString$1(rank.route), 1 /* TEXT */))
+                          : _createCommentVNode("v-if", true)
                       ]),
                       (rank.custom)
                         ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_18, [
@@ -968,7 +968,7 @@ return (_ctx, _cache) => {
                               variant: "outlined",
                               "hide-details": "",
                               class: "dc-custom-rank-name"
-                            }, null, 8, ["modelValue", "onUpdate:modelValue"]),
+                            }, null, 8 /* PROPS */, ["modelValue", "onUpdate:modelValue"]),
                             _createVNode$1(_component_VTextField, {
                               modelValue: rank.model.route,
                               "onUpdate:modelValue": $event => ((rank.model.route) = $event),
@@ -978,7 +978,7 @@ return (_ctx, _cache) => {
                               variant: "outlined",
                               "hide-details": "",
                               class: "dc-custom-rank-route"
-                            }, null, 8, ["modelValue", "onUpdate:modelValue"]),
+                            }, null, 8 /* PROPS */, ["modelValue", "onUpdate:modelValue"]),
                             _createVNode$1(_component_VSelect, {
                               modelValue: rank.model.date_mode,
                               "onUpdate:modelValue": $event => ((rank.model.date_mode) = $event),
@@ -988,9 +988,9 @@ return (_ctx, _cache) => {
                               variant: "outlined",
                               "hide-details": "",
                               class: "dc-custom-rank-date-mode"
-                            }, null, 8, ["modelValue", "onUpdate:modelValue", "items"])
+                            }, null, 8 /* PROPS */, ["modelValue", "onUpdate:modelValue", "items"])
                           ]))
-                        : _createCommentVNode("", true),
+                        : _createCommentVNode("v-if", true),
                       _createElementVNode$1("div", _hoisted_19, [
                         _createElementVNode$1("div", _hoisted_20, [
                           _createVNode$1(_component_VTextField, {
@@ -1005,7 +1005,7 @@ return (_ctx, _cache) => {
                             variant: "outlined",
                             "hide-details": "",
                             class: "dc-rank-input"
-                          }, null, 8, ["modelValue", "onUpdate:modelValue"])
+                          }, null, 8 /* PROPS */, ["modelValue", "onUpdate:modelValue"])
                         ]),
                         (rank.filters.includes('vote'))
                           ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_21, [
@@ -1023,9 +1023,9 @@ return (_ctx, _cache) => {
                                 variant: "outlined",
                                 "hide-details": "",
                                 class: "dc-rank-input"
-                              }, null, 8, ["modelValue", "onUpdate:modelValue"])
+                              }, null, 8 /* PROPS */, ["modelValue", "onUpdate:modelValue"])
                             ]))
-                          : _createCommentVNode("", true),
+                          : _createCommentVNode("v-if", true),
                         _createVNode$1(_component_VCombobox, {
                           modelValue: __props.config.form.rank_configs[rank.key].regions,
                           "onUpdate:modelValue": $event => ((__props.config.form.rank_configs[rank.key].regions) = $event),
@@ -1040,7 +1040,7 @@ return (_ctx, _cache) => {
                           density: "compact",
                           variant: "outlined",
                           class: "dc-rank-regions"
-                        }, null, 8, ["modelValue", "onUpdate:modelValue"]),
+                        }, null, 8 /* PROPS */, ["modelValue", "onUpdate:modelValue"]),
                         (rank.filters.includes('year'))
                           ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_22, [
                               _createVNode$1(_component_VTextField, {
@@ -1055,9 +1055,9 @@ return (_ctx, _cache) => {
                                 variant: "outlined",
                                 "hide-details": "",
                                 class: "dc-rank-input"
-                              }, null, 8, ["modelValue", "onUpdate:modelValue"])
+                              }, null, 8 /* PROPS */, ["modelValue", "onUpdate:modelValue"])
                             ]))
-                          : _createCommentVNode("", true),
+                          : _createCommentVNode("v-if", true),
                         (rank.filters.includes('wish_count'))
                           ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_23, [
                               _createVNode$1(_component_VTextField, {
@@ -1072,9 +1072,9 @@ return (_ctx, _cache) => {
                                 variant: "outlined",
                                 "hide-details": "",
                                 class: "dc-rank-input"
-                              }, null, 8, ["modelValue", "onUpdate:modelValue"])
+                              }, null, 8 /* PROPS */, ["modelValue", "onUpdate:modelValue"])
                             ]))
-                          : _createCommentVNode("", true),
+                          : _createCommentVNode("v-if", true),
                         (rank.filters.includes('air_days'))
                           ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_24, [
                               _createVNode$1(_component_VTextField, {
@@ -1089,21 +1089,21 @@ return (_ctx, _cache) => {
                                 variant: "outlined",
                                 "hide-details": "",
                                 class: "dc-rank-input"
-                              }, null, 8, ["modelValue", "onUpdate:modelValue", "label"])
+                              }, null, 8 /* PROPS */, ["modelValue", "onUpdate:modelValue", "label"])
                             ]))
-                          : _createCommentVNode("", true)
+                          : _createCommentVNode("v-if", true)
                       ])
                     ]))
-                  : _createCommentVNode("", true)
+                  : _createCommentVNode("v-if", true)
               ]),
-              _: 2
-            }, 1024)
-          ], 2))
-        }), 128))
+              _: 2 /* DYNAMIC */
+            }, 1024 /* DYNAMIC_SLOTS */)
+          ], 2 /* CLASS */))
+        }), 128 /* KEYED_FRAGMENT */))
       ]),
       (!__props.config.form.custom_ranks.length)
         ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_25, "尚未添加自定义榜单"))
-        : _createCommentVNode("", true),
+        : _createCommentVNode("v-if", true),
       _createVNode$1(_component_VDialog, {
         "model-value": __props.config.deleteDialog,
         "max-width": "420",
@@ -1114,15 +1114,15 @@ return (_ctx, _cache) => {
             default: _withCtx$1(() => [
               _createVNode$1(_component_VCardTitle, { class: "text-body-1" }, {
                 default: _withCtx$1(() => [...(_cache[17] || (_cache[17] = [
-                  _createTextVNode$1("删除自定义榜单", -1)
+                  _createTextVNode$1("删除自定义榜单", -1 /* CACHED */)
                 ]))]),
-                _: 1
+                _: 1 /* STABLE */
               }),
               _createVNode$1(_component_VCardText, null, {
                 default: _withCtx$1(() => [
-                  _createTextVNode$1("确定删除「" + _toDisplayString$1(__props.config.deleteTarget?.name || '未命名榜单') + "」吗？相关订阅、历史和运行条目不会被删除。", 1)
+                  _createTextVNode$1("确定删除「" + _toDisplayString$1(__props.config.deleteTarget?.name || '未命名榜单') + "」吗？相关订阅、历史和运行条目不会被删除。", 1 /* TEXT */)
                 ]),
-                _: 1
+                _: 1 /* STABLE */
               }),
               _createVNode$1(_component_VCardActions, null, {
                 default: _withCtx$1(() => [
@@ -1132,9 +1132,9 @@ return (_ctx, _cache) => {
                     onClick: _cache[5] || (_cache[5] = $event => (__props.config.deleteDialog = false))
                   }, {
                     default: _withCtx$1(() => [...(_cache[18] || (_cache[18] = [
-                      _createTextVNode$1("取消", -1)
+                      _createTextVNode$1("取消", -1 /* CACHED */)
                     ]))]),
-                    _: 1
+                    _: 1 /* STABLE */
                   }),
                   _createVNode$1(_component_VBtn, {
                     color: "error",
@@ -1142,24 +1142,24 @@ return (_ctx, _cache) => {
                     onClick: _cache[6] || (_cache[6] = $event => (__props.config.removeCustomRank(__props.config.deleteTarget?.key)))
                   }, {
                     default: _withCtx$1(() => [...(_cache[19] || (_cache[19] = [
-                      _createTextVNode$1("删除", -1)
+                      _createTextVNode$1("删除", -1 /* CACHED */)
                     ]))]),
-                    _: 1
+                    _: 1 /* STABLE */
                   })
                 ]),
-                _: 1
+                _: 1 /* STABLE */
               })
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
-      }, 8, ["model-value"])
-    ], 512), [
+        _: 1 /* STABLE */
+      }, 8 /* PROPS */, ["model-value"])
+    ], 512 /* NEED_PATCH */), [
       [_vShow$1, __props.config.activeSub === 'list']
     ]),
     _withDirectives$1(_createElementVNode$1("div", _hoisted_26, [
-      _cache[20] || (_cache[20] = _createElementVNode$1("div", { class: "dc-section-title" }, "观察设置", -1)),
+      _cache[20] || (_cache[20] = _createElementVNode$1("div", { class: "dc-section-title" }, "观察设置", -1 /* CACHED */)),
       _createVNode$1(_component_VRow, null, {
         default: _withCtx$1(() => [
           _createVNode$1(_component_VCol, {
@@ -1180,9 +1180,9 @@ return (_ctx, _cache) => {
                 "hide-details": "",
                 hint: "被选中的榜单会先进入观察队列，达到观察期后再订阅",
                 "persistent-hint": ""
-              }, null, 8, ["modelValue", "items"])
+              }, null, 8 /* PROPS */, ["modelValue", "items"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           }),
           _createVNode$1(_component_VCol, {
             cols: "12",
@@ -1201,12 +1201,12 @@ return (_ctx, _cache) => {
                 "hide-details": "",
                 hint: "新条目在榜 N 天后才订阅，0 为不启用",
                 "persistent-hint": ""
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
+        _: 1 /* STABLE */
       }),
       _createVNode$1(_component_VRow, { class: "mt-2" }, {
         default: _withCtx$1(() => [
@@ -1223,17 +1223,17 @@ return (_ctx, _cache) => {
                 "hide-details": "",
                 hint: "标题包含任一关键词则跳过订阅。支持片段匹配，如输入「综艺」会匹配所有含「综艺」的剧名",
                 "persistent-hint": ""
-              }, null, 8, ["modelValue"])
+              }, null, 8 /* PROPS */, ["modelValue"])
             ]),
-            _: 1
+            _: 1 /* STABLE */
           })
         ]),
-        _: 1
+        _: 1 /* STABLE */
       })
-    ], 512), [
+    ], 512 /* NEED_PATCH */), [
       [_vShow$1, __props.config.activeSub === 'filter']
     ])
-  ], 64))
+  ], 64 /* STABLE_FRAGMENT */))
 }
 }
 
@@ -1700,7 +1700,7 @@ return (_ctx, _cache) => {
                   size: "24"
                 })
               ]),
-              _: 1
+              _: 1 /* STABLE */
             })
           ]),
           append: _withCtx(() => [
@@ -1712,23 +1712,23 @@ return (_ctx, _cache) => {
               inset: "",
               class: "dc-enable-switch",
               label: _unref(config).form.enabled ? '已启用' : '已停用'
-            }, null, 8, ["modelValue", "label"])
+            }, null, 8 /* PROPS */, ["modelValue", "label"])
           ]),
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, { class: "text-h6 dc-header-title" }, {
               default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
-                _createTextVNode("豆瓣中心", -1)
+                _createTextVNode("豆瓣中心", -1 /* CACHED */)
               ]))]),
-              _: 1
+              _: 1 /* STABLE */
             }),
             _createVNode(_component_VCardSubtitle, { class: "text-caption dc-header-subtitle" }, {
               default: _withCtx(() => [
-                _createTextVNode(_toDisplayString(_unref(config).currentMain.desc), 1)
+                _createTextVNode(_toDisplayString(_unref(config).currentMain.desc), 1 /* TEXT */)
               ]),
-              _: 1
+              _: 1 /* STABLE */
             })
           ]),
-          _: 1
+          _: 1 /* STABLE */
         }),
         _createVNode(_component_VDivider),
         _createElementVNode("div", _hoisted_2, [
@@ -1752,21 +1752,21 @@ return (_ctx, _cache) => {
                       _createVNode(_component_VIcon, {
                         icon: item.icon,
                         class: "dc-nav-icon"
-                      }, null, 8, ["icon"])
+                      }, null, 8 /* PROPS */, ["icon"])
                     ]),
                     default: _withCtx(() => [
                       _createVNode(_component_VListItemTitle, { class: "dc-nav-title" }, {
                         default: _withCtx(() => [
-                          _createTextVNode(_toDisplayString(item.title), 1)
+                          _createTextVNode(_toDisplayString(item.title), 1 /* TEXT */)
                         ]),
-                        _: 2
-                      }, 1024)
+                        _: 2 /* DYNAMIC */
+                      }, 1024 /* DYNAMIC_SLOTS */)
                     ]),
-                    _: 2
-                  }, 1032, ["active", "onClick"]))
-                }), 128))
+                    _: 2 /* DYNAMIC */
+                  }, 1032 /* PROPS, DYNAMIC_SLOTS */, ["active", "onClick"]))
+                }), 128 /* KEYED_FRAGMENT */))
               ]),
-              _: 1
+              _: 1 /* STABLE */
             })
           ]),
           _createElementVNode("section", _hoisted_4, [
@@ -1782,22 +1782,22 @@ return (_ctx, _cache) => {
                     icon: sub.icon,
                     size: "18",
                     class: "mr-1"
-                  }, null, 8, ["icon"]),
-                  _createTextVNode(_toDisplayString(sub.title), 1)
-                ], 10, _hoisted_6))
-              }), 128))
+                  }, null, 8 /* PROPS */, ["icon"]),
+                  _createTextVNode(_toDisplayString(sub.title), 1 /* TEXT */)
+                ], 10 /* CLASS, PROPS */, _hoisted_6))
+              }), 128 /* KEYED_FRAGMENT */))
             ]),
             _createVNode(_component_VDivider),
             _createElementVNode("div", {
               class: _normalizeClass(["dc-window", { 'dc-window--overview': _unref(config).activeMain === 'overview' }])
             }, [
-              _withDirectives(_createVNode(ConfigOverviewPane, { config: _unref(config) }, null, 8, ["config"]), [
+              _withDirectives(_createVNode(ConfigOverviewPane, { config: _unref(config) }, null, 8 /* PROPS */, ["config"]), [
                 [_vShow, _unref(config).activeSub === 'overview']
               ]),
-              _createVNode(ConfigRankPane, { config: _unref(config) }, null, 8, ["config"]),
-              _createVNode(ConfigFolioPane, { config: _unref(config) }, null, 8, ["config"]),
-              _createVNode(ConfigDashboardPane, { config: _unref(config) }, null, 8, ["config"])
-            ], 2)
+              _createVNode(ConfigRankPane, { config: _unref(config) }, null, 8 /* PROPS */, ["config"]),
+              _createVNode(ConfigFolioPane, { config: _unref(config) }, null, 8 /* PROPS */, ["config"]),
+              _createVNode(ConfigDashboardPane, { config: _unref(config) }, null, 8 /* PROPS */, ["config"])
+            ], 2 /* CLASS */)
           ])
         ]),
         _createVNode(_component_VDivider),
@@ -1810,9 +1810,9 @@ return (_ctx, _cache) => {
               onClick: _cache[1] || (_cache[1] = $event => (emit('close')))
             }, {
               default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
-                _createTextVNode("取消", -1)
+                _createTextVNode("取消", -1 /* CACHED */)
               ]))]),
-              _: 1
+              _: 1 /* STABLE */
             }),
             _createVNode(_component_VBtn, {
               color: "primary",
@@ -1822,15 +1822,15 @@ return (_ctx, _cache) => {
               onClick: _unref(config).saveConfig
             }, {
               default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
-                _createTextVNode("保存配置", -1)
+                _createTextVNode("保存配置", -1 /* CACHED */)
               ]))]),
-              _: 1
-            }, 8, ["onClick"])
+              _: 1 /* STABLE */
+            }, 8 /* PROPS */, ["onClick"])
           ]),
-          _: 1
+          _: 1 /* STABLE */
         })
       ]),
-      _: 1
+      _: 1 /* STABLE */
     })
   ]))
 }

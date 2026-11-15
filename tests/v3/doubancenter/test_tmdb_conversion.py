@@ -64,6 +64,7 @@ def test_bangumi_subject_prefers_rsshub_chinese_title_and_poster():
 def test_plugin_init_does_not_fetch_bangumi_history(monkeypatch):
     """插件初始化不得同步请求 BGM，历史补全由榜单刷新链路承担。"""
     plugin = object.__new__(DoubanCenter)
+    plugin.get_data = lambda key, **kwargs: None
     plugin.stop_service = lambda: None
     plugin.update_config = lambda config: None
     monkeypatch.setattr(feed, "normalize_bangumi_history", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError))

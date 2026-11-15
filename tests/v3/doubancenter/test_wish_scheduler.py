@@ -13,6 +13,7 @@ def scheduler_lab(monkeypatch):
     """保留初始化和代次绑定行为，但不运行网络、数据库或真实订阅。"""
     events = []
     plugin = object.__new__(DoubanCenter)
+    plugin.get_data = lambda key, **kwargs: None
     plugin._scheduler = None
     plugin.update_config = lambda config: None
     monkeypatch.setattr(migration, "migrate_plugin_media_identity", lambda *a, **kw: None)

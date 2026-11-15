@@ -298,6 +298,9 @@ def write_subscribe_record(
             continue
         kept.append(item)
     kept.append(record)
+    from .archive import archive_detail_overflow
+
+    kept, _ = archive_detail_overflow(plugin, kept, "subscribe_history", "订阅历史")
     storage.save_subscribe_records(plugin, kept)
 
 

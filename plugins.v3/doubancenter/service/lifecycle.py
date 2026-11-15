@@ -27,6 +27,8 @@ def stop(plugin) -> None:
         event.set()
     # 换掉缓存容器；在途旧查询即使返回，也不能把缓存重新挂回新代次。
     plugin._folio_series_cache = {}
+    plugin._folio_library_poster_cache = {}
+    plugin._folio_library_season_cache = {}
 
 
 def checkpoint(plugin) -> None:
