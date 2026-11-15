@@ -757,7 +757,7 @@ class AgentRankRepository:
     def append_short_term_signal(
         self, signal: ShortTermSignal
     ) -> Tuple[ShortTermSignal, bool]:
-        """按幂等键追加短期信号，重复上报不重复计数。"""
+        """同意图重试复用原信号及衰减起点，不接受其他载荷变化。"""
         if not isinstance(signal, ShortTermSignal):
             raise TypeError("signal must be ShortTermSignal")
         profile_id = signal.profile_id
@@ -766,7 +766,8 @@ class AgentRankRepository:
             items = self._load_short_term_signals(profile_id)
             for item in items:
                 if item.idempotency_key == signal.idempotency_key:
-                    if item.to_dict() != signal.to_dict():
+                    replay = replace(signal, observed_at=item.observed_at)
+                    if item.to_dict() != replay.to_dict():
                         raise ValueError("short-term signal idempotency conflict")
                     return item, False
             items.append(signal)

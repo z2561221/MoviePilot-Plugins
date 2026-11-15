@@ -6,6 +6,7 @@ import inspect
 import json
 import threading
 import time
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import fastapi as fastapi_module
@@ -29,6 +30,9 @@ playback_module = importlib.import_module(f"{PACKAGE_NAME}.model.playback")
 identity_module = importlib.import_module(f"{PACKAGE_NAME}.model.identity")
 repository_module = importlib.import_module(f"{PACKAGE_NAME}.storage.repository")
 controller_module = importlib.import_module(f"{PACKAGE_NAME}.controller.api")
+attribution_api_module = importlib.import_module(
+    f"{PACKAGE_NAME}.controller.attribution_api"
+)
 queue_service_module = importlib.import_module(
     f"{PACKAGE_NAME}.service.feedback_queue"
 )
@@ -201,6 +205,107 @@ def _seed(plugin):
             status="success",
         )
     )
+
+
+def _interaction_clock(monkeypatch):
+    """让两段记录使用相同且可推进的测试时钟。"""
+    current = [datetime(2026, 11, 15, 18, 3, 35, tzinfo=timezone.utc)]
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return current[0].astimezone(tz) if tz else current[0].replace(tzinfo=None)
+
+    monkeypatch.setattr(controller_module, "datetime", Clock)
+    monkeypatch.setattr(attribution_api_module, "datetime", Clock)
+    return current
+
+
+def _interaction_payload(plugin):
+    board = plugin._repository.load_board(HOME_PROFILE)
+    return {
+        "profile_id": HOME_PROFILE,
+        "run_id": board.run_id,
+        "board_revision": board.revision,
+        "candidate_id": "tmdb:1",
+    }
+
+
+def test_detail_opened_retry_keeps_original_consumption_and_signal(monkeypatch):
+    """不同时间重复打开同条详情成功，计数及信号衰减起点不变。"""
+    plugin = FakePlugin()
+    _seed(plugin)
+    controller = AgentRankApiController(plugin)
+    clock = _interaction_clock(monkeypatch)
+    payload = _interaction_payload(plugin)
+    first = controller.record_detail_opened(payload)["data"]
+
+    clock[0] = datetime(2026, 11, 15, 18, 27, tzinfo=timezone.utc)
+    replay = controller.record_detail_opened(payload)["data"]
+
+    assert first["short_term"]["created"] is True
+    assert replay["short_term"]["created"] is False
+    assert replay["consumption"] == first["consumption"]
+    assert replay["consumption"]["detail_open_count"] == 1
+    assert replay["short_term"]["signal"] == first["short_term"]["signal"]
+    assert len(plugin._repository.load_short_term_signals(HOME_PROFILE)) == 1
+
+
+def test_detail_opened_retry_recovers_after_only_consumption_was_saved(monkeypatch):
+    """首次信号保存失败后可重试，已保存的消费记录不重复计数。"""
+    plugin = FakePlugin()
+    _seed(plugin)
+    controller = AgentRankApiController(plugin)
+    clock = _interaction_clock(monkeypatch)
+    payload = _interaction_payload(plugin)
+    signal_key = plugin._repository._learning_key("short_term_signals", HOME_PROFILE)
+    original_save = plugin.save_data
+    failures = []
+
+    def fail_first_signal_save(key=None, value=None):
+        if key == signal_key and not failures:
+            failures.append(key)
+            raise RuntimeError("injected signal save failure")
+        original_save(key, value)
+
+    monkeypatch.setattr(plugin, "save_data", fail_first_signal_save)
+    with pytest.raises(ApiContractError) as caught:
+        controller.record_detail_opened(payload)
+    assert caught.value.code == "detail_record_failed"
+    assert str(caught.value.__cause__) == "injected signal save failure"
+    original_consumption = plugin._repository.load_board_consumption(
+        HOME_PROFILE, payload["run_id"], payload["board_revision"]
+    )
+    assert original_consumption.detail_open_count == 1
+    assert plugin._repository.load_short_term_signals(HOME_PROFILE) == []
+
+    clock[0] = datetime(2026, 11, 15, 18, 27, tzinfo=timezone.utc)
+    recovered = controller.record_detail_opened(payload)["data"]
+
+    assert recovered["consumption"] == original_consumption.to_dict()
+    assert recovered["short_term"]["created"] is True
+    assert len(plugin._repository.load_short_term_signals(HOME_PROFILE)) == 1
+
+
+@pytest.mark.parametrize(
+    "kind", ["subscribe", "playback_start", "playback_completed", "playback_abandoned"]
+)
+def test_consumption_retry_keeps_original_short_term_signal(monkeypatch, kind):
+    """订阅及播放结果重试也保持原始短期信号，不放大近期偏好。"""
+    plugin = FakePlugin()
+    _seed(plugin)
+    controller = AgentRankApiController(plugin)
+    clock = _interaction_clock(monkeypatch)
+    payload = {**_interaction_payload(plugin), "kind": kind}
+    first = controller.record_consumption_interaction(payload)["data"]
+
+    clock[0] = datetime(2026, 11, 15, 18, 27, tzinfo=timezone.utc)
+    replay = controller.record_consumption_interaction(payload)["data"]
+
+    assert first["short_term"]["created"] is True
+    assert replay["short_term"]["created"] is False
+    assert replay["short_term"]["signal"] == first["short_term"]["signal"]
+    assert len(plugin._repository.load_short_term_signals(HOME_PROFILE)) == 1
 
 
 def test_route_table_covers_frontend_contract_and_every_route_is_bearer():
