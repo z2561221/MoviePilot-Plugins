@@ -25,23 +25,24 @@ from ..model.upload_limit import (
     UPLOAD_LIMIT_FAILURE_NOTIFY_THRESHOLD,
     UploadPool,
     migrate_upload_limit_state,
-    pool_state_key,
 )
 from ..model.upload_scan import UploadDownloaderContext
 from ..utils.config import is_upload_limit_active, normalize_upload_limit_config
-from .upload_allocator import (
-    adjust_auto_probe_count,
-    aggregate_pool_demand_kib,
-    allocate_site_pools,
-    allocate_task_limits,
-    estimate_task_demand_kib,
-    initial_auto_probe_count,
-    is_task_probe_candidate,
-    select_probe_keys,
-)
+from .upload_allocator import select_probe_keys
 from .upload_limit_apply import apply_torrent_limits, matches_managed_settings
+from .upload_limit_plan import (
+    allocate_upload_plan,
+    next_probe_budget,
+    prepare_pool_inputs,
+    resolve_pool_demands,
+    task_upload_rates,
+)
 from .upload_limit_scan import classify_upload_tasks, scan_downloader
 from .upload_limit_scan import downloader_type as _downloader_type
+from .upload_limit_summary import (
+    build_downloader_only_summary as _build_downloader_only_summary,
+)
+from .upload_limit_summary import build_site_summary
 
 logger = logging.getLogger(__name__)
 _LOCK_GUARD = threading.RLock()
@@ -232,14 +233,7 @@ def run_upload_limit_cycle(
             save_upload_limit_state(plugin, state)
             return summary
 
-        upload_rates_bps = {
-            downloader_id: sum(
-                int(snapshot.upload_rate_bps or 0)
-                for snapshot in list(regular_tasks.values()) + list(grace_tasks.values())
-                if snapshot.downloader_id == downloader_id
-            )
-            for downloader_id in selected
-        }
+        upload_rates_bps = task_upload_rates(regular_tasks, grace_tasks, selected)
         pools, task_demands, probe_keys = _build_pools(
             regular_tasks,
             torrent_state,
@@ -249,29 +243,11 @@ def run_upload_limit_cycle(
             upload_rates_bps=upload_rates_bps,
             cycle=cycle,
         )
-        site_caps = {
-            site_name: int(rule.get("limit_kib") or 0)
-            for site_name, rule in limited_site_rules.items()
-        }
-        pool_allocations = allocate_site_pools(pools, caps, site_caps)
-        desired_task_limits: dict[str, int] = {}
-        for pool in pools:
-            demands = {
-                task_key: task_demands[task_key]
-                for task_key in pool.task_keys
-            }
-            desired_task_limits.update(allocate_task_limits(
-                pool_allocations.get(pool.key, 0),
-                demands,
-                cycle=cycle,
-                probe_keys=set(pool.task_keys).intersection(probe_keys),
-            ))
-        probing_task_keys = {
-            task_key for task_key in probe_keys
-            if int(desired_task_limits.get(task_key, 0) or 0) > 0
-        }
+        allocation = allocate_upload_plan(
+            pools, task_demands, probe_keys, caps, limited_site_rules, cycle=cycle,
+        )
 
-        apply_torrent_limits(regular_tasks, contexts, torrent_state, desired_task_limits,
+        apply_torrent_limits(regular_tasks, contexts, torrent_state, allocation.task_limits,
                              timestamp, _cycle_checkpoint, errors)
 
         for downloader_id in selected:
@@ -290,9 +266,9 @@ def run_upload_limit_cycle(
             contexts=contexts,
             regular_tasks=regular_tasks,
             grace_tasks=grace_tasks,
-            pool_allocations=pool_allocations,
+            pool_allocations=allocation.pool_allocations,
             site_rules=limited_site_rules,
-            probing_task_keys=probing_task_keys,
+            probing_task_keys=allocation.probing_task_keys,
             errors=errors,
             reason=reason,
         )
@@ -470,356 +446,39 @@ def get_upload_limit_status(plugin: Any, *, state: dict | None = None) -> dict:
 
 
 def _build_pools(
-    regular_tasks: dict[str, Any],
-    torrent_state: dict,
-    site_rules: dict[str, dict],
-    *,
-    downloader_state: dict[str, dict],
-    downloader_caps_kib: dict[str, int],
-    upload_rates_bps: dict[str, int],
-    cycle: int,
+    regular_tasks: dict[str, Any], torrent_state: dict, site_rules: dict[str, dict], *,
+    downloader_state: dict[str, dict], downloader_caps_kib: dict[str, int],
+    upload_rates_bps: dict[str, int], cycle: int,
 ) -> tuple[list[UploadPool], dict[str, int | None], set[str]]:
-    """聚合填写了正数上限的站点池，并选择受控探测任务。"""
-    grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
-    demands: dict[str, int | None] = {}
-    probe_candidates: set[str] = set()
-    for task_key, snapshot in regular_tasks.items():
-        record = torrent_state[task_key]
-        site_key = str(record.get("site_key") or "")
-        grouped[(snapshot.downloader_id, site_key)].append(task_key)
-        previous = record.get("last_allocation_kib")
-        demands[task_key] = estimate_task_demand_kib(
-            snapshot.upload_rate_bps,
-            None if previous is None else int(previous or 0),
-            snapshot.upload_demand_peers,
-        )
-        if is_task_probe_candidate(
-            snapshot.upload_rate_bps,
-            None if previous is None else int(previous or 0),
-            snapshot.upload_demand_peers,
-        ):
-            probe_candidates.add(task_key)
-    pools = []
-    for (downloader_id, site_key), task_keys in sorted(grouped.items()):
-        pools.append(UploadPool(
-            key=pool_state_key(downloader_id, site_key),
-            downloader_id=downloader_id,
-            site_key=site_key,
-            task_keys=tuple(sorted(task_keys)),
-            current_rate_bps=sum(
-                int(regular_tasks[key].upload_rate_bps or 0) for key in task_keys
-            ),
-            demand_kib=0,
-        ))
-    candidate_counts: dict[str, int] = defaultdict(int)
-    for task_key in probe_candidates:
-        candidate_counts[regular_tasks[task_key].downloader_id] += 1
+    """协调探测状态的更新顺序，池/额度计算不接触持久化或下载器。"""
+    inputs = prepare_pool_inputs(regular_tasks, torrent_state)
     target_counts = {}
-    batch_boundary = cycle > 1 and (cycle - 1) % 2 == 0
     for downloader_id in sorted(downloader_caps_kib):
         entry = downloader_state.setdefault(downloader_id, {})
-        candidates = int(candidate_counts.get(downloader_id, 0))
-        current = int(entry.get("auto_probe_count") or 0)
-        if current <= 0 and candidates > 0:
-            current = initial_auto_probe_count(
-                downloader_caps_kib.get(downloader_id, 0), candidates
-            )
-            low_cycles = 0
-            reduction_pending = False
-        else:
-            total_limit_kib = int(downloader_caps_kib.get(downloader_id, 0) or 0)
-            current_rate_bps = int(upload_rates_bps.get(downloader_id, 0) or 0)
-            near_cap = (
-                total_limit_kib > 0
-                and current_rate_bps * 100 >= total_limit_kib * 1024 * 90
-            )
-            reduction_pending = bool(
-                entry.get("probe_reduction_pending")
-                or near_cap
-            )
-            current, low_cycles = adjust_auto_probe_count(
-                current,
-                total_limit_kib=total_limit_kib,
-                candidate_count=candidates,
-                upload_rate_bps=current_rate_bps,
-                low_utilization_cycles=int(
-                    entry.get("probe_low_utilization_cycles") or 0
-                ),
-                batch_boundary=batch_boundary,
-                reduction_pending=reduction_pending,
-            )
-            if batch_boundary and reduction_pending:
-                reduction_pending = False
-        entry["auto_probe_count"] = current
-        entry["probe_low_utilization_cycles"] = low_cycles
-        entry["probe_reduction_pending"] = reduction_pending
-        target_counts[downloader_id] = current
+        budget = next_probe_budget(
+            entry, cap_kib=downloader_caps_kib.get(downloader_id, 0),
+            candidates=int(inputs.candidate_counts.get(downloader_id, 0)),
+            upload_rate_bps=upload_rates_bps.get(downloader_id, 0), cycle=cycle,
+        )
+        entry["auto_probe_count"] = budget.count
+        entry["probe_low_utilization_cycles"] = budget.low_utilization_cycles
+        entry["probe_reduction_pending"] = budget.reduction_pending
+        target_counts[downloader_id] = budget.count
     probe_keys = select_probe_keys(
-        pools,
-        probe_candidates,
-        cycle=cycle,
-        target_counts=target_counts,
+        inputs.pools, inputs.probe_candidates, cycle=cycle, target_counts=target_counts,
     )
     for downloader_id in downloader_caps_kib:
         downloader_state.setdefault(downloader_id, {})["last_probe_keys"] = sorted(
-            key for key in probe_keys
-            if regular_tasks[key].downloader_id == downloader_id
+            key for key in probe_keys if regular_tasks[key].downloader_id == downloader_id
         )
-    for task_key in probe_candidates - probe_keys:
-        demands[task_key] = 0
-    elastic_real_by_downloader = {
-        downloader_id: any(
-            task_key not in probe_candidates and demands[task_key] is None
-            for task_key, snapshot in regular_tasks.items()
-            if snapshot.downloader_id == downloader_id
-        )
-        for downloader_id in {snapshot.downloader_id for snapshot in regular_tasks.values()}
-    }
-    resolved_pools = []
-    for pool in pools:
-        selected_count = sum(key in probe_keys for key in pool.task_keys)
-        resolved_pools.append(UploadPool(
-            key=pool.key,
-            downloader_id=pool.downloader_id,
-            site_key=pool.site_key,
-            task_keys=pool.task_keys,
-            current_rate_bps=pool.current_rate_bps,
-            demand_kib=aggregate_pool_demand_kib(
-                (demands[key] for key in pool.task_keys if key not in probe_keys),
-                probe_candidates=selected_count,
-                elastic_probes=(
-                    selected_count > 0
-                    and not elastic_real_by_downloader.get(pool.downloader_id, False)
-                ),
-            ),
-        ))
-    return resolved_pools, demands, probe_keys
+    return resolve_pool_demands(inputs, probe_keys), inputs.demands, probe_keys
 
 
-def _build_downloader_only_summary(
-    *,
-    state: dict,
-    selected: list[str],
-    caps: dict[str, int],
-    contexts: dict[str, UploadDownloaderContext],
-    errors: dict[str, list[str]],
-    reason: str,
-) -> dict:
-    """构造仅由下载器总上限接管时的运行摘要。"""
-    downloader_items = []
-    total_rate_bps = 0
-    total_torrents = 0
-    allocated_kib = 0
-    for downloader_id in selected:
-        context = contexts.get(downloader_id)
-        snapshots = list(context.snapshots.values()) if context else []
-        upload_rate_bps = sum(
-            int(snapshot.upload_rate_bps or 0) for snapshot in snapshots
-        )
-        has_context = bool(context)
-        item_allocated_kib = int(caps.get(downloader_id, 0) or 0) if has_context else 0
-        total_rate_bps += upload_rate_bps
-        total_torrents += len(snapshots)
-        allocated_kib += item_allocated_kib
-        downloader_items.append({
-            "id": downloader_id,
-            "type": str((context.downloader_type if context else "") or (
-                (state.get("downloaders") or {}).get(downloader_id, {}).get("downloader_type")
-                or ""
-            )),
-            "total_limit_kib": int(caps.get(downloader_id, 0) or 0),
-            "upload_rate_bps": upload_rate_bps,
-            "managed_torrents": len(snapshots),
-            "grace_torrents": 0,
-            "uploading_torrents": sum(
-                1 for snapshot in snapshots
-                if int(snapshot.upload_rate_bps or 0) > 0
-            ),
-            "probing_torrents": 0,
-            "auto_probe_count": 0,
-            "protected_torrents": 0,
-            "allocated_kib": item_allocated_kib,
-            "error": "; ".join(errors.get(downloader_id) or []),
-        })
-
-    flat_errors = [
-        f"{downloader_id}: {message}"
-        for downloader_id, messages in errors.items()
-        for message in messages
-    ]
-    if flat_errors and len(contexts) < len(selected):
-        service_status = "error" if not contexts else "degraded"
-    elif flat_errors:
-        service_status = "degraded"
-    else:
-        service_status = "running"
-    return {
-        "enabled": True,
-        "active": True,
-        "mode": "downloader_only",
-        "service_status": service_status,
-        "reason": str(reason or "scheduled"),
-        "selected_downloaders": list(selected),
-        "downloaders": downloader_items,
-        "sites": [],
-        "managed_torrents": total_torrents,
-        "grace_torrents": 0,
-        "uploading_torrents": sum(
-            int(item.get("uploading_torrents") or 0)
-            for item in downloader_items
-        ),
-        "probing_torrents": 0,
-        "protected_torrents": 0,
-        "upload_rate_bps": total_rate_bps,
-        "allocated_kib": allocated_kib,
-        "errors": flat_errors,
-        "last_run_at": float(state.get("last_run_at") or 0),
-        "cycle": int(state.get("cycle") or 0),
-    }
 
 
-def _build_summary(
-    *,
-    plugin: Any,
-    state: dict,
-    selected: list[str],
-    caps: dict[str, int],
-    contexts: dict[str, UploadDownloaderContext],
-    regular_tasks: dict[str, Any],
-    grace_tasks: dict[str, Any],
-    pool_allocations: dict[str, int],
-    site_rules: dict[str, dict],
-    probing_task_keys: set[str],
-    errors: dict[str, list[str]],
-    reason: str,
-) -> dict:
-    """构造状态 UI 使用的下载器和站点实时摘要。"""
-    torrent_state = state.get("torrents") or {}
-    downloader_items = []
-    for downloader_id in selected:
-        context = contexts.get(downloader_id)
-        downloader_snapshots = list(context.snapshots.values()) if context else []
-        downloader_regular = [
-            snapshot for snapshot in regular_tasks.values()
-            if snapshot.downloader_id == downloader_id
-        ]
-        downloader_grace = [
-            snapshot for snapshot in grace_tasks.values()
-            if snapshot.downloader_id == downloader_id
-        ]
-        downloader_items.append({
-            "id": downloader_id,
-            "type": str((context.downloader_type if context else "") or (
-                (state.get("downloaders") or {}).get(downloader_id, {}).get("downloader_type")
-                or ""
-            )),
-            "total_limit_kib": int(caps.get(downloader_id, 0) or 0),
-            "upload_rate_bps": sum(
-                int(snapshot.upload_rate_bps or 0)
-                for snapshot in downloader_snapshots
-            ),
-            "managed_torrents": len(downloader_regular),
-            "grace_torrents": len(downloader_grace),
-            "uploading_torrents": sum(
-                1 for snapshot in downloader_snapshots
-                if int(snapshot.upload_rate_bps or 0) > 0
-            ),
-            "probing_torrents": sum(
-                1 for task_key in probing_task_keys
-                if regular_tasks[task_key].downloader_id == downloader_id
-            ),
-            "auto_probe_count": int(
-                ((state.get("downloaders") or {}).get(downloader_id) or {}).get(
-                    "auto_probe_count"
-                ) or 0
-            ),
-            "protected_torrents": sum(
-                1 for task_key, snapshot in regular_tasks.items()
-                if snapshot.downloader_id == downloader_id
-                and int((torrent_state.get(task_key) or {}).get("last_allocation_kib") or 0) == 0
-            ),
-            "allocated_kib": sum(
-                int(record.get("last_allocation_kib") or 0)
-                for record in torrent_state.values()
-                if isinstance(record, dict)
-                and record.get("downloader_id") == downloader_id
-                and float(record.get("grace_until") or 0) <= float(state.get("last_run_at") or 0)
-            ),
-            "error": "; ".join(errors.get(downloader_id) or []),
-        })
-
-    site_items: dict[str, dict] = {}
-    for task_key, snapshot in regular_tasks.items():
-        record = torrent_state.get(task_key) or {}
-        site_key = str(record.get("site_key") or "")
-        rule = site_rules.get(site_key) or {}
-        item = site_items.setdefault(site_key, {
-            "key": site_key,
-            "name": site_key,
-            "limit_kib": int(rule.get("limit_kib") or 0),
-            "allocated_kib": 0,
-            "upload_rate_bps": 0,
-            "torrent_count": 0,
-            "uploading_torrents": 0,
-            "probing_torrents": 0,
-            "protected_torrents": 0,
-            "downloaders": set(),
-        })
-        item["allocated_kib"] += int(record.get("last_allocation_kib") or 0)
-        item["upload_rate_bps"] += int(snapshot.upload_rate_bps or 0)
-        item["torrent_count"] += 1
-        item["uploading_torrents"] += int(snapshot.upload_rate_bps or 0) > 0
-        item["probing_torrents"] += task_key in probing_task_keys
-        item["protected_torrents"] += int(record.get("last_allocation_kib") or 0) == 0
-        item["downloaders"].add(snapshot.downloader_id)
-    sites = []
-    for item in sorted(
-        site_items.values(),
-        key=lambda value: value["name"].lower(),
-    ):
-        sites.append({**item, "downloaders": sorted(item["downloaders"])})
-
-    flat_errors = [
-        f"{downloader_id}: {message}"
-        for downloader_id, messages in errors.items()
-        for message in messages
-    ]
-    if flat_errors and len(contexts) < len(selected):
-        service_status = "error" if not contexts else "degraded"
-    elif flat_errors:
-        service_status = "degraded"
-    else:
-        service_status = "running"
-    return {
-        "enabled": True,
-        "active": True,
-        "mode": "site_policy",
-        "service_status": service_status,
-        "reason": str(reason or "scheduled"),
-        "selected_downloaders": list(selected),
-        "downloaders": downloader_items,
-        "sites": sites,
-        "managed_torrents": len(regular_tasks),
-        "grace_torrents": len(grace_tasks),
-        "uploading_torrents": sum(
-            1 for snapshot in list(regular_tasks.values()) + list(grace_tasks.values())
-            if int(snapshot.upload_rate_bps or 0) > 0
-        ),
-        "probing_torrents": len(probing_task_keys),
-        "protected_torrents": sum(
-            1 for task_key in regular_tasks
-            if int((torrent_state.get(task_key) or {}).get("last_allocation_kib") or 0) == 0
-        ),
-        "upload_rate_bps": sum(
-            int(snapshot.upload_rate_bps or 0)
-            for context in contexts.values()
-            for snapshot in context.snapshots.values()
-        ),
-        "allocated_kib": sum(int(value or 0) for value in pool_allocations.values()),
-        "errors": flat_errors,
-        "last_run_at": float(state.get("last_run_at") or 0),
-        "cycle": int(state.get("cycle") or 0),
-    }
+def _build_summary(*, plugin: Any, **inputs) -> dict:
+    """兼容旧私有入口；摘要投影不读取插件或下载器。"""
+    return build_site_summary(**inputs)
 
 
 def _release_downloader_torrent_limits(

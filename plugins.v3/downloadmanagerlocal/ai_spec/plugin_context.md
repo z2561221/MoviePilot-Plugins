@@ -31,6 +31,13 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
 
+## 2026-11-16 限速额度计算与摘要投影
+
+- service/upload_limit_plan.py 只处理扫描快照的池准备、探测预算计算、需求收敛和额度计划；复用upload_allocator原算法。model/upload_plan.py的阶段结果只持有key、数值及池，不复制任务/服务图，不进入持久化状态。中间需求表由本轮拥有并原地细化，不改输入任务快照及持久记录。
+- upload_limiter仍拥有探测计数/last_probe_keys更新，按原下载器顺序写回，保留错误中断时的部分状态边界。扫描context、恢复原值/人工修改判定、停止检查、合批RPC和最终保存边界不变。_build_pools/_build_summary旧私有入口继续兼容。
+- service/upload_limit_summary.py只投影当前快照；下载器/站点/全局口径分别保留，单轮累计替代按下载器反复扫描全量任务。未受限任务仍计真实上传速率，宽限及残留记录不混成“已写入额度”；下载器顺序、站点排序、错误状态与字段不变。没有跨轮次缓存或回调协调层。
+- 同输入旧新差分与1k/5k任务资源实验在本批报告。纯计算及投影指标不换算NAS总耗时/RSS。按监督计划先提交本地候选，评估会话发放共享MP窗口后才同步/reload，Chrome由评估方统一操作。
+
 ## 2026-11-15 扫描与删除规划执行拆分
 
 - model/upload_scan.py 声明单轮 UploadDownloaderContext；service/upload_limit_scan.py 只负责一次读取、全局上限协调和任务分类。宽限、恢复原值、分配与运行摘要复用相同快照，不将上下文写入持久状态。
