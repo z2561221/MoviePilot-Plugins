@@ -258,16 +258,16 @@ def test_feedback_cache_is_instance_scoped_bounded_and_thread_safe():
     assert other._repository.load_feedback_polarities(PROFILE, "current") == {"tmdb:movie:1": "dislike"}
     for number in range(20):
         plugin._repository.load_feedback_polarities(PROFILE, f"run-{number}")
-    assert len(plugin._repository._polarity_cache) == 8
+    assert len(plugin._repository._feedback_projection) == 8
 
 
 def test_feedback_cache_rechecks_segments_after_deadline_and_recovers_without_poisoning(monkeypatch):
     plugin = MemoryPlugin()
     repo = plugin._repository
     clock = [0.0]
-    repository_module = importlib.import_module("app.plugins.agentrank.storage.repository")
+    projection_module = importlib.import_module("app.plugins.agentrank.storage.feedback_projection")
     monkeypatch.setattr(
-        repository_module, "time", SimpleNamespace(monotonic=lambda: clock[0])
+        projection_module, "time", SimpleNamespace(monotonic=lambda: clock[0])
     )
     append_feedback(repo, 1)
     assert repo.load_feedback_polarities(PROFILE, "current") == {"tmdb:movie:1": "like"}

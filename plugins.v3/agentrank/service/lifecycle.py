@@ -109,6 +109,10 @@ def stop_plugin(plugin: Any) -> None:
     runtime = getattr(plugin, "_runtime", None)
     if runtime is not None and hasattr(runtime, "stop"):
         runtime.stop()
+    repository = getattr(plugin, "_repository", None)
+    release_caches = getattr(repository, "release_read_caches", None)
+    if callable(release_caches):
+        release_caches()
     plugin._runtime = None
     plugin._playback_service = None
     plugin._emby_access = None
