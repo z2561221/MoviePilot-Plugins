@@ -171,6 +171,8 @@ defineExpose({ refresh: load })
         <summary>高级设置 · 删除范围<span v-if="sourceRoots.length">（{{ sourceRoots.length }} 个源目录）</span><span v-else-if="form.sync_delete_source || form.sync_delete_torrents" class="text-warning">（请填写源目录）</span></summary>
         <div class="text-caption text-medium-emphasis mt-3">源文件和种子仅在允许的目录内处理，保护目录中的文件保留。</div>
         <VTextarea v-model="form.sync_delete_source_paths" label="允许删除的下载源目录" rows="3" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="填写 MP 容器内的真实下载目录，一行一个" />
+        <VTextarea v-model="form.sync_delete_source_aliases" label="历史源路径映射（可选）" rows="3" auto-grow density="compact" variant="outlined" hide-details class="my-4" placeholder="历史目录#当前 MP 容器目录，一行一条" />
+        <div class="text-caption text-medium-emphasis">目录迁移后，用此映射识别旧下载记录。当前目录须在允许范围内；仍被新下载引用的文件保留。</div>
         <VTextarea v-model="form.sync_delete_exclude_paths" label="保护目录（可选）" rows="2" density="compact" variant="outlined" hide-details class="my-4" placeholder="一行一个路径，匹配到的文件保留" />
       </details>
     </template>
@@ -192,6 +194,9 @@ defineExpose({ refresh: load })
           <div v-if="job.state === 'skipped'" class="text-medium-emphasis mt-2">{{ job.plan?.skip_reason }}</div>
           <details class="mt-3">
             <summary>查看关联明细</summary>
+            <template v-for="(path, index) in job.event?.paths || []" :key="`source:${index}`">
+              <div v-if="job.event?.original_paths?.[index] && job.event.original_paths[index] !== path" class="dm-sync-path mt-2">历史源路径 · {{ job.event.original_paths[index] }} → {{ path }}</div>
+            </template>
             <div v-for="file in [...(job.plan?.cloud_files || []), ...(job.plan?.source_files || [])]" :key="`${file.storage}:${file.path}`" class="dm-sync-path mt-2">{{ label(file.status) }} · {{ file.storage }} · {{ file.path }}</div>
             <div v-for="task in job.plan?.tasks || []" :key="`${task.downloader}:${task.id}`" class="dm-sync-path mt-2">{{ label(task.status) }} · {{ task.downloader }} · {{ task.id }}</div>
             <div class="text-caption mt-2">整理记录已处理 {{ job.records_done?.length || 0 }} / {{ job.plan?.records?.length || 0 }}</div>

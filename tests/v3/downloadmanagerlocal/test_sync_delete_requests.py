@@ -104,6 +104,7 @@ for (const scenario of [
   {sync_delete_local_paths:'/emby-local#/library',sync_delete_cloud_paths:'/emby-strm#/strm#/media#/library-cloud',sync_delete_cloud:false},
 ]) {
   const initialConfig = {...scenario,sync_delete_servers:['Emby'],sync_delete_source_paths:'/downloads',
+    sync_delete_source_aliases:'/legacy#/downloads',
     sync_delete_exclude_paths:'/downloads/keep',sync_delete_force_cloud:true,sync_delete_library_deleted:true,
     sync_delete_source:true,sync_delete_torrents:true,sync_delete_records:true,unrelated_setting:'keep'};
   const props = {api:{},pluginId:'A',initialConfig};
@@ -119,6 +120,7 @@ for (const scenario of [
   assert.deepEqual(emitted[0][1],{...state.form,sync_delete_force_cloud:false,sync_delete_library_deleted:false});
   for (const [key,value] of Object.entries(scenario)) assert.equal(emitted[0][1][key],value);
   assert.equal(emitted[0][1].sync_delete_source_paths,'/downloads');
+  assert.equal(emitted[0][1].sync_delete_source_aliases,'/legacy#/downloads');
   assert.equal(emitted[0][1].sync_delete_exclude_paths,'/downloads/keep');
   assert.equal(emitted[0][1].unrelated_setting,'keep');
   assert.equal(JSON.stringify(initialConfig),before,'saving must not modify the supplied config');

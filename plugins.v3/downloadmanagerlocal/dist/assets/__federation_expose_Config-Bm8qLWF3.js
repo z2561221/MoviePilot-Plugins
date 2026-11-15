@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, i as isApiRequestCancellation, g as getPluginApi, S as SyncDeletePane, p as postPluginJsonApi } from './SyncDeletePane-CUpZnntp.js';
+import { _ as _export_sfc, i as isApiRequestCancellation, g as getPluginApi, S as SyncDeletePane, p as postPluginJsonApi } from './SyncDeletePane-rGiQ4dm5.js';
 
 const {toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,resolveComponent:_resolveComponent,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createVNode:_createVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode,normalizeClass:_normalizeClass,vShow:_vShow,withDirectives:_withDirectives} = await importShared('vue');
 
@@ -283,6 +283,7 @@ onMounted(async () => {
 const defaults = {
   sync_delete_enabled: false, sync_delete_servers: [], sync_delete_local_paths: '',
   sync_delete_cloud_paths: '', sync_delete_storage: '115网盘Plus', sync_delete_source_paths: '',
+  sync_delete_source_aliases: '',
   sync_delete_exclude_paths: '', sync_delete_source: true, sync_delete_torrents: true,
   sync_delete_cloud: true, sync_delete_records: true, sync_delete_force_cloud: false,
   sync_delete_notify: true, sync_delete_library_deleted: false,
@@ -561,6 +562,7 @@ function saveConfig() {
     sync_delete_library_deleted: false,
     sync_delete_local_paths: mappings(form.sync_delete_local_paths),
     sync_delete_cloud_paths: mappings(form.sync_delete_cloud_paths),
+    sync_delete_source_aliases: mappings(form.sync_delete_source_aliases),
     sync_delete_servers: [...(form.sync_delete_servers || [])],
     speed_monitor_downloaders: [...(form.speed_monitor_downloaders || [])],
     speed_monitor_manual_speed_bps: { ...(form.speed_monitor_manual_speed_bps || {}) },
@@ -3534,6 +3536,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-15854632"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-63d37e03"]]);
 
 export { Config as default };

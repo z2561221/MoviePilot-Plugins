@@ -14,6 +14,7 @@ DEFAULTS = {
     "sync_delete_cloud_paths": "",
     "sync_delete_storage": "115网盘Plus",
     "sync_delete_source_paths": "",
+    "sync_delete_source_aliases": "",
     "sync_delete_exclude_paths": "",
     "sync_delete_source": True,
     "sync_delete_torrents": True,
@@ -28,7 +29,7 @@ BLOCKS_KEY = "sync_delete_blocks"
 MAX_TARGETS = 5000
 MAX_JOBS = 1000
 MAX_PENDING = 100
-PLAN_VERSION = 3
+PLAN_VERSION = 4
 TERMINAL_STATES = {"completed", "skipped"}
 MEDIA_EXTENSIONS = {
     ".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".iso",
