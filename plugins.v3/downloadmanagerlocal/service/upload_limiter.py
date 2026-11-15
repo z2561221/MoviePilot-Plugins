@@ -13,7 +13,6 @@ from typing import Any, Iterable
 
 from ..adapter.upload_limit import (
     expected_global_upload_settings,
-    expected_torrent_upload_settings,
     global_settings_equal,
     global_settings_from_dict,
     global_settings_to_dict,
@@ -25,7 +24,6 @@ from ..adapter.upload_limit import (
     settings_to_dict,
     torrent_settings_equal,
     write_global_upload_limit,
-    write_torrent_upload_limit,
 )
 from ..model.state import UPLOAD_LIMIT_STATE_KEY
 from ..model.upload_limit import (
@@ -45,6 +43,7 @@ from .upload_allocator import (
     is_task_probe_candidate,
     select_probe_keys,
 )
+from .upload_limit_apply import apply_torrent_limits, matches_managed_settings
 
 
 logger = logging.getLogger(__name__)
@@ -299,11 +298,7 @@ def run_upload_limit_cycle(
                         }
                         torrent_state[task_key] = record
                     else:
-                        last_written = record.get("last_written_settings")
-                        if not last_written or not torrent_settings_equal(
-                            snapshot.upload_settings,
-                            settings_from_dict(last_written),
-                        ):
+                        if not matches_managed_settings(record, snapshot.upload_settings):
                             record["original_settings"] = settings_to_dict(
                                 snapshot.upload_settings
                             )
@@ -406,40 +401,8 @@ def run_upload_limit_cycle(
             if int(desired_task_limits.get(task_key, 0) or 0) > 0
         }
 
-        for task_key, snapshot in regular_tasks.items():
-            context = contexts.get(snapshot.downloader_id)
-            if not context:
-                continue
-            desired_kib = max(0, int(desired_task_limits.get(task_key, 0)))
-            expected = expected_torrent_upload_settings(
-                snapshot.downloader_type, desired_kib
-            )
-            try:
-                applied = expected
-                if not torrent_settings_equal(snapshot.upload_settings, expected):
-                    _cycle_checkpoint()
-                    applied = write_torrent_upload_limit(
-                        context["service"].instance,
-                        snapshot.downloader_type,
-                        snapshot.torrent_hash,
-                        desired_kib,
-                    )
-                record = torrent_state[task_key]
-                record["last_allocation_kib"] = desired_kib
-                record["last_written_settings"] = settings_to_dict(applied)
-                record["last_applied_at"] = timestamp
-            except UploadCycleStopped:
-                raise
-            except Exception as error:
-                _cycle_checkpoint()
-                errors[snapshot.downloader_id].append(
-                    f"{snapshot.torrent_hash}: {error}"
-                )
-                logger.exception(
-                    "上传限速写入任务 %s/%s 失败",
-                    snapshot.downloader_id,
-                    snapshot.torrent_hash,
-                )
+        apply_torrent_limits(regular_tasks, contexts, torrent_state, desired_task_limits,
+                             timestamp, _cycle_checkpoint, errors)
 
         for downloader_id in selected:
             if errors.get(downloader_id):
@@ -1008,13 +971,9 @@ def _release_downloader_torrent_limits(
         if not snapshot:
             state.get("torrents", {}).pop(task_key, None)
             continue
-        last_written = record.get("last_written_settings")
         original = record.get("original_settings")
         try:
-            if last_written and original and torrent_settings_equal(
-                snapshot.upload_settings,
-                settings_from_dict(last_written),
-            ):
+            if original and matches_managed_settings(record, snapshot.upload_settings):
                 _cycle_checkpoint()
                 restore_torrent_upload_settings(
                     instance,
@@ -1049,13 +1008,9 @@ def _release_torrent_record(
     downloader_type: str,
 ) -> str:
     """任务退出受限站点时按 compare-and-set 恢复其原始单种设置。"""
-    last_written = record.get("last_written_settings")
     original = record.get("original_settings")
     try:
-        if last_written and original and torrent_settings_equal(
-            snapshot.upload_settings,
-            settings_from_dict(last_written),
-        ):
+        if original and matches_managed_settings(record, snapshot.upload_settings):
             _cycle_checkpoint()
             restore_torrent_upload_settings(
                 instance,
@@ -1125,12 +1080,8 @@ def _restore_one_downloader(plugin: Any, state: dict, downloader_id: str) -> dic
             snapshot = current.get(task_key)
             if not snapshot:
                 continue
-            last_written = record.get("last_written_settings")
             original = record.get("original_settings")
-            if last_written and original and torrent_settings_equal(
-                snapshot.upload_settings,
-                settings_from_dict(last_written),
-            ):
+            if original and matches_managed_settings(record, snapshot.upload_settings):
                 _cycle_checkpoint()
                 restore_torrent_upload_settings(
                     service.instance,
