@@ -6,6 +6,7 @@ from time import time
 from app.sdk.logging import logger
 
 from ..adapter.sync_delete import SyncDeleteAdapter
+from ..model.source_paths import SourcePaths
 from ..model.sync_delete import (
     MAX_TARGETS,
     MEDIA_EXTENSIONS,
@@ -20,12 +21,14 @@ from ..model.sync_delete import (
 from .sync_delete import _snapshot_file, related_nodes, relation_records
 
 
-def source_record_snapshot(adapter, source, source_hash, downloader=""):
+def source_record_snapshot(adapter, source, source_hash, downloader="", config=None):
     """只在收到新事件时保存旧记录身份，后续重试不抓取新下载记录。"""
     result, seen = [], set()
+    paths = SourcePaths(config or {})
+    source = paths.checked(source)
     for row in adapter.download_files(path=source):
         if (row.get("state") != 1 or text(row.get("download_hash")) != source_hash
-                or text(row.get("fullpath")) != source
+                or paths.checked(row.get("fullpath")) != source
                 or (downloader and text(row.get("downloader")) != downloader)):
             continue
         record_id = row.get("id")
@@ -61,7 +64,8 @@ def build_source_plan(plugin, event, config, adapter=None):
     if event.get("source_records_error"):
         raise DeleteRejected(event["source_records_error"])
     adapter = adapter or SyncDeleteAdapter(plugin, config)
-    source = path_text(event["paths"][0])
+    paths = SourcePaths(config)
+    source = paths.checked(event["paths"][0])
     root = adapter.source_root(source)
     if PurePosixPath(source).suffix.lower() not in MEDIA_EXTENSIONS:
         raise DeleteRejected("源删除事件必须指向具体媒体文件")
@@ -97,7 +101,7 @@ def build_source_plan(plugin, event, config, adapter=None):
     relative = set()
     for row in entries:
         if row.get("savepath"):
-            save_root = path_text(text(row["savepath"]).removeprefix("local:"))
+            save_root = paths.checked(row["savepath"])
             if within(source, save_root, strict=True):
                 relative.add(str(PurePosixPath(source).relative_to(save_root)))
     plan = {"version": PLAN_VERSION, "channel": "download", "event": event,
@@ -106,7 +110,7 @@ def build_source_plan(plugin, event, config, adapter=None):
             "relations": relations, "source_guards": [{"path": source, "root": root}]}
     # 旧事件没有受理时的快照，不能以执行/重试时的新记录替代。
     plan["download_records"] = [dict(row) for row in event.get("source_records", [])
-                                if text(row.get("fullpath")) == source
+                                if paths.checked(row.get("fullpath")) == source
                                 and text(row.get("download_hash")) == source_hash
                                 and text(row.get("downloader")) == next(iter(owners))]
     plan["related_nodes"] = [list(node) for node in sorted(nodes)]
@@ -187,8 +191,9 @@ def receive_source_deleted(plugin, event, trigger=""):
     if runtime is None or runtime.stop.is_set():
         return {"accepted": False, "reason": "同步删除执行器未运行"}
     try:
-        source = path_text(data["src"])
+        original_source = path_text(data["src"])
         config = config_for(plugin)
+        source = SourcePaths(config).checked(original_source)
         adapter = SyncDeleteAdapter(plugin, config)
         adapter.source_root(source)
         source_hash = text(data["hash"])
@@ -202,11 +207,13 @@ def receive_source_deleted(plugin, event, trigger=""):
         if not managed:
             return {"accepted": False, "reason": "没有本实例转种或辅种关联", "skipped": True}
         snapshot = {"channel": "download", "event": text(trigger), "paths": [source],
+                    "original_paths": [original_source], "plan_version": PLAN_VERSION,
+                    "config_fingerprint": fingerprint(config),
                     "source_hash": source_hash, "source_downloader": text(data.get("downloader")),
                     "observed_at": time(), "name": PurePosixPath(source).name, "timestamp": ""}
         try:
             snapshot["source_records"] = source_record_snapshot(
-                adapter, source, source_hash, snapshot["source_downloader"])
+                adapter, source, source_hash, snapshot["source_downloader"], config)
         except Exception as error:  # noqa: BLE001 -- 快照失败保留为待核验，不在重试时重抓新记录。
             snapshot["source_records_error"] = (str(error) if isinstance(error, DeleteRejected)
                                                 else f"下载文件记录快照读取失败：{type(error).__name__}")
@@ -217,6 +224,8 @@ def receive_source_deleted(plugin, event, trigger=""):
             # 由 worker 保存具体失败；observed_at 限制后续重试不能选中新创建任务。
             logger.debug(f"同步删除源快照待执行器复核：{type(error).__name__}")
         job_id = runtime.submit(snapshot, plan=plan)
+        if original_source != source:
+            logger.info(f"同步删除历史源路径 [{job_id}]：{original_source} → {source}")
         return {"accepted": True, "job_id": job_id}
     except DeleteRejected as error:
         logger.warning(f"同步删除源事件未受理：{error}")

@@ -13,6 +13,7 @@ from app.schemas import FileItem
 from app.sdk.queries import get_transfer_history, list_transfer_history
 from app.sdk.services import MediaServerHelper
 
+from ..model.source_paths import SourcePaths
 from ..model.sync_delete import (
     MAX_TARGETS,
     MEDIA_EXTENSIONS,
@@ -66,6 +67,20 @@ class SyncDeleteAdapter:
 
     def histories(self, *, search: str = "", source: str = "") -> list[dict]:
         """完整分页读取相关整理历史，截断、重复或总数漂移均拒绝执行。"""
+        if source:
+            result = {}
+            for candidate in SourcePaths(self.config).equivalents(source):
+                for row in self._histories(search=search, source=candidate):
+                    if row["id"] in result and result[row["id"]] != row:
+                        raise DeleteRejected("整理历史身份在查询期间变化")
+                    result[row["id"]] = row
+                    if len(result) > 20000:
+                        raise DeleteRejected("整理历史查询规模过大")
+            return list(result.values())
+        return self._histories(search=search)
+
+    def _histories(self, *, search: str = "", source: str = "") -> list[dict]:
+        """逐个精确路径读取完整分页，不用名称模糊查询源引用。"""
         filters = {"status": True}
         if search:
             filters["text"] = search
@@ -97,10 +112,23 @@ class SyncDeleteAdapter:
         raise DeleteRejected("整理历史超过查询上限")
 
     def download_files(self, torrent_hash: str = "", path: str = "") -> list[dict]:
-        """下载文件状态尚无查询 SDK，使用 v3.2.4 的短生命周期 Oper。"""
+        """查询全部等价路径，保留原始字段以便按旧 ID 核对状态更新。"""
         oper = DownloadHistoryOper()
-        values = oper.get_files_by_fullpath(path) if path else oper.get_files_by_hash(torrent_hash)
-        return [plain(value) for value in values]
+        paths = SourcePaths(self.config).equivalents(path) if path else [None]
+        result = {}
+        for candidate in paths:
+            values = oper.get_files_by_fullpath(candidate) if candidate else oper.get_files_by_hash(torrent_hash)
+            for value in values:
+                row = plain(value)
+                record_id = row.get("id")
+                if not isinstance(record_id, int) or isinstance(record_id, bool) or record_id <= 0:
+                    raise DeleteRejected("下载文件记录缺少唯一身份")
+                if record_id in result and result[record_id] != row:
+                    raise DeleteRejected("下载文件记录身份在查询期间变化")
+                result[record_id] = row
+                if len(result) > MAX_TARGETS:
+                    raise DeleteRejected("源删除下载文件记录超过单次上限")
+        return list(result.values())
 
     def delete_record(self, record: dict) -> None:
         """实体处理完成后才删除同身份整理记录，不触发宿主的连带删种接口。"""
@@ -115,11 +143,6 @@ class SyncDeleteAdapter:
         TransferHistoryOper().delete(record["id"])
         if get_transfer_history(record["id"]) is not None:
             raise DeleteRejected("整理记录删除未确认")
-
-    def mark_source_deleted(self, path: str) -> None:
-        """实体已经核验删除后更新下载文件状态，不广播整包删除事件。"""
-        self.check_write()
-        DownloadHistoryOper().delete_file_by_fullpath(path)
 
     def mark_download_record_deleted(self, record: dict) -> None:
         """按已保存 ID 更新旧行；新下载追加的同路径行不在写入范围内。"""
@@ -145,11 +168,30 @@ class SyncDeleteAdapter:
         if remaining is not None and remaining.get("state") != 0:
             raise DeleteRejected("下载文件记录删除状态未确认")
 
+    def source_path(self, path: str) -> str:
+        """使用当前容器路径，等价旧路径仍存在时必须证明为同一实体。"""
+        resolver = SourcePaths(getattr(self, "config", {}))
+        current = resolver.checked(path)
+        for candidate in resolver.equivalents(current):
+            if candidate == current:
+                continue
+            legacy = Path(candidate)
+            try:
+                old_stat = legacy.lstat()
+            except FileNotFoundError:
+                continue
+            try:
+                current_stat = Path(current).lstat()
+            except FileNotFoundError as error:
+                raise DeleteRejected("历史源路径仍存在，当前路径不存在，不能认定迁移完成") from error
+            if (stat.S_ISLNK(old_stat.st_mode) or stat.S_ISLNK(current_stat.st_mode)
+                    or (old_stat.st_dev, old_stat.st_ino) != (current_stat.st_dev, current_stat.st_ino)):
+                raise DeleteRejected("历史源路径与当前路径不是同一实体，停止删除")
+        return current
+
     def source_root(self, path: str) -> str:
         """下载源只能在显式允许目录内，且必须排除保护路径。"""
-        path = path_text(path)
-        if any(within(path, path_text(root)) for root in lines(self.config["sync_delete_exclude_paths"])):
-            raise DeleteRejected("下载源位于保护目录")
+        path = self.source_path(path)
         roots = [path_text(root) for root in lines(self.config["sync_delete_source_paths"])]
         allowed = [root for root in roots if root != "/" and within(path, root, strict=True)]
         if not allowed:
@@ -164,6 +206,9 @@ class SyncDeleteAdapter:
         if any(within(path, path_text(value)) for value in lines(self.config["sync_delete_exclude_paths"])):
             raise DeleteRejected("目标文件位于保护目录")
         if storage == "local":
+            if (any(within(path, path_text(value)) for value in lines(self.config.get("sync_delete_source_paths")))
+                    and self.source_path(path) != path):
+                raise DeleteRejected("实体查询必须使用当前下载源路径")
             parent = Path(root)
             if not parent.is_dir():
                 raise DeleteRejected("本地根目录不可访问，不能判定文件不存在")
@@ -300,7 +345,7 @@ class SyncDeleteAdapter:
                 save_path = str(storage_path).rstrip("/") + save_path[len(downloader_path):]
                 break
         save_path = save_path.removeprefix("local:")
-        save_path = path_text(save_path)
+        save_path = self.source_path(save_path)
         files = service.instance.get_files(torrent_id)
         if isinstance(files, dict):
             files = list(files.values())
@@ -311,7 +356,7 @@ class SyncDeleteAdapter:
             name = item.get("name") if isinstance(item, dict) else getattr(item, "name", None)
             if not name or str(name).startswith("/") or ".." in PurePosixPath(str(name)).parts:
                 raise DeleteRejected("下载任务文件路径无效")
-            paths.append(path_text(str(PurePosixPath(save_path) / str(name))))
+            paths.append(self.source_path(str(PurePosixPath(save_path) / str(name))))
         if not torrent.torrent_hash or not torrent.added_at:
             raise DeleteRejected("下载任务缺少可核验的 hash 或创建时间")
         return {"downloader": downloader, "id": torrent_id, "hash": torrent.torrent_hash,

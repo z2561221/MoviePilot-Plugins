@@ -104,6 +104,7 @@ onMounted(async () => {
 const defaults = {
   sync_delete_enabled: false, sync_delete_servers: [], sync_delete_local_paths: '',
   sync_delete_cloud_paths: '', sync_delete_storage: '115网盘Plus', sync_delete_source_paths: '',
+  sync_delete_source_aliases: '',
   sync_delete_exclude_paths: '', sync_delete_source: true, sync_delete_torrents: true,
   sync_delete_cloud: true, sync_delete_records: true, sync_delete_force_cloud: false,
   sync_delete_notify: true, sync_delete_library_deleted: false,
@@ -382,6 +383,7 @@ function saveConfig() {
     sync_delete_library_deleted: false,
     sync_delete_local_paths: mappings(form.sync_delete_local_paths),
     sync_delete_cloud_paths: mappings(form.sync_delete_cloud_paths),
+    sync_delete_source_aliases: mappings(form.sync_delete_source_aliases),
     sync_delete_servers: [...(form.sync_delete_servers || [])],
     speed_monitor_downloaders: [...(form.speed_monitor_downloaders || [])],
     speed_monitor_manual_speed_bps: { ...(form.speed_monitor_manual_speed_bps || {}) },
