@@ -1,7 +1,8 @@
 """豆瓣中心 V3 生命周期、命名空间与网络合同测试。"""
 
-from app.plugins.doubancenter import DoubanCenter, doubanapi, feed, folio, migration
+from app.plugins.doubancenter import DoubanCenter, doubanapi, feed, migration
 from app.plugins.doubancenter.adapter import douban_account
+from app.plugins.doubancenter.service import wish_sync
 
 
 class _FakeResponse:
@@ -83,7 +84,7 @@ def test_init_stops_previous_run_before_config_migration_and_tasks(monkeypatch):
         lambda: events.append("normalize"),
     )
     monkeypatch.setattr(feed, "run_once", lambda current: events.append("feed"))
-    monkeypatch.setattr(folio, "run_wish_scheduled", lambda current: events.append("wish"))
+    monkeypatch.setattr(wish_sync, "run_wish_scheduled", lambda current: events.append("wish"))
 
     plugin.init_plugin({"enabled": True, "onlyonce": True, "wish_onlyonce": True})
 

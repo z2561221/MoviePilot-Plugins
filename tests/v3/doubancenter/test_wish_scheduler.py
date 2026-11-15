@@ -3,9 +3,10 @@
 from types import SimpleNamespace
 
 import pytest
-from apscheduler.triggers.cron import CronTrigger
-from app.plugins.doubancenter import DoubanCenter, feed, folio, migration
+from app.plugins.doubancenter import DoubanCenter, feed, migration
 from app.plugins.doubancenter.service import lifecycle, scheduler, webhook
+from app.plugins.doubancenter.service import wish_sync as folio
+from apscheduler.triggers.cron import CronTrigger
 
 
 @pytest.fixture

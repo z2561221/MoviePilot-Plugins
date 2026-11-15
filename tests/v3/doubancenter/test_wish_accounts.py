@@ -9,7 +9,8 @@ from app.plugins.doubancenter.adapter.douban_account import (
     DoubanCookieError,
     normalize_wish_user_ids,
 )
-from app.plugins.doubancenter.service import folio, lifecycle, wish_accounts
+from app.plugins.doubancenter.service import lifecycle, wish_accounts
+from app.plugins.doubancenter.service import wish_sync as folio
 from app.schemas.types import MediaSource, MediaType
 from requests import Response
 from requests.exceptions import ReadTimeout

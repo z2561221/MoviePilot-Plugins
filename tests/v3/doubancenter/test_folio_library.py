@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from app.plugins.doubancenter.adapter import folio_library
 from app.plugins.doubancenter.model import folio_record
-from app.plugins.doubancenter.service import dashboard_folio, folio
+from app.plugins.doubancenter.service import dashboard_folio, folio, folio_account
 from PIL import Image
 
 from tests.v3.doubancenter.folio_fakes import FolioPlugin, mushoku_media
@@ -264,7 +264,7 @@ def test_movie_sync_retains_resolved_poster_and_skips_season_lookup(monkeypatch,
     poster = "https://img3.doubanio.com/movie.jpg"
     origin = _movie_record()["origin"]
     origin["mediaserver"] = {"server": "Embyserver", "item_id": "movie-1"}
-    monkeypatch.setattr(folio, "DoubanApi", lambda **kwargs: SimpleNamespace(
+    monkeypatch.setattr(folio_account, "DoubanApi", lambda **kwargs: SimpleNamespace(
         set_watching_status=lambda **kwargs: True,
     ))
     monkeypatch.setattr(folio, "_resolve_douban_subject", lambda *args, **kwargs: (

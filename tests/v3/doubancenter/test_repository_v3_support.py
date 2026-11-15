@@ -5,13 +5,11 @@ import json
 import sys
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.sync_to_mp_local import sync_to_target  # noqa: E402
-
 
 V3_PLUGIN_ROOT = REPO_ROOT / "plugins.v3" / "doubancenter"
 FORBIDDEN_IMPORT_ROOTS = (
@@ -98,7 +96,9 @@ def test_v3_sdk_migrations_use_current_public_exports():
     assert "from app.sdk.media import resolve_media_identity" in api_source
     assert "from app.sdk.media import normalize_media_source, resolve_media_identity" in identity_source
     assert "from app.sdk.services import MediaServerHelper, MediaServerIdentityHelper" in folio_source
-    assert "from app.schemas.types import MediaSource, MediaType, MessageType" in folio_source
+    assert "from app.schemas.types import MediaSource, MediaType" in folio_source
+    account_source = (V3_PLUGIN_ROOT / "service/folio_account.py").read_text(encoding="utf-8")
+    assert "from app.schemas.types import MessageType" in account_source
     assert "NotificationType" not in folio_source
     assert "subscription_query.exists" in subscription_source
     assert '"app.db.oper.subscribe"' in migration_source

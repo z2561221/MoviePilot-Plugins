@@ -1,15 +1,15 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { a as getPluginApi, i as isApiRequestCancellation, p as postPluginApi } from './useRequestScope-CDEhkzJg.js';
 
-const {ref,watch,onScopeDispose} = await importShared('vue');
+const {ref: ref$1,watch: watch$1,onScopeDispose} = await importShared('vue');
 
 // 显示权限按当前API与实例读取，服务端仍逐次授权每个管理操作。
 function useManagementPermissions(api, pluginId) {
-  const canManage = ref(false);
-  const permissionError = ref('');
+  const canManage = ref$1(false);
+  const permissionError = ref$1('');
   let alive = true;
   let generation = 0;
-  watch(() => [api(), pluginId()], async ([client, id]) => {
+  watch$1(() => [api(), pluginId()], async ([client, id]) => {
     const current = ++generation;
     const owns = () => alive && current === generation && client === api() && id === pluginId();
     canManage.value = false;
@@ -24,6 +24,28 @@ function useManagementPermissions(api, pluginId) {
   onScopeDispose(() => { alive = false; generation++; });
   return { canManage, permissionError }
 }
+
+const rankNames = {
+  coming: '即将上映',
+  tv_real_time: '实时热门',
+  tv_chinese: '华语口碑',
+  tv_global: '全球口碑',
+  movie_weekly: '电影口碑',
+  bangumi: 'BangumiTV',
+  douban_wish: '豆瓣想看',
+  unknown: '未归类',
+};
+
+const rankIconColors = {
+  coming: '#f97316',
+  tv_real_time: '#06b6d4',
+  tv_chinese: '#eab308',
+  tv_global: '#ef4444',
+  movie_weekly: '#ec4899',
+  bangumi: '#8b5cf6',
+  douban_wish: '#10b981',
+  unknown: '#94a3b8',
+};
 
 const BUILTIN_RANK_ROUTES = {
   coming: '/douban/tv/coming',
@@ -282,4 +304,47 @@ function useRankMediaActions({ api, pluginId, rankNameOf }) {
   }
 }
 
-export { useRankMediaActions as a, doubanDispatchUrl as d, sourceDescriptor as s, useManagementPermissions as u };
+const {ref,watch} = await importShared('vue');
+
+
+function useRankDialog({ requestScope, resolveRankMedia, tmdbIdOf }) {
+  const dialogItem = ref(null);
+  const showDialog = ref(false);
+  const dialogResolving = ref(false);
+  const dialogResolveError = ref('');
+  const dialogResolveToken = ref(0);
+
+  watch(showDialog, open => {
+    if (!open) {
+      dialogResolveToken.value += 1;
+      dialogResolving.value = false;
+    }
+  }, { flush: 'sync' });
+
+  async function showActionDialog(rk, item) {
+    const scope = requestScope();
+    if (!scope.isActive()) return
+    const current = scope.capture();
+    const token = ++dialogResolveToken.value;
+    dialogItem.value = { rk, item: { ...(item || {}) } };
+    dialogResolveError.value = '';
+    dialogResolving.value = false;
+    showDialog.value = true;
+    if (tmdbIdOf(item)) return
+    dialogResolving.value = true;
+    try {
+      const media = await resolveRankMedia(rk, item);
+      if (!current() || token !== dialogResolveToken.value) return
+      dialogItem.value = { rk, item: media };
+      if (!tmdbIdOf(media)) dialogResolveError.value = '未找到对应的 TMDB 条目';
+    } catch (error) {
+      if (current() && token === dialogResolveToken.value) dialogResolveError.value = error?.message || 'TMDB 识别失败';
+    } finally {
+      if (current() && token === dialogResolveToken.value) dialogResolving.value = false;
+    }
+  }
+
+  return { dialogItem, showDialog, dialogResolving, dialogResolveError, dialogResolveToken, showActionDialog }
+}
+
+export { useRankDialog as a, useRankMediaActions as b, rankIconColors as c, rankNames as r, sourceDescriptor as s, useManagementPermissions as u };

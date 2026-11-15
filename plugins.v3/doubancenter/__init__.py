@@ -2,8 +2,7 @@
 DoubanCenter v3.0.21 - MoviePilot V3 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """
-import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from app.plugins import _PluginBase
 from app.schemas.types import EventType
@@ -23,17 +22,18 @@ from .model.config import (
     default_config,
     normalize_rank_configs,
 )
+from .model.runtime import RuntimeOwner
 from .service import dashboard as dash
-from .service import folio
-from .service import lifecycle
+from .service import folio as _folio_module
+from .service import lifecycle, observation_actions, rank_notifications, wish_sync
 from .service import rank_pipeline as feed
-from .service import rank_notifications
-from .service import observation_actions
 from .service import scheduler as scheduler_service
 from .service import webhook as webhook_service
 
+folio = _folio_module
 
-class DoubanCenter(_PluginBase):
+
+class DoubanCenter(RuntimeOwner, _PluginBase):
     """整合豆瓣榜单订阅、豆瓣时间和仪表盘的 MoviePilot 插件入口。"""
 
     plugin_name = "豆瓣中心"
@@ -57,12 +57,12 @@ class DoubanCenter(_PluginBase):
         self._proxy = False
         self._onlyonce = False
         self._rsshub_domain = DEFAULT_RSSHUB_DOMAIN
-        self._rank_configs: Dict[str, Any] = {}
-        self._custom_ranks: List[Dict[str, Any]] = []
-        self._region_filters: List[str] = []
-        self._genre_filters: List[str] = []
-        self._resolution_filters: List[str] = []
-        self._custom_rss_addrs: List[str] = []
+        self._rank_configs: dict[str, Any] = {}
+        self._custom_ranks: list[dict[str, Any]] = []
+        self._region_filters: list[str] = []
+        self._genre_filters: list[str] = []
+        self._resolution_filters: list[str] = []
+        self._custom_rss_addrs: list[str] = []
         self._folio_enabled = True
         self._folio_private = True
         self._folio_first = True
@@ -78,19 +78,16 @@ class DoubanCenter(_PluginBase):
         self._wish_onlyonce = False
         self._wish_max_pages = 1
         self._wish_days = 7
-        self._dashboard_rank_keys: List[str] = []
+        self._dashboard_rank_keys: list[str] = []
         self._discovery_page_enabled = False
         self._blacklist_keywords = ""
         self._observe_days = 0
-        self._observe_rank_keys: List[str] = []
+        self._observe_rank_keys: list[str] = []
         self._region_options = list(REGION_OPTIONS)
         self._genre_options = list(GENRE_OPTIONS)
         self._resolution_options = [dict(option) for option in RESOLUTION_OPTIONS]
         self._scheduler = None
-        self._wait_process: Optional[Dict[str, Any]] = None
-        self._sync_lock = threading.Lock()
-        self._rank_lock = threading.RLock()
-        self._folio_poster_lock = threading.RLock()
+        self._wait_process: Optional[dict[str, Any]] = None
         self._folio_repair_plans: dict[str, Any] = {}
         lifecycle.start(self)
 
@@ -161,13 +158,13 @@ class DoubanCenter(_PluginBase):
         if self._wish_onlyonce:
             self._wish_onlyonce = False
             self.__update_config()
-            folio.run_wish_scheduled(self)
+            wish_sync.run_wish_scheduled(self)
 
     def __run_all(self):
         feed.run_scheduled(self)
 
     def __run_wish(self):
-        folio.run_wish_scheduled(self)
+        wish_sync.run_wish_scheduled(self)
 
     def __current_config(self):
         """返回当前有效配置快照，用于清理旧字段。"""
@@ -215,16 +212,16 @@ class DoubanCenter(_PluginBase):
         return self._enabled
 
     @staticmethod
-    def get_command() -> List[Dict[str, Any]]:
+    def get_command() -> list[dict[str, Any]]:
         """返回插件命令列表。"""
         return []
 
     @staticmethod
-    def get_agent_tools() -> List[type]:
+    def get_agent_tools() -> list[type]:
         """返回插件提供的 Agent 工具列表。"""
         return []
 
-    def get_api(self) -> List[Dict[str, Any]]:
+    def get_api(self) -> list[dict[str, Any]]:
         """返回插件对外开放的 API 路由定义。"""
         return api_controller.get_api(self)
 
@@ -368,16 +365,16 @@ class DoubanCenter(_PluginBase):
         """删除指定订阅归档记录。"""
         return api_controller.api_delete_archive(self, archive_id=archive_id)
 
-    def get_service(self) -> List[Dict[str, Any]]:
+    def get_service(self) -> list[dict[str, Any]]:
         """返回插件定时服务定义。"""
         return scheduler_service.get_services(self, self.__run_all, self.__run_wish)
 
     @staticmethod
-    def get_render_mode() -> Tuple[str, str]:
+    def get_render_mode() -> tuple[str, str]:
         """声明插件使用 Vue 联邦组件渲染。"""
         return "vue", "dist/assets"
 
-    def get_sidebar_nav(self) -> List[Dict[str, Any]]:
+    def get_sidebar_nav(self) -> list[dict[str, Any]]:
         """返回主界面发现分区的豆瓣中心全页入口。"""
         if not self.get_state() or not self._discovery_page_enabled:
             return []
@@ -392,15 +389,15 @@ class DoubanCenter(_PluginBase):
             }
         ]
 
-    def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
+    def get_form(self) -> tuple[Optional[list[dict]], dict[str, Any]]:
         """返回 Vue 模式下的默认配置模型。"""
         return None, default_config()
 
-    def get_page(self) -> Optional[List[dict]]:
+    def get_page(self) -> Optional[list[dict]]:
         """返回插件详情页结构，Vue 模式下由前端远程组件渲染。"""
         return None
 
-    def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+    def get_dashboard(self, key: str, **kwargs) -> Optional[tuple[dict[str, Any], dict[str, Any], list[dict]]]:
         """返回指定仪表盘组件数据。"""
         return dash.get_dashboard(self, key, **kwargs)
 

@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 from app.plugins.doubancenter import folio
+from app.plugins.doubancenter.service import folio_account, wish_sync
 from app.schemas.types import MediaSource, MediaType
 
 
@@ -163,7 +164,7 @@ def test_default_wish_recognize_prefers_douban_subject_identity(monkeypatch):
     """想看默认识别优先使用豆瓣 subject ID 转换出的 TMDB 身份。"""
     identity_media = SimpleNamespace(title="TMDB 条目")
     chain = WishMediaChain(converted={"id": 12345}, identity_media=identity_media)
-    monkeypatch.setattr(folio, "MediaChain", lambda: chain)
+    monkeypatch.setattr(wish_sync, "MediaChain", lambda: chain)
     monkeypatch.setattr(
         folio,
         "MetaInfo",
@@ -175,7 +176,7 @@ def test_default_wish_recognize_prefers_douban_subject_identity(monkeypatch):
         ),
     )
 
-    recognizer = folio._default_wish_recognize(SimpleNamespace())
+    recognizer = wish_sync._default_wish_recognize(SimpleNamespace())
     result = recognizer("测试条目", "2026", "7654321")
 
     assert result is identity_media
@@ -193,7 +194,7 @@ def test_default_wish_recognize_falls_back_to_title_after_identity_failure(monke
     """想看 subject 转换失败时仍回退现有标题识别。"""
     title_media = SimpleNamespace(title="标题回退条目")
     chain = WishMediaChain(converted=None, title_media=title_media)
-    monkeypatch.setattr(folio, "MediaChain", lambda: chain)
+    monkeypatch.setattr(wish_sync, "MediaChain", lambda: chain)
     monkeypatch.setattr(
         folio,
         "MetaInfo",
@@ -205,7 +206,7 @@ def test_default_wish_recognize_falls_back_to_title_after_identity_failure(monke
         ),
     )
 
-    recognizer = folio._default_wish_recognize(SimpleNamespace())
+    recognizer = wish_sync._default_wish_recognize(SimpleNamespace())
     result = recognizer("测试条目", "2026", "7654321")
 
     assert result is title_media
@@ -218,7 +219,7 @@ def test_default_wish_recognize_falls_back_after_tmdb_detail_failure(monkeypatch
     """想看已转出 TMDB ID 但详情识别失败时仍回退标题识别。"""
     title_media = SimpleNamespace(title="标题回退条目")
     chain = WishMediaChain(converted={"id": 12345}, title_media=title_media)
-    monkeypatch.setattr(folio, "MediaChain", lambda: chain)
+    monkeypatch.setattr(wish_sync, "MediaChain", lambda: chain)
     monkeypatch.setattr(
         folio,
         "MetaInfo",
@@ -230,7 +231,7 @@ def test_default_wish_recognize_falls_back_after_tmdb_detail_failure(monkeypatch
         ),
     )
 
-    recognizer = folio._default_wish_recognize(SimpleNamespace())
+    recognizer = wish_sync._default_wish_recognize(SimpleNamespace())
     result = recognizer("测试条目", "2026", "7654321")
 
     assert result is title_media
@@ -383,7 +384,7 @@ def test_fanren_reuses_tmdb_identity_and_converts_to_anime_douban(monkeypatch):
         "type": "tv", "is_tv": True, "year": "2020", "pubdate": ["2020-07-25"],
         "pic": {"large": "https://img.example/fanren.webp"},
     })
-    monkeypatch.setattr(folio, "DoubanApi", FakeDoubanApi)
+    monkeypatch.setattr(folio_account, "DoubanApi", FakeDoubanApi)
     monkeypatch.setattr(folio, "MediaChain", lambda: chain)
     media = SimpleNamespace(
         media_source=MediaSource.TMDB,
@@ -423,7 +424,7 @@ def test_bleach_never_accepts_duke_of_death_title_candidate(monkeypatch):
 
     FakeDoubanApi.reset()
     FakeDoubanApi.search_result = ("死神少爷与黑女仆 第二季", "35605985")
-    monkeypatch.setattr(folio, "DoubanApi", FakeDoubanApi)
+    monkeypatch.setattr(folio_account, "DoubanApi", FakeDoubanApi)
     plugin = _plugin()
 
     assert folio._resolve_douban_subject(
@@ -446,7 +447,7 @@ def test_bleach_retries_exact_tmdb_identity_at_series_level(monkeypatch):
         "pubdate": ["2004-10-05"],
         "cover_url": "https://img.example/bleach.webp",
     })
-    monkeypatch.setattr(folio, "DoubanApi", FakeDoubanApi)
+    monkeypatch.setattr(folio_account, "DoubanApi", FakeDoubanApi)
     monkeypatch.setattr(folio, "MediaChain", lambda: chain)
     media = SimpleNamespace(
         media_source=MediaSource.TMDB,
@@ -476,7 +477,7 @@ def test_bleach_retries_exact_tmdb_identity_at_series_level(monkeypatch):
 def test_verified_waiting_subject_reuses_identity_and_season_poster(monkeypatch):
     """已核验待重试项从季证据复用海报，无需再次查询豆瓣详情。"""
     FakeDoubanApi.reset()
-    monkeypatch.setattr(folio, "DoubanApi", FakeDoubanApi)
+    monkeypatch.setattr(folio_account, "DoubanApi", FakeDoubanApi)
     recognize_calls = []
 
     def recognize(meta, media_source=None, media_id=None, tmdb_id=None):
@@ -529,7 +530,7 @@ def test_failed_status_persists_douban_identity_and_poster(monkeypatch):
         "type": "tv", "is_tv": True, "year": "2020", "pubdate": ["2020-07-25"],
         "cover_url": "https://img.example/fanren.webp",
     })
-    monkeypatch.setattr(folio, "DoubanApi", FakeDoubanApi)
+    monkeypatch.setattr(folio_account, "DoubanApi", FakeDoubanApi)
     monkeypatch.setattr(folio, "MediaChain", lambda: chain)
     media = SimpleNamespace(
         media_source=MediaSource.TMDB,

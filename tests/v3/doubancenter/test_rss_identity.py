@@ -3,10 +3,8 @@
 from types import SimpleNamespace
 
 import pytest
-
 from app.plugins.doubancenter.adapter import rss
-from app.plugins.doubancenter.service import rank_pipeline
-from app.plugins.doubancenter.service import rank_snapshot
+from app.plugins.doubancenter.service import rank_media, rank_snapshot
 
 
 @pytest.mark.parametrize("value", [
@@ -163,7 +161,7 @@ def test_enrichment_does_not_expand_request_scope(monkeypatch, items, addr):
 
 
 def test_existing_rank_record_can_recover_id_from_dispatch_link():
-    assert rank_pipeline._record_douban_id({
+    assert rank_media._record_douban_id({
         "unique": "custom_rank:https://www.douban.com/doubanapp/dispatch/movie/35322132",
     }) == "35322132"
 

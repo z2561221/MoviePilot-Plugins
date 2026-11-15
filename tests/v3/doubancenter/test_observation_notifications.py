@@ -2,18 +2,24 @@
 
 import copy
 import threading
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from types import SimpleNamespace
 
 import pytest
-from app.schemas.types import MediaSource, MediaType, MessageType, NotificationChannel
-
 from app.plugins.doubancenter.adapter import notification as adapter
 from app.plugins.doubancenter.model.config import default_config
-from app.plugins.doubancenter.service import dashboard, lifecycle, observation, rank_pipeline
+from app.plugins.doubancenter.service import (
+    dashboard,
+    lifecycle,
+    observation,
+    rank_candidates,
+    rank_pipeline,
+)
 from app.plugins.doubancenter.service import observation_actions as actions
 from app.plugins.doubancenter.service import rank_notifications as notices
 from app.plugins.doubancenter.storage import records as storage
+from app.schemas.types import MediaSource, MediaType, MessageType, NotificationChannel
 
 RANK = {"key": "coming", "name": "即将上映", "coming": True}
 ROUTE = {"id": "route-1", "name": "telegram-main", "type": "telegram"}
@@ -310,17 +316,17 @@ def pipeline_input(plugin, monkeypatch, name):
     raw = {"title": "测试 第二季", "link": "https://example.test/42", "year": "2026", "media_type": "tv"}
     meta = SimpleNamespace(begin_season=2)
     media = SimpleNamespace(media_source=MediaSource.TMDB, media_id="42", tmdb_id=42, title="测试", year="2026", type=MediaType.TV)
-    monkeypatch.setattr(rank_pipeline, "_rc", lambda *_: {})
-    monkeypatch.setattr(rank_pipeline, "_check_blacklist", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(rank_pipeline, "_check_rank_region", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(rank_pipeline, "_is_existing_media", lambda *_: False)
-    monkeypatch.setattr(rank_pipeline, "_snapshot_meta", lambda *_: meta)
-    monkeypatch.setattr(rank_pipeline, "_fetch_coming_rss", lambda *_: [dict(raw)])
-    monkeypatch.setattr(rank_pipeline, "_fetch_rss", lambda *_: [dict(raw)])
+    monkeypatch.setattr(rank_candidates, "_rc", lambda *_: {})
+    monkeypatch.setattr(rank_candidates, "_check_blacklist", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(rank_candidates, "_check_rank_region", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(rank_candidates, "_is_existing_media", lambda *_: False)
+    monkeypatch.setattr(rank_candidates, "_snapshot_meta", lambda *_: meta)
+    monkeypatch.setattr(rank_candidates, "_fetch_coming_rss", lambda *_: [dict(raw)])
+    monkeypatch.setattr(rank_candidates, "_fetch_rss", lambda *_: [dict(raw)])
     monkeypatch.setattr(rank_pipeline, "_recognize_rss_item", lambda *_: (meta, media, "tv"))
     monkeypatch.setattr(rank_pipeline.utils, "get_tmdb_air_date", lambda *_args, **_kwargs: "2026-12-01")
-    monkeypatch.setattr(rank_pipeline.rank_timing, "resolve_release", lambda *_args, **_kwargs: ("2026", "2026-12-01"))
-    monkeypatch.setattr(rank_pipeline, "_add_sub", lambda *_args, **_kwargs: pytest.fail("observed item must not subscribe"))
+    monkeypatch.setattr(rank_candidates.rank_timing, "resolve_release", lambda *_args, **_kwargs: ("2026", "2026-12-01"))
+    monkeypatch.setattr(rank_candidates, "_add_sub", lambda *_args, **_kwargs: pytest.fail("observed item must not subscribe"))
     plugin.chain.recognize_media = lambda **_kwargs: media
     argument = [{"raw": raw, "entry": dict(raw), "mediainfo": media}] if name.endswith("snapshots") else "https://rss.test/feed"
     return rank, argument
@@ -349,7 +355,7 @@ def test_failed_rank_save_never_sends_notification(plugin, monkeypatch):
         original(key, value)
     monkeypatch.setattr(plugin, "save_data", fail)
     with pytest.raises(RuntimeError, match="storage unavailable"):
-        rank_pipeline._process_coming_snapshots(plugin, argument, rank)
+        rank_candidates._process_coming_snapshots(plugin, argument, rank)
     assert plugin.messages == []
 
 
@@ -359,7 +365,7 @@ def test_refresh_serializes_remove_and_busy_callback_does_not_consume_card(plugi
     send_notice(plugin, rank=rank, unique=("dc2_coming:" if rank["coming"] else "dc2_rank:") + "https://example.test/42")
     event = callback(plugin, "r")
     entered, release, removing = threading.Event(), threading.Event(), threading.Event()
-    original = rank_pipeline._check_observe
+    original = rank_candidates._check_observe
 
     def pause(*args, **kwargs):
         entered.set()
@@ -370,7 +376,7 @@ def test_refresh_serializes_remove_and_busy_callback_does_not_consume_card(plugi
         removing.set()
         return dashboard.api_delete_observation(plugin, unique=session_for(plugin, event)["unique"], rank_key=rank["key"])
 
-    monkeypatch.setattr(rank_pipeline, "_check_observe", pause)
+    monkeypatch.setattr(rank_candidates, "_check_observe", pause)
     with ThreadPoolExecutor(max_workers=2) as pool:
         refresh = pool.submit(getattr(rank_pipeline, name), plugin, argument, rank)
         try:

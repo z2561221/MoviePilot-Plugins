@@ -27,13 +27,21 @@ DoubanCenter 3.0.21 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 - `model/identity.py`：统一 `(media_source, media_id)`、旧字段回填和 V3 `MediaChain` 参数。
 - `migration.py`：初始化时幂等迁移各类记录，从可信豆瓣/Bangumi 条目链接补回缺失身份并保存旧日志补齐结果；半截身份原样保留，待分季队列单独统计。
 - `controller/schemas.py`：普通 JSON 路由的具体 Pydantic 业务模型。
-- `service/rank_pipeline.py`：榜单领域兼容入口和运行回调；根 `feed.py` 仅保留兼容转发。
+- `service/rank_pipeline.py`：榜单运行编排与必要旧入口；根 `feed.py` 仅保留兼容转发。
+- `service/rank_media.py`：榜单跨源识别、展示元数据与Bangumi历史补全；识别服务直接使用此模块，不回调主流水线。
+- `service/rank_candidates.py`：传统RSS和已识别快照共用候选筛选、查重、观察及订阅循环，保留两类榜单各自的日期和想看数策略。
+- `model/rank_candidate.py`：内存候选视图，传统RSS延迟识别以保留黑名单先于网络请求的顺序；持久化仍为既有字典。
 - `service/rank_refresh.py`：RSS 目标选择、拉取窗口和仪表盘刷新编排。
 - `service/rank_recognition.py`：RSS 条目与快照的识别器选择。
 - `service/rank_snapshot.py`：榜单快照构造、历史合并和观察状态保留。
 - `service/rank_subscription.py`：订阅筛选策略、快照订阅和运行周期编排。
 - `service/dashboard.py`：仪表盘和详情页 API 编排，归档核心算法委托给 `service/archive.py`；根 `dashboard.py` 仅保留兼容转发。
-- `service/folio.py`：豆瓣时间同步主流程，外层事件串行化由 `service/webhook.py` 承担；根 `folio.py` 仅保留兼容转发。
+- `service/folio.py`：播放事件身份、分季核验及观影同步；外层事件串行化由 `service/webhook.py` 承担，根 `folio.py` 保留兼容。
+- `service/wish_sync.py`：想看账号基线、队列、识别、失败重试及订阅回执的完整服务，生产调度直接调用。
+- `service/folio_account.py`：共用账号客户端、登录探测与通知节流。
+- `model/runtime.py`：实例独有的缓存、锁、运行代次和待处理内存状态；保留既有字段名作为适配，停止/重载合同由lifecycle执行。
+- `src/components/dashboard/useDashboardRuntime.js`：仪表盘请求、时间线和操作状态，Dashboard.vue只装配视图。
+- `src/components/useRankDialog.js` / `rankDisplay.js`：详情及仪表盘共用弹窗识别状态和榜单显示定义。
 - `service/wish_accounts.py`：逐账号读取想看结果、合并同一 subject ID、维护各账号首次基线与读取错误；部分账号失败不阻断其他账号。
 - 明确填写的想看账号优先于 Cookie 默认账号；只有匹配登录账号时使用想看页，其余账号使用 feed。响应缺失按 `response is None` 判断，HTTP 错误保留真实状态码。
 - CK 请求失败通过统一客户端回调强制通知，不受插件通知开关影响；同类故障仍按 6 小时节流，发送失败不占用节流窗口。
@@ -69,13 +77,13 @@ DoubanCenter 3.0.21 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 ## 关键调用链
 
 - 定时 / 立即运行：`DoubanCenter.__run_all()` -> `service/rank_pipeline.py:run_scheduled()` / `run_once()` -> `service/rank_subscription.py:refresh_then_subscribe()` -> `service/rank_refresh.py:refresh_rank_data()`。
-- 榜单刷新：`service/rank_refresh.py` -> `service/rank_snapshot.py` -> `service/rank_recognition.py` -> `service/rank_pipeline.py` 领域识别回调。
-- 榜单订阅：`service/rank_subscription.py` -> `service/rank_pipeline.py:_process_coming_snapshots()` / `_process_general_snapshots()` -> `service/observation.py` -> `service/subscription.py`。
+- 榜单刷新：`service/rank_refresh.py` -> `service/rank_snapshot.py` -> `service/rank_recognition.py` -> `service/rank_media.py` 领域识别实现。
+- 榜单订阅：`service/rank_subscription.py` -> `service/rank_candidates.py:_process_snapshots()` -> `service/observation.py` -> `service/subscription.py`。
 - 本季日期：`service/rank_timing.py` 在当前快照内按 TMDB 身份及原生季号复用日期；分段年份与原生季日期分别保留，不能直接使用剧集组 `season_years`。记录年份单独传递，不改写宿主媒体对象。
 - 分季退避：`service/folio_retry.py` 保留未到期同类失败的原期限；到期失败才递增，身份、状态或库内季事实变化可立即复核。
 - 详情 API：`controller/api.py` -> `service/dashboard.py` -> `storage/records.py` / `service/archive.py`。
 - 豆瓣时间：Webhook event -> `service/webhook.py` -> `service/folio.py` -> `adapter/douban_account.py:DoubanApi`。
-- 想看同步：`service/folio.py:run_wish_sync()` -> `service/wish_accounts.py:read_wish_accounts()` -> `adapter/douban_account.py:DoubanApi.get_wish_items()`；已有账号的新条目先处理，再保存新账号基线，避免同作品被另一账号的首次基线吞掉。
+- 想看同步：`service/wish_sync.py:run_wish_sync()` -> `service/wish_accounts.py:read_wish_accounts()` -> `adapter/douban_account.py:DoubanApi.get_wish_items()`；已有账号的新条目先处理，再保存新账号基线，避免同作品被另一账号的首次基线吞掉。
 
 ## 验收方式
 
