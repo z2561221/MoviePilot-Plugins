@@ -36,7 +36,7 @@ def case(count=205):
     instance = fakes["FakeQbInstance"]([fakes["qb_torrent"](str(n), "A", limit_kib=7) for n in range(count)])
     tasks = {item.key: item for item in [normalize_upload_torrent(raw, "D", "qbittorrent") for raw in instance.qbc.torrents]}
     records = {key: {"original_settings": {"limit_bps": 7 * 1024, "enabled": True}} for key in tasks}
-    contexts = {"D": {"service": SimpleNamespace(instance=instance)}}
+    contexts = {"D": SimpleNamespace(service=SimpleNamespace(instance=instance))}
     desired = {key: 2 for key in tasks}
     return instance, tasks, records, contexts, desired
 

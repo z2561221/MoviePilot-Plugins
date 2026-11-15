@@ -48,7 +48,7 @@ def apply_torrent_limits(tasks, contexts, records, desired_limits, timestamp, ch
             for key, _ in batch:
                 records[key]["pending_write_settings"] = settings_to_dict(expected)
             try:
-                applied = write_torrent_upload_limits(contexts[downloader_id]["service"].instance, kind,
+                applied = write_torrent_upload_limits(contexts[downloader_id].service.instance, kind,
                                                      [snapshot.torrent_hash for _, snapshot in batch], desired)
             except Exception as error:
                 checkpoint()

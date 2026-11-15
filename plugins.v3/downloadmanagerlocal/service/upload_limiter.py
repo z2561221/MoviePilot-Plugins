@@ -12,18 +12,13 @@ from functools import wraps
 from typing import Any, Iterable
 
 from ..adapter.upload_limit import (
-    expected_global_upload_settings,
     global_settings_equal,
     global_settings_from_dict,
-    global_settings_to_dict,
     list_upload_torrents,
     read_global_upload_settings,
     restore_global_upload_settings,
     restore_torrent_upload_settings,
     settings_from_dict,
-    settings_to_dict,
-    torrent_settings_equal,
-    write_global_upload_limit,
 )
 from ..model.state import UPLOAD_LIMIT_STATE_KEY
 from ..model.upload_limit import (
@@ -32,6 +27,7 @@ from ..model.upload_limit import (
     migrate_upload_limit_state,
     pool_state_key,
 )
+from ..model.upload_scan import UploadDownloaderContext
 from ..utils.config import is_upload_limit_active, normalize_upload_limit_config
 from .upload_allocator import (
     adjust_auto_probe_count,
@@ -44,7 +40,8 @@ from .upload_allocator import (
     select_probe_keys,
 )
 from .upload_limit_apply import apply_torrent_limits, matches_managed_settings
-
+from .upload_limit_scan import classify_upload_tasks, scan_downloader
+from .upload_limit_scan import downloader_type as _downloader_type
 
 logger = logging.getLogger(__name__)
 _LOCK_GUARD = threading.RLock()
@@ -176,7 +173,7 @@ def run_upload_limit_cycle(
             if restore_result["errors"]:
                 errors[downloader_id].extend(restore_result["errors"])
 
-        contexts: dict[str, dict] = {}
+        contexts: dict[str, UploadDownloaderContext] = {}
         regular_tasks: dict[str, Any] = {}
         grace_tasks: dict[str, Any] = {}
         torrent_state = state.setdefault("torrents", {})
@@ -185,71 +182,15 @@ def run_upload_limit_cycle(
         for downloader_id in selected:
             _cycle_checkpoint()
             try:
-                service = plugin.service_info(downloader_id)
-                if not service or not getattr(service, "instance", None):
-                    raise RuntimeError("下载器不可用")
-                downloader_type = _downloader_type(service)
-                if downloader_type not in {"qbittorrent", "transmission"}:
-                    raise RuntimeError(f"不支持的下载器类型：{downloader_type or 'unknown'}")
-                current_global = read_global_upload_settings(
-                    service.instance, downloader_type
-                )
-                _cycle_checkpoint()
-                entry = downloader_state.setdefault(downloader_id, {
-                    "downloader_type": downloader_type,
-                    "first_managed_at": timestamp,
-                    "initial_scan_complete": False,
-                })
-                initial_scan_pending = not bool(entry.get("initial_scan_complete"))
-                entry["downloader_type"] = downloader_type
-                if "original_global" not in entry:
-                    entry["original_global"] = global_settings_to_dict(current_global)
-                last_global = entry.get("last_written_global")
-                if last_global:
-                    expected_last = global_settings_from_dict(last_global, downloader_type)
-                    if not global_settings_equal(current_global, expected_last):
-                        entry["original_global"] = global_settings_to_dict(current_global)
-                desired_global = expected_global_upload_settings(
-                    downloader_type, caps[downloader_id]
-                )
-                if not global_settings_equal(current_global, desired_global):
-                    _cycle_checkpoint()
-                    desired_global = write_global_upload_limit(
-                        service.instance, downloader_type, caps[downloader_id]
-                    )
-                entry["last_written_global"] = global_settings_to_dict(desired_global)
-                entry["total_limit_kib"] = caps[downloader_id]
-                entry["last_seen_at"] = timestamp
-
-                snapshots, poll_error = list_upload_torrents(
-                    service.instance, downloader_id, downloader_type
-                )
-                _cycle_checkpoint()
-                if poll_error:
-                    raise RuntimeError(poll_error)
-                all_snapshots = {
-                    snapshot.key: snapshot
-                    for snapshot in snapshots
-                    if snapshot.torrent_hash
-                }
-                completed = {
-                    snapshot.key: snapshot
-                    for snapshot in snapshots
-                    if snapshot.completed and snapshot.torrent_hash
-                }
-                contexts[downloader_id] = {
-                    "service": service,
-                    "type": downloader_type,
-                    "snapshots": completed,
-                    "initial_scan_pending": initial_scan_pending,
-                }
+                context = scan_downloader(plugin, downloader_id, caps[downloader_id],
+                                          downloader_state, timestamp, _cycle_checkpoint)
+                contexts[downloader_id] = context
+                entry = downloader_state[downloader_id]
                 if not site_policy_enabled:
                     release_result = _release_downloader_torrent_limits(
-                        state=state,
-                        downloader_id=downloader_id,
-                        instance=service.instance,
-                        downloader_type=downloader_type,
-                        snapshots=all_snapshots,
+                        state=state, downloader_id=downloader_id,
+                        instance=context.service.instance, downloader_type=context.downloader_type,
+                        snapshots=context.all_snapshots,
                     )
                     if release_result["errors"]:
                         errors[downloader_id].extend(release_result["errors"])
@@ -257,82 +198,11 @@ def run_upload_limit_cycle(
                     entry["initial_scan_complete"] = False
                     entry["per_torrent_management_active"] = False
                     continue
-                for task_key, snapshot in all_snapshots.items():
-                    if snapshot.completed or task_key not in torrent_state:
-                        continue
-                    release_error = _release_torrent_record(
-                        state=state,
-                        task_key=task_key,
-                        record=torrent_state[task_key],
-                        snapshot=snapshot,
-                        instance=service.instance,
-                        downloader_type=downloader_type,
-                    )
-                    if release_error:
-                        errors[downloader_id].append(release_error)
-                _drop_missing_torrent_state(torrent_state, downloader_id, set(all_snapshots))
-                stock_scan = bool(first_activation or initial_scan_pending)
-                for task_key, snapshot in completed.items():
-                    record = torrent_state.get(task_key)
-                    if not isinstance(record, dict):
-                        completion_reference = max(
-                            float(snapshot.completed_at or 0),
-                            float(snapshot.added_at or 0),
-                        ) or timestamp
-                        grace_until = 0.0 if stock_scan else (
-                            completion_reference
-                            + max(0, int(getattr(
-                                plugin, "_upload_limit_grace_minutes", 30
-                            ) or 0)) * 60
-                        )
-                        record = {
-                            "downloader_id": downloader_id,
-                            "downloader_type": downloader_type,
-                            "torrent_hash": snapshot.torrent_hash,
-                            "first_seen_at": timestamp,
-                            "completion_reference": completion_reference,
-                            "grace_until": grace_until,
-                            "original_settings": settings_to_dict(
-                                snapshot.upload_settings
-                            ),
-                        }
-                        torrent_state[task_key] = record
-                    else:
-                        if not matches_managed_settings(record, snapshot.upload_settings):
-                            record["original_settings"] = settings_to_dict(
-                                snapshot.upload_settings
-                            )
-                    site_key = _resolve_limited_site(
-                        snapshot.labels, limited_site_rules, tag_prefix
-                    )
-                    if not site_key:
-                        if record:
-                            release_error = _release_torrent_record(
-                                state=state,
-                                task_key=task_key,
-                                record=record,
-                                snapshot=snapshot,
-                                instance=service.instance,
-                                downloader_type=downloader_type,
-                            )
-                            if release_error:
-                                errors[downloader_id].append(release_error)
-                        continue
-                    record.update({
-                        "downloader_id": downloader_id,
-                        "downloader_type": downloader_type,
-                        "torrent_hash": snapshot.torrent_hash,
-                        "name": snapshot.name,
-                        "labels": list(snapshot.labels),
-                        "site_key": site_key,
-                        "upload_rate_bps": snapshot.upload_rate_bps,
-                        "upload_demand_peers": snapshot.upload_demand_peers,
-                        "last_seen_at": timestamp,
-                    })
-                    if float(record.get("grace_until") or 0) > timestamp:
-                        grace_tasks[task_key] = snapshot
-                    else:
-                        regular_tasks[task_key] = snapshot
+                classify_upload_tasks(
+                    plugin, context, torrent_state, limited_site_rules, tag_prefix,
+                    timestamp, first_activation, _resolve_limited_site, _release_torrent_record,
+                    regular_tasks, grace_tasks, errors[downloader_id],
+                )
                 entry["initial_scan_complete"] = True
                 entry["per_torrent_management_active"] = True
             except UploadCycleStopped:
@@ -731,7 +601,7 @@ def _build_downloader_only_summary(
     state: dict,
     selected: list[str],
     caps: dict[str, int],
-    contexts: dict[str, dict],
+    contexts: dict[str, UploadDownloaderContext],
     errors: dict[str, list[str]],
     reason: str,
 ) -> dict:
@@ -741,8 +611,8 @@ def _build_downloader_only_summary(
     total_torrents = 0
     allocated_kib = 0
     for downloader_id in selected:
-        context = contexts.get(downloader_id) or {}
-        snapshots = list((context.get("snapshots") or {}).values())
+        context = contexts.get(downloader_id)
+        snapshots = list(context.snapshots.values()) if context else []
         upload_rate_bps = sum(
             int(snapshot.upload_rate_bps or 0) for snapshot in snapshots
         )
@@ -753,7 +623,7 @@ def _build_downloader_only_summary(
         allocated_kib += item_allocated_kib
         downloader_items.append({
             "id": downloader_id,
-            "type": str(context.get("type") or (
+            "type": str((context.downloader_type if context else "") or (
                 (state.get("downloaders") or {}).get(downloader_id, {}).get("downloader_type")
                 or ""
             )),
@@ -814,7 +684,7 @@ def _build_summary(
     state: dict,
     selected: list[str],
     caps: dict[str, int],
-    contexts: dict[str, dict],
+    contexts: dict[str, UploadDownloaderContext],
     regular_tasks: dict[str, Any],
     grace_tasks: dict[str, Any],
     pool_allocations: dict[str, int],
@@ -827,8 +697,8 @@ def _build_summary(
     torrent_state = state.get("torrents") or {}
     downloader_items = []
     for downloader_id in selected:
-        context = contexts.get(downloader_id) or {}
-        downloader_snapshots = list((context.get("snapshots") or {}).values())
+        context = contexts.get(downloader_id)
+        downloader_snapshots = list(context.snapshots.values()) if context else []
         downloader_regular = [
             snapshot for snapshot in regular_tasks.values()
             if snapshot.downloader_id == downloader_id
@@ -839,7 +709,7 @@ def _build_summary(
         ]
         downloader_items.append({
             "id": downloader_id,
-            "type": str(context.get("type") or (
+            "type": str((context.downloader_type if context else "") or (
                 (state.get("downloaders") or {}).get(downloader_id, {}).get("downloader_type")
                 or ""
             )),
@@ -943,7 +813,7 @@ def _build_summary(
         "upload_rate_bps": sum(
             int(snapshot.upload_rate_bps or 0)
             for context in contexts.values()
-            for snapshot in (context.get("snapshots") or {}).values()
+            for snapshot in context.snapshots.values()
         ),
         "allocated_kib": sum(int(value or 0) for value in pool_allocations.values()),
         "errors": flat_errors,
@@ -1170,21 +1040,6 @@ def _site_name_from_label(label: Any, prefix: str) -> str:
     return text[len(clean_prefix):].strip()
 
 
-def _drop_missing_torrent_state(
-    torrent_state: dict,
-    downloader_id: str,
-    current_keys: set[str],
-) -> None:
-    """下载器成功轮询后移除已经不存在的历史任务状态。"""
-    for task_key, record in list(torrent_state.items()):
-        if (
-            isinstance(record, dict)
-            and record.get("downloader_id") == downloader_id
-            and task_key not in current_keys
-        ):
-            torrent_state.pop(task_key, None)
-
-
 def _selected_downloaders(plugin: Any) -> list[str]:
     """返回去重后的上传限速下载器列表。"""
     result = []
@@ -1212,12 +1067,6 @@ def _site_rules(plugin: Any) -> dict[str, dict]:
         for site_name, rule in values.items()
         if str(site_name or "").strip() and isinstance(rule, dict)
     }
-
-
-def _downloader_type(service: Any) -> str:
-    """从 MoviePilot ServiceInfo 解析下载器类型。"""
-    value = getattr(service, "type", "")
-    return str(getattr(value, "value", None) or value or "").strip().lower()
 
 
 def _cycle_lock(plugin: Any) -> threading.RLock:
