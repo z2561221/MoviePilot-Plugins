@@ -490,21 +490,12 @@ async function loadOverview({ silent = false } = {}) {
   }
   try {
     const requestOptions = { feedback: 'silent' };
-    const [overviewResp, uploadResp] = await Promise.all([
-      getApi('overview', requestOptions),
-      getApi('upload_limit_status', requestOptions).catch(error => {
-        console.error('上传限速状态刷新失败，保留总览快照:', error);
-        return null
-      }),
-    ]);
+    const overviewResp = await getApi('overview', requestOptions);
     if (!isCurrentPageRequest(request)) return
     if (overviewResp?.code && overviewResp.code !== 0 && !overviewResp.cards) {
       throw new Error(overviewResp?.msg || '总览加载失败')
     }
-    const uploadStatus = uploadResp?.code === 0 || uploadResp?.service_status
-      ? uploadResp
-      : overviewResp?.upload_limit;
-    overview.value = { ...(overviewResp || {}), upload_limit: uploadStatus || {} };
+    overview.value = { ...(overviewResp || {}), upload_limit: overviewResp?.upload_limit || {} };
   } catch (e) {
     if (isApiRequestCancellation(e)) return
     if (!isCurrentPageRequest(request)) return
@@ -1956,6 +1947,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-66586604"]]);
+const Page = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-386bda38"]]);
 
 export { Page as default };

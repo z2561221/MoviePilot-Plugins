@@ -74,33 +74,48 @@ def coordinated(function):
         else:
             return None
         previous = getattr(plugin, "_sync_delete_block_snapshot", None)
+        previous_index = getattr(plugin, "_sync_delete_block_index", None)
         try:
             if operation_stopped(plugin, generation):
                 return None
             plugin._sync_delete_block_snapshot = (plugin.get_data(BLOCKS_KEY) or {}) if hasattr(plugin, "get_data") else {}
+            plugin._sync_delete_block_index = _block_identity_index(plugin._sync_delete_block_snapshot)
             return function(plugin, *args, **kwargs)
         finally:
             plugin._sync_delete_block_snapshot = previous
+            plugin._sync_delete_block_index = previous_index
             guard.release()
     return wrapper
+
+
+def _block_identity_index(blocks) -> frozenset:
+    """为批次避让快照建立索引，保留下载器、hash 与创建时间的原匹配语义。"""
+    identities = set()
+    if not isinstance(blocks, dict):
+        return frozenset()
+    for block in blocks.values():
+        identity = block.get("identity", [])
+        downloader = block.get("downloader")
+        if (len(identity) == 3 and isinstance(downloader, str)
+                and isinstance(identity[0], str) and isinstance(identity[1], (int, float))):
+            identities.add((downloader, identity[0], identity[1]))
+    return frozenset(identities)
 
 
 def task_blocked(plugin, downloader: str, torrent, kind: str) -> bool:
     """仅阻止同一创建时间/路径的旧任务；重新下载后的新任务不被永久封锁。"""
     if not hasattr(plugin, "get_data"):
         return False
-    blocks = getattr(plugin, "_sync_delete_block_snapshot", None)
-    if blocks is None:
-        blocks = plugin.get_data(BLOCKS_KEY) or {}
-    if not isinstance(blocks, dict) or not blocks:
+    index = getattr(plugin, "_sync_delete_block_index", None)
+    if index is None:
+        blocks = getattr(plugin, "_sync_delete_block_snapshot", None)
+        if blocks is None:
+            blocks = plugin.get_data(BLOCKS_KEY) or {}
+        index = _block_identity_index(blocks)
+    if not index:
         return False
     current = normalize_torrent(torrent, downloader, kind)
-    for block in blocks.values():
-        identity = block.get("identity", [])
-        if (block.get("downloader") == downloader and len(identity) == 3
-                and identity[0] == current.torrent_hash and identity[1] == current.added_at):
-            return True
-    return False
+    return (downloader, current.torrent_hash, current.added_at) in index
 
 
 def relation_records(plugin) -> dict:

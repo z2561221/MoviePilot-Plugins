@@ -75,7 +75,7 @@ class FakeDownloader:
         """保存预设下载器响应。"""
         self.response = response
 
-    def get_torrents(self):
+    def get_torrents(self, ids=None):
         """返回预设下载器响应。"""
         return self.response
 

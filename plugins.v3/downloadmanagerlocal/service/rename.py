@@ -14,7 +14,7 @@ from bencode import bdecode
 
 from ..adapter.moviepilot import get_download_history_by_hash
 from ..model.state import IYUU_SOURCE_KEY_PREFIX, RENAME_RECORDS_KEY, iyuu_source_key
-from ..service.archive import serialized_rename_state
+from ..service.archive import get_rename_retry_state, serialized_rename_state
 from ..utils.name_cleaner import (
     clean_torrent_original_name,
     collect_retry_rename_hashes,
@@ -116,10 +116,13 @@ def get_failed_rename_hashes(plugin) -> set:
     """获取所有需补刀的种子 hash：失败记录 + 已成功但 original_name 被副标题污染的记录"""
     records = plugin.get_data(RENAME_RECORDS_KEY) or {}
     retry_hashes = collect_retry_rename_hashes(records)
-    is_archived = getattr(plugin, "is_rename_archived", None)
-    if not callable(is_archived):
+    if not retry_hashes:
         return retry_hashes
-    return {torrent_hash for torrent_hash in retry_hashes if not is_archived(torrent_hash)}
+    retry_state = get_rename_retry_state(plugin)
+    return {
+        torrent_hash for torrent_hash in retry_hashes
+        if not (retry_state.get(str(torrent_hash or "").strip()) or {}).get("archived")
+    }
 
 
 def _get_bencoded_value(mapping, key: str):

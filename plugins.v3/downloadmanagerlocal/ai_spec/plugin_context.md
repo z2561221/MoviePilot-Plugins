@@ -3,7 +3,7 @@
 ## 插件定位
 
 `DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
-`3.3.13`（基于已发布的 V3.3.12）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`3.3.16`（基于已发布的 V3.3.15）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
@@ -26,10 +26,18 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理；同步删除实施测试只使用隔离替身，生产接管需单独回读配置与运行日志。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.13`；V2 源码与元数据保持原样。
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 固定为本周期开发版 `3.3.16`；V2 源码与元数据保持原样。
 - 转移批次在停止和重新初始化后失效；已创建目标而未收尾的任务以 `stopped_after_add` 记录，保留源任务，下次继续后处理并避免重复添加。
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
+
+## 2026-11-15 第一批性能优化
+
+- 补刀候选筛选每轮只读取一次归档状态；执行每个任务前仍复核归档，管理员中途归档的任务不继续重命名。
+- 新增下载事件使用宿主 QB/TR `get_torrents(ids=[hash])`，周期扫描仍读取完整列表。定向查询失败不降级为全量扫描，空结果和 API 错误继续区分。
+- 转种、辅种及校验的协调批次把避让快照索引为下载器/hash/创建时间集合；嵌套调用结束恢复外层索引，下一批重新读取，维持新下载不受旧标记影响的语义。
+- 详情页总览每次只请求 overview；其中包含的上传限速状态直接用于卡片和明细。后端复用诊断已计算的归档统计，保留切实例、离页和销毁后的旧回包保护。
+- 性能及边界回归：`tests/v3/downloadmanagerlocal/test_performance_queries.py`、`test_frontend_api.py`。不调整限速分配和同步删除任务存储，也不减少删除检查点。
 
 ## 2026-11-12 Transmission 站点标签保留
 
