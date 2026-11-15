@@ -8,6 +8,7 @@ from typing import Any
 @dataclass
 class RuntimeState:
     stop_event: Event | None = None
+    lifecycle_lock: Any = field(default_factory=RLock)
     sync_lock: Any = field(default_factory=Lock)
     rank_lock: Any = field(default_factory=RLock)
     poster_lock: Any = field(default_factory=RLock)
@@ -45,6 +46,7 @@ class RuntimeOwner:
         return state
 
     _run_stop = _StateField("stop_event")
+    _lifecycle_lock = _StateField("lifecycle_lock")
     _sync_lock = _StateField("sync_lock")
     _rank_lock = _StateField("rank_lock")
     _folio_poster_lock = _StateField("poster_lock")

@@ -14,6 +14,7 @@ from app.sdk.services import MediaServerHelper
 from PIL import Image
 
 from ..model import folio_record
+from ..service.lifecycle import publish_cache
 
 CACHE_SECONDS = 300
 MISS_CACHE_SECONDS = 60
@@ -270,8 +271,7 @@ def load_season(plugin, origin: dict, *, refresh: bool = False) -> dict | None:
         if len(cache) >= CACHE_LIMIT:
             cache.pop(next(iter(cache)))
         cache[key] = (now + CACHE_SECONDS, result)
-        if event is None or not event.is_set():
-            plugin._folio_library_season_cache = cache
+        publish_cache(plugin, event, "_folio_library_season_cache", cache)
         return result
     except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as err:
         logger.debug(f"实际媒体库分季不可用：{type(err).__name__}")
@@ -358,6 +358,5 @@ def _project_posters(plugin, records: dict, event) -> dict:
                 "poster_source": "mediaserver", "poster_fallback_path": record.get("poster_path") or "",
                 "library_poster": dict(poster["reference"]),
             }
-    if event is None or not event.is_set():
-        plugin._folio_library_poster_cache = cache
+    publish_cache(plugin, event, "_folio_library_poster_cache", cache)
     return result
