@@ -221,6 +221,7 @@ def _season_episodes(service, series_id: str, season_id: str, number: int, memo:
 
 def load_season(plugin, origin: dict, *, refresh: bool = False) -> dict | None:
     """读取实际入库分季，外部剧集组不参与季号解释；按插件实例短期缓存。"""
+    event = getattr(plugin, "_run_stop", None)
     try:
         services = list(MediaServerHelper().get_services(type_filter="emby").values())
         service_key = tuple((service.name, _base_url(service)) for service in services)
@@ -269,7 +270,8 @@ def load_season(plugin, origin: dict, *, refresh: bool = False) -> dict | None:
         if len(cache) >= CACHE_LIMIT:
             cache.pop(next(iter(cache)))
         cache[key] = (now + CACHE_SECONDS, result)
-        plugin._folio_library_season_cache = cache
+        if event is None or not event.is_set():
+            plugin._folio_library_season_cache = cache
         return result
     except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as err:
         logger.debug(f"实际媒体库分季不可用：{type(err).__name__}")
