@@ -32,6 +32,12 @@
 - `service/board_history.py` 通过四个只读仓库入口生成分页和比较摘要。controller 负责鉴权、快照序列化和响应组装，保留所有原有 DTO 字段、历史回退和跨页统计。
 - `service/lifecycle.py` 停止旧 runtime 后调用仓库 `release_read_caches()`。关闭的缓存禁止迟到读取重新发布数据；持久化读取仍可用，重新初始化使用新的 repository/cache。普通停用和 reload 不迁移或删除持久化数据。
 
+## 推荐输入与存储叶子边界
+
+- `RecommendationOrchestrator` 保留注入入口、运行登记/释放、检索/排序及最终提交协调；输入阶段委托 `service/recommendation_input.py`。`RecommendationRunContext` 只共享身份、起点时间和 metrics/errors，`RecommendationInputs` 返回播放、策略、记忆、画像、偏好五个原对象，不复制快照。
+- `service/recommendation_support.py` 维护角色调用、脱敏指标、阶段进度、重试及运行历史结算。输入阶段保留原 probe 降级、policy 复核、画像缓存与校验失败顺序；Agent 调用预算和失败保留旧榜单的入口沿用。
+- `storage/data.py` 统一插件数据读取、模型/作用域校验、恢复日志、逐键回读和反向回退；`storage/telegram.py` 只依赖该设施和 RepositoryLocks，维护选择、重试 CAS 与待确认会话。Repository 保留兼容方法；跨记录原子保存继续由原协调者调用同一数据设施，不拆成独立保存。
+
 ## 推荐主链
 
 1. Playback Reporting 探测通过后，按 `profile_id` 冻结最近播放快照。
