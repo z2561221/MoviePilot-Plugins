@@ -34,10 +34,11 @@ class AgentRankApiEndpointMixin:
         return self._endpoint(self.status_for_token, token_payload)
 
     def endpoint_config_options(
-        self, _token_payload: schemas.TokenPayload = Depends(verify_token)
+        self, _token_payload: schemas.TokenPayload = Depends(verify_token),
+        discover: bool = True,
     ) -> Dict[str, Any]:
-        """返回已登录用户可读取的完整配置选项。"""
-        return self._endpoint(self.config_options)
+        """榜单轻量读取跳过 Emby 发现；设置页默认保留完整选项。"""
+        return self._endpoint(self.config_options, discover)
 
     def endpoint_overview(
         self,

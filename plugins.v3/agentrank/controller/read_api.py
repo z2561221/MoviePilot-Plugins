@@ -64,7 +64,7 @@ class ReadApiMixin:
         data["data_lifecycle"] = self._data_lifecycle_data(profile_ids)
         return response
 
-    def config_options(self) -> Dict[str, Any]:
+    def config_options(self, discover: bool = True) -> Dict[str, Any]:
         """返回 Config 与 Emby 身份切换器需要的安全选项。"""
         from ..service.notification_type import notification_type_options
 
@@ -76,7 +76,7 @@ class ReadApiMixin:
             identity["profile_id"]: identity for identity in selected_identities
         }
         access = getattr(self.plugin, "_emby_access", None)
-        if access is not None and hasattr(access, "enumerate_identities"):
+        if discover and access is not None and hasattr(access, "enumerate_identities"):
             try:
                 for identity in access.enumerate_identities() or []:
                     identity_map[identity.profile_id] = identity.to_dict()
@@ -84,7 +84,7 @@ class ReadApiMixin:
                 pass
         identities = list(identity_map.values())
         libraries = {}
-        if access is not None and hasattr(access, "enumerate_libraries"):
+        if discover and access is not None and hasattr(access, "enumerate_libraries"):
             for identity_data in identities:
                 try:
                     identity = EmbyIdentity.from_dict(identity_data)
@@ -105,7 +105,7 @@ class ReadApiMixin:
                 "playback_status": {
                     identity["profile_id"]: self._playback_data(identity["profile_id"])
                     for identity in selected_identities
-                    if getattr(self.plugin, "_playback_service", None) is not None
+                    if discover and getattr(self.plugin, "_playback_service", None) is not None
                 },
             }
         )
@@ -208,44 +208,56 @@ class ReadApiMixin:
             for run in repository.load_run_history(target)
             if str(run.run_id or "").strip()
         }
-        board_by_run_id = {
-            board.run_id: board
-            for board in boards
-            if str(board.run_id or "").strip()
-        }
         def board_ids(value: Any) -> set[str]:
             """提取一轮榜单中非空且去重的候选标识。"""
             return {
                 str(item.candidate_id or "").strip()
-                for item in (value.recommendations if value else ())
+                for item in value.recommendations
                 if str(item.candidate_id or "").strip()
             }
 
         def overlap_rate(current_ids: set[str], previous_ids: set[str]) -> float:
-            """计算当前榜单与参照榜单的候选重合率。"""
             if not current_ids or not previous_ids:
                 return 0.0
-            return round(len(current_ids & previous_ids) / max(1, len(current_ids)), 4)
+            return round(len(current_ids & previous_ids) / len(current_ids), 4)
 
+        current_page = max(1, int(page or 1))
+        current_page_size = max(1, min(int(page_size or 10), 50))
+        start = (current_page - 1) * current_page_size
+        end = min(start + current_page_size, len(boards))
+        ids_by_index = [board_ids(board) for board in boards]
+        ids_by_run = {
+            board.run_id: ids_by_index[index]
+            for index, board in enumerate(boards) if str(board.run_id or "").strip()
+        }
+        last_occurrence = {
+            candidate_id: index
+            for index, ids in enumerate(ids_by_index) for candidate_id in ids
+        }
+        consumption_by_board = {}
+        if start < end:
+            for consumption in repository.load_board_consumptions(target):
+                consumption_by_board.setdefault(
+                    (consumption.run_id, consumption.board_revision), consumption
+                )
         items: List[Dict[str, Any]] = []
-        for index, board in enumerate(boards):
-            current_ids = board_ids(board)
-            previous = board_by_run_id.get(str(board.previous_run_id or "").strip())
-            if previous is None and index + 1 < len(boards):
-                previous = boards[index + 1]
-            previous_ids = board_ids(previous)
-            older_ids = set().union(*(board_ids(value) for value in boards[index + 1 :]))
-            return_count = len((current_ids & older_ids) - previous_ids)
-            recent_rates = []
-            for recent_index in range(index, min(len(boards) - 1, index + 5)):
-                recent_current = board_ids(boards[recent_index])
-                recent_previous = board_ids(boards[recent_index + 1])
-                recent_rates.append(overlap_rate(recent_current, recent_previous))
+        for index in range(start, end):
+            board = boards[index]
+            current_ids = ids_by_index[index]
+            previous_ids = ids_by_run.get(str(board.previous_run_id or "").strip())
+            if previous_ids is None:
+                previous_ids = ids_by_index[index + 1] if index + 1 < len(boards) else set()
+            return_count = sum(
+                last_occurrence[candidate_id] > index
+                for candidate_id in current_ids - previous_ids
+            )
+            recent_rates = [
+                overlap_rate(ids_by_index[recent], ids_by_index[recent + 1])
+                for recent in range(index, min(len(boards) - 1, index + 5))
+            ]
             run = runs.get(board.run_id)
             metrics = dict(run.metrics or {}) if run is not None else {}
-            consumption = repository.load_board_consumption(
-                target, board.run_id, board.revision
-            )
+            consumption = consumption_by_board.get((board.run_id, board.revision))
             board_data = self._board_snapshot_data(board)
             for item in board_data.get("recommendations") or []:
                 candidate_id = str(item.get("candidate_id") or "").strip()
@@ -275,15 +287,12 @@ class ReadApiMixin:
                     "legacy_fallback": legacy_fallback,
                 }
             )
-        current_page = max(1, int(page or 1))
-        current_page_size = max(1, min(int(page_size or 10), 50))
-        start = (current_page - 1) * current_page_size
         return self._success(
             {
                 "profile_id": target,
                 "username": self._display_name(target),
-                "items": items[start : start + current_page_size],
-                "total": len(items),
+                "items": items,
+                "total": len(boards),
                 "page": current_page,
                 "page_size": current_page_size,
                 "notice": notice,

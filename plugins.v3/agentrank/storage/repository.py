@@ -2,7 +2,9 @@
 
 import copy
 import threading
+import time
 import uuid
+from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -93,6 +95,9 @@ class AgentRankRepository:
     ):
         """绑定插件数据接口并设置历史、快照和反馈保留上限。"""
         self._plugin = plugin
+        # 仅缓存不可变反馈账本的读投影；每个仓库实例独立，最多八个榜单。
+        self._polarity_cache: OrderedDict = OrderedDict()
+        self._polarity_cache_lock = threading.RLock()
         self._history_limit = max(1, min(int(history_limit), 200))
         self._feedback_segment_size = max(
             1, min(int(feedback_segment_size), 1000)
@@ -1225,6 +1230,8 @@ class AgentRankRepository:
             index = self._load_feedback_index(profile_id)
             result: List[FeedbackEvent] = []
             for reference in index.segments:
+                if reference.end_sequence <= cursor:
+                    continue
                 segment = self._load_feedback_segment(
                     profile_id, reference.segment_id
                 )
@@ -1248,6 +1255,55 @@ class AgentRankRepository:
                     if requested_limit is not None and len(result) >= requested_limit:
                         return result
             return result
+
+    def load_feedback_polarities(self, profile_id: str, run_id: str) -> dict[str, str]:
+        """按账本序号增量投影赞踩；裁剪、重置或恢复后重建，有界缓存不写磁盘。"""
+        target_run = str(run_id or "").strip()
+        if not target_run:
+            return {}
+        key = (str(profile_id), target_run)
+        with self._feedback_lock(profile_id):
+            index = self._load_feedback_index(profile_id)
+            with self._polarity_cache_lock:
+                cached = self._polarity_cache.get(key)
+                if cached is not None:
+                    self._polarity_cache.move_to_end(key)
+            now = time.monotonic()
+            fresh = cached is not None and now < cached[3]
+            if fresh and cached[0] == index:
+                return dict(cached[1])
+            previous = cached[0] if fresh else None
+            incremental = bool(
+                previous is not None
+                and previous.retained_from_sequence == index.retained_from_sequence
+                and previous.next_sequence < index.next_sequence
+                and previous.segments[:-1] == index.segments[:len(previous.segments) - 1]
+                and all(index.idempotency.get(name) == pointer
+                        for name, pointer in previous.idempotency.items())
+            )
+            cursor = previous.next_sequence - 1 if incremental else 0
+            states = dict(cached[1]) if incremental else {}
+            events = self.load_feedback_events(profile_id, after_sequence=cursor)
+            for event in events:
+                if (event.run_id != target_run or not event.candidate_id
+                        or event.status != "recorded"):
+                    continue
+                if event.kind == "neutral":
+                    states.pop(event.candidate_id, None)
+                elif event.kind in {"like", "dislike"}:
+                    states[event.candidate_id] = event.kind
+            expected = index.next_sequence - max(cursor + 1, index.retained_from_sequence)
+            with self._polarity_cache_lock:
+                if len(events) == expected:
+                    # 追加不会延长全量复核期限，受损/外部修复数据最多一分钟重新读取。
+                    deadline = cached[3] if incremental else now + 60.0
+                    self._polarity_cache[key] = (index, dict(states), cursor, deadline)
+                    self._polarity_cache.move_to_end(key)
+                    while len(self._polarity_cache) > 8:
+                        self._polarity_cache.popitem(last=False)
+                else:
+                    self._polarity_cache.pop(key, None)
+            return states
 
     def _load_preference_memory(
         self, profile_id: str, *, strict: bool = False
