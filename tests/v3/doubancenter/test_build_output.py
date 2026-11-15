@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 _NODE_CHECK = r"""
 const fs = require('node:fs');
 const path = require('node:path');
@@ -21,7 +20,7 @@ const guard = value => {
   const relative = path.relative(sandbox, path.resolve(value));
   assert(!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep));
 };
-const context = {resolve: path.resolve};
+const context = {resolve: path.resolve, packageFederationAssets: output => guard(output)};
 for (const name of ['rmSync', 'readFileSync', 'writeFileSync', 'existsSync']) {
   context[name] = (value, ...args) => { guard(value); return fs[name](value, ...args); };
 }

@@ -2,6 +2,7 @@
 DoubanCenter v3.0.21 - MoviePilot V3 本地插件
 整合：榜单订阅 + 豆瓣时间 + 仪表盘双面板
 """
+from pathlib import Path
 from typing import Any, Optional
 
 from app.plugins import _PluginBase
@@ -22,6 +23,7 @@ from .model.config import (
     default_config,
     normalize_rank_configs,
 )
+from .model.frontend_assets import federation_assets_path
 from .model.runtime import RuntimeOwner
 from .service import dashboard as dash
 from .service import folio as _folio_module
@@ -371,8 +373,8 @@ class DoubanCenter(RuntimeOwner, _PluginBase):
 
     @staticmethod
     def get_render_mode() -> tuple[str, str]:
-        """声明插件使用 Vue 联邦组件渲染。"""
-        return "vue", "dist/assets"
+        """按已发布构建内容选择联邦入口，旧清单兼容原资源路径。"""
+        return "vue", federation_assets_path(Path(__file__).resolve().parent)
 
     def get_sidebar_nav(self) -> list[dict[str, Any]]:
         """返回主界面发现分区的豆瓣中心全页入口。"""

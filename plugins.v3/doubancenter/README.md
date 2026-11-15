@@ -9,7 +9,9 @@ DoubanCenter 是 MoviePilot V3 插件，用于同步豆瓣榜单、豆瓣时间�
 自动订阅和观察期策略。豆瓣 Cookie 留空时，插件会按宿主 CookieCloud 配置读取
 `douban.com` Cookie。
 
-插件使用 Vue 联邦界面，运行资源位于 `dist/assets/remoteEntry.js` 及其关联文件。
+插件使用 Vue 联邦界面，`dist/federation.json` 声明当前内容目录及文件摘要，
+实际入口位于 `dist/assets/r<内容摘要>/remoteEntry.js`；根 `dist/assets/remoteEntry.js`
+保留兼容转发。相同构建沿用同一地址，产物变化才切换入口，业务版号不因重新构建递增。
 
 `v3.0.21`：[1]加快观影时间线加载;[2]优化历史记录与归档读取;[3]榜单刷新独立响应
 

@@ -8,8 +8,12 @@ const root = path.resolve(__dirname, '../../../plugins.v3/doubancenter')
 const requirePlugin = createRequire(path.join(root, 'package.json'))
 const vue = requirePlugin('vue')
 global.document = { createElement: () => ({}), head: { appendChild() {} } }
-global.__federation_shared__ = { default: { vue: { [vue.version]: { get: async () => () => vue } } } }
-const remotePromise = import(pathToFileURL(path.join(root, 'dist/assets/remoteEntry.js')).href)
+const manifest = JSON.parse(require('node:fs').readFileSync(path.join(root, 'dist/federation.json'), 'utf8'))
+const shareScope = { vue: { [vue.version]: { get: async () => () => vue, scope: 'default' } } }
+const remotePromise = import(pathToFileURL(path.join(root, manifest.path, 'remoteEntry.js')).href).then(remote => {
+  remote.init(shareScope)
+  return remote
+})
 const ok = data => ({ success: true, message: '', data })
 
 test('构建产物的四个联邦入口能使用宿主共享Vue导入', async () => {
@@ -19,6 +23,14 @@ test('构建产物的四个联邦入口能使用宿主共享Vue导入', async ()
     assert.equal(typeof factory(), 'object', name)
     assert.equal(typeof factory().setup, 'function', name)
   }
+})
+
+test('根兼容转发与内容入口保留相同get/init合同', async () => {
+  const remote = await remotePromise
+  const forwarding = await import(pathToFileURL(path.join(root, 'dist/assets/remoteEntry.js')).href)
+  assert.equal(forwarding.get, remote.get)
+  assert.equal(forwarding.init, remote.init)
+  assert.equal(forwarding.dynamicLoadingCss, remote.dynamicLoadingCss)
 })
 
 test('真实仪表模板渲染榜单海报和时间线链接，不访问缺失的实例函数', async () => {

@@ -3,13 +3,18 @@ import vue from '@vitejs/plugin-vue'
 import federation from '@originjs/vite-plugin-federation'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { packageFederationAssets } from './build/federationArtifacts.js'
 
 function cleanFederationArtifacts() {
   let outputDir
+  let emittedNames = []
   return {
     name: 'clean-federation-artifacts',
     configResolved(config) {
       outputDir = resolve(config.root, config.build.outDir)
+    },
+    writeBundle(_options, bundle) {
+      emittedNames = Object.keys(bundle)
     },
     closeBundle() {
       if (!outputDir) return
@@ -23,6 +28,7 @@ function cleanFederationArtifacts() {
         const remoteEntry = readFileSync(remoteEntryPath, 'utf8').replace(/[ \t]+(?=\r?$)/gm, '')
         writeFileSync(remoteEntryPath, remoteEntry, 'utf8')
       }
+      packageFederationAssets(outputDir, emittedNames)
     },
   }
 }

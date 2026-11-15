@@ -8,8 +8,9 @@ DoubanCenter 3.0.21 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 
 - 主类入口：`__init__.py` 中的 `DoubanCenter`。
 - API 路由：`controller/api.py`，只做路由声明、入参转换、异常兜底和转发。
-- 渲染模式：`get_render_mode()` 返回 `("vue", "dist/assets")`。
-- Vue 联邦运行产物：`dist/assets/remoteEntry.js` 及其引用资源。
+- 渲染模式：`get_render_mode()`委托`model/frontend_assets.py`核验`dist/federation.json`的完整安全内容目录，返回`("vue", "dist/assets/r<sha256>")`；旧版本无清单或坏清单退回`dist/assets`兼容入口。
+- Vue 联邦运行产物：`dist/assets/r<sha256>/remoteEntry.js`及同目录完整引用，根`dist/assets/remoteEntry.js`是小转发；已缓存的旧根入口不会被这个转发自动刷新。
+- 构建封装：`build/federationArtifacts.js`只使用本次Vite发射资产，规范化相对路径按UTF-8字节排序，将文件内容SHA256清单编码后取完整SHA256作为revision；完整目录先就绪，根转发次之、清单最后发布，不把目录名或时间/随机数据纳入摘要。只有实际产物变化才换URL。
 - Vue 注入客户端返回最终 `{success,message,data}` envelope，业务数据从 `response.data` 读取。
 
 ## 后端模块边界
@@ -90,7 +91,7 @@ DoubanCenter 3.0.21 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 
 - V3 聚焦测试：设置 `MOVIEPILOT_BACKEND_PATH` 为固定 V3 宿主后运行 `python -m pytest tests/v3/doubancenter -q`。
 - Python 语法：`python -m compileall -q plugins.v3/doubancenter`。
-- 联邦构建：`pnpm --dir plugins.v3/doubancenter build`，并确认 `dist/assets/remoteEntry.js` 引用的资产均存在。
+- 联邦构建：`pnpm --dir plugins.v3/doubancenter build`，核对`dist/federation.json`摘要、对应内容目录及全部JS/CSS/图片引用；构建/临时重打包使用任务archive隔离outDir，验证后再发布必要dist。只对已完整核对的旧生成资产执行精确移除，不递归清理未知旧输出。
 - 前端行为及产物渲染：`node --experimental-vm-modules --test tests/v3/doubancenter/*.test.cjs`；`frontend_render.test.cjs`实际加载四个联邦暴露入口并渲染有榜单海报/时间线数据的Dashboard模板和插槽。Vue使用共享实例，Vuetify仅替代表面，不代表浏览器布局及宿主加载验收。
 - 版本门禁：核对 `package.v3.json` 的 `DoubanCenter` 条目、`plugin.json`、源码 `plugin_version` 与当前 `history`，本周期均为 `3.0.21`；不修改 V2 元数据。
 - MP 本地闭环：使用开发技能的 `accept_local.py` 同步至可用的 MP 本地仓库；需要时从发现结果安装准确的本地来源，再执行 `POST /api/v1/plugin/reload/DoubanCenter`，回读 history、installed、overview、remotes 和静态资产。页面验收由用户完成。
@@ -128,3 +129,4 @@ DoubanCenter 3.0.21 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 - 差分参考`tests/v3/doubancenter/archive_reference.py`冻结自17ff14fd，验证入口`test_archive_index.py`；覆盖强弱桥接、辅助ID冲突、替换后重复键、列更新和随机混合分布。单字段候选列不保证任意组合分布线性；复杂同名分布以短期内存换比较次数下降，重复单身份的小样本可有额外开销。
 - RSS刷新立即发出，以单独榜单代次阻止旧页面快照覆盖新结果；时间线异步回包仍独立完成。
 - Dashboard模板使用的来源链接与海报函数直接从source/api绑定；抽出composable后须验证有数据模板，setup及暴露模块能导入不能替代渲染检查。
+- 业务版号保持同周期3.0.21时，内容目录改变宿主发现URL，避免旧根remoteEntry的同版本immutable缓存键重合；宿主resource cookie/鉴权与缓存合同保持。升级后仍须验证真实发现URL、完整运行资产及Chrome页面，不能用本地内容相等直接宣称浏览器已刷新。
