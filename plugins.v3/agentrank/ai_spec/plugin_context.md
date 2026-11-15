@@ -18,6 +18,13 @@
 - 前端 API 由 `controller/routes.py::build_api_routes()` 统一注册，端点绑定位于 `controller/endpoints.py`，并全部声明为 `auth: "bear"`。浏览器端只能使用宿主注入的 `api` 客户端，且必须以宿主传入的 `pluginId` 组装当前实例路由。
 - 推荐卡片的原生订阅类型与 TMDB 详情路径共用 `nativeMediaType`：优先读取 `candidate_id` 的 `tmdb:movie:` / `tmdb:tv:` 身份，再读取条目或 metadata 的 `mp_media_type`，最后使用 `media_type` 回退。`anime` 是推荐分类，不能覆盖已确定的电影身份。原生订阅拒绝、取消或异常时停止；仅在宿主未提供原生入口时转入插件订阅链。
 
+## 性能读取边界
+
+- 榜单页面调用 `config/options?discover=false`，只读取已配置身份；设置页保留默认完整 Emby 用户和媒体库发现。
+- 仪表板只读取 `board`，详情页继续读取 `overview`；两类缓存按实例和画像分别保存，变更同时失效，迟到旧请求重新取得当前数据。普通赞踩局部更新，不立即重拉总览。
+- 历史榜单只序列化当前页，消费记录一次读取；候选重合及历史再推荐统计仍参照全部保留轮次。
+- 播放详情只补齐缺少的名称和 TMDB ID，补查最多四路，批量结果之外的条目不补入。反馈投影仅在仓库实例内缓存最多八个榜单，按序号增量读取；裁剪、重置或恢复后重建，完整复核期限为一分钟且不因追加而延长。持久化 key 和格式保持原合同。
+
 ## 推荐主链
 
 1. Playback Reporting 探测通过后，按 `profile_id` 冻结最近播放快照。
@@ -101,8 +108,8 @@
 ```powershell
 Remove-Item Env:CONFIG_DIR -ErrorAction SilentlyContinue
 $env:DB_TYPE = 'sqlite'
-& 'D:\AIGC\MoviePilot\.venv-test\Scripts\python.exe' -m compileall -q plugins.v3\agentrank
-& 'D:\AIGC\MoviePilot\.venv-test\Scripts\python.exe' -m pytest -q tests\v3\agentrank
+& 'D:\AIGC\All In Docker\MoviePilot\.venv-test\Scripts\python.exe' -m compileall -q plugins.v3\agentrank
+& 'D:\AIGC\All In Docker\MoviePilot\.venv-test\Scripts\python.exe' -m pytest -q tests\v3\agentrank
 pnpm --dir plugins.v3\agentrank\frontend build
 git diff --check
 ```

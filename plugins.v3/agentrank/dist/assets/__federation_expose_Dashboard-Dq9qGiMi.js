@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
 import { _ as _export_sfc, i as isApiRequestCancellation } from './_plugin-vue_export-helper-DPNHBQV0.js';
-import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-CjFrPaOp.js';
+import { u as useAgentRankState, R as RecommendationActions } from './RecommendationActions-MkeIBWMS.js';
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,withCtx:_withCtx,createTextVNode:_createTextVNode,toDisplayString:_toDisplayString,unref:_unref,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,renderList:_renderList,Fragment:_Fragment,createElementBlock:_createElementBlock,createElementVNode:_createElementVNode} = await importShared('vue');
 
@@ -34,7 +34,7 @@ const _sfc_main = {
   setup(__props) {
 
 const props = __props;
-const state = useAgentRankState(props.api, props.pluginId);
+const state = useAgentRankState(props.api, props.pluginId, { boardOnly: true });
 const snackbar = ref({ show: false, message: '', color: 'success' });
 let runProgressTimer = null;
 let disposed = false;
@@ -408,6 +408,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8458b973"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1cff6751"]]);
 
 export { Dashboard as default };
