@@ -90,11 +90,11 @@ class DeleteRuntime:
         """读取持久任务，损坏的数据不解释为空历史。"""
         return self.store.all()
 
-    def save(self, job):
+    def save(self, job, *, new_task=False):
         """持久化任务；存储失败立即关闭准入，避免连续产生未索引详情。"""
         with self.lock:
             try:
-                self.store.save(job)
+                self.store.save(job, new_task=new_task)
             except Exception:
                 self.stop.set()
                 raise
@@ -139,7 +139,7 @@ class DeleteRuntime:
                 job = {"id": uuid4().hex, "event_key": key, "event": event, "plan": deepcopy(plan),
                        "created_at": time(), "records_done": [], "sources_marked": []}
             job.update(state="queued", error="", updated_at=time())
-            self.save(job)
+            self.save(job, new_task=not bool(job_id))
             try:
                 self.queue.put_nowait(job["id"])
             except Full as error:
