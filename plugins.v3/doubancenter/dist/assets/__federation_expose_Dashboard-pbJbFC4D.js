@@ -1,6 +1,6 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { u as useManagementPermissions, a as useRankDialog, b as useRankMediaActions, s as sourceDescriptor, r as rankNames, c as rankIconColors } from './useRankDialog-CSIvnD1E.js';
 import { u as useRequestScope, t as toPosterThumbnail, a as getPluginApi, o as openNativeSubscription, p as postPluginApi, _ as _export_sfc } from './useRequestScope-CDEhkzJg.js';
+import { u as useManagementPermissions, a as useRankDialog, b as useRankMediaActions, s as sourceDescriptor, r as rankNames, c as rankIconColors, d as doubanDispatchUrl } from './useRankDialog-Bbb1bemS.js';
 
 const {ref,computed,onMounted} = await importShared('vue');
 
@@ -498,7 +498,7 @@ return (_ctx, _cache) => {
             default: _withCtx(() => [
               _createVNode(_component_VIcon, { icon: "mdi-book-open-page-variant-outline" })
             ]),
-            _: 1 /* STABLE */
+            _: 1
           })
         ]),
         append: _withCtx(() => [
@@ -513,26 +513,26 @@ return (_ctx, _cache) => {
             onClick: _unref(refreshDashboard)
           }, {
             default: _withCtx(() => [...(_cache[3] || (_cache[3] = [
-              _createTextVNode("刷新", -1 /* CACHED */)
+              _createTextVNode("刷新", -1)
             ]))]),
-            _: 1 /* STABLE */
-          }, 8 /* PROPS */, ["loading", "disabled", "title", "onClick"])
+            _: 1
+          }, 8, ["loading", "disabled", "title", "onClick"])
         ]),
         default: _withCtx(() => [
           _createVNode(_component_VCardTitle, null, {
             default: _withCtx(() => [...(_cache[1] || (_cache[1] = [
-              _createTextVNode("豆瓣中心", -1 /* CACHED */)
+              _createTextVNode("豆瓣中心", -1)
             ]))]),
-            _: 1 /* STABLE */
+            _: 1
           }),
           _createVNode(_component_VCardSubtitle, null, {
             default: _withCtx(() => [...(_cache[2] || (_cache[2] = [
-              _createTextVNode("点击榜单条目可选择来源、TMDB 或订阅", -1 /* CACHED */)
+              _createTextVNode("点击榜单条目可选择来源、TMDB 或订阅", -1)
             ]))]),
-            _: 1 /* STABLE */
+            _: 1
           })
         ]),
-        _: 1 /* STABLE */
+        _: 1
       }),
       _createVNode(_component_VDivider),
       (_unref(loading) || _unref(folioLoading))
@@ -542,7 +542,7 @@ return (_ctx, _cache) => {
             color: "primary",
             height: "2"
           }))
-        : _createCommentVNode("v-if", true),
+        : _createCommentVNode("", true),
       _createVNode(_component_VCardText, { class: "pa-3" }, {
         default: _withCtx(() => [
           (_unref(loadError))
@@ -555,7 +555,7 @@ return (_ctx, _cache) => {
               }, {
                 default: _withCtx(() => [
                   _createElementVNode("div", _hoisted_1, [
-                    _createElementVNode("span", null, _toDisplayString(_unref(loadError)), 1 /* TEXT */),
+                    _createElementVNode("span", null, _toDisplayString(_unref(loadError)), 1),
                     _createVNode(_component_VBtn, {
                       variant: "text",
                       size: "x-small",
@@ -565,15 +565,15 @@ return (_ctx, _cache) => {
                       onClick: _unref(load)
                     }, {
                       default: _withCtx(() => [...(_cache[4] || (_cache[4] = [
-                        _createTextVNode("重试", -1 /* CACHED */)
+                        _createTextVNode("重试", -1)
                       ]))]),
-                      _: 1 /* STABLE */
-                    }, 8 /* PROPS */, ["loading", "onClick"])
+                      _: 1
+                    }, 8, ["loading", "onClick"])
                   ])
                 ]),
-                _: 1 /* STABLE */
+                _: 1
               }))
-            : _createCommentVNode("v-if", true),
+            : _createCommentVNode("", true),
           (_unref(subscribeResult))
             ? (_openBlock(), _createBlock(_component_VAlert, {
                 key: 1,
@@ -583,8 +583,8 @@ return (_ctx, _cache) => {
                 text: _unref(subscribeResult),
                 density: "compact",
                 closable: ""
-              }, null, 8 /* PROPS */, ["type", "text"]))
-            : _createCommentVNode("v-if", true),
+              }, null, 8, ["type", "text"]))
+            : _createCommentVNode("", true),
           (_unref(refreshResult))
             ? (_openBlock(), _createBlock(_component_VAlert, {
                 key: 2,
@@ -594,8 +594,8 @@ return (_ctx, _cache) => {
                 text: _unref(refreshResult),
                 density: "compact",
                 closable: ""
-              }, null, 8 /* PROPS */, ["type", "text"]))
-            : _createCommentVNode("v-if", true),
+              }, null, 8, ["type", "text"]))
+            : _createCommentVNode("", true),
           (_unref(timelineGroups).length)
             ? (_openBlock(), _createElementBlock("div", _hoisted_2, [
                 _createElementVNode("div", _hoisted_3, [
@@ -607,7 +607,7 @@ return (_ctx, _cache) => {
                         class: "mr-1",
                         color: "primary"
                       }),
-                      _cache[5] || (_cache[5] = _createTextVNode("追影时间线", -1 /* CACHED */))
+                      _cache[5] || (_cache[5] = _createTextVNode("追影时间线", -1))
                     ]),
                     _createElementVNode("div", _hoisted_6, [
                       _createElementVNode("div", _hoisted_7, [
@@ -618,23 +618,23 @@ return (_ctx, _cache) => {
                               class: "dc-timeline-month"
                             }, [
                               _createElementVNode("div", _hoisted_9, [
-                                _createTextVNode(_toDisplayString(group.label) + " ", 1 /* TEXT */),
+                                _createTextVNode(_toDisplayString(group.label) + " ", 1),
                                 _createVNode(_component_VChip, {
                                   size: "x-small",
                                   color: "primary",
                                   variant: "tonal"
                                 }, {
                                   default: _withCtx(() => [
-                                    _createTextVNode(_toDisplayString(group.items.length), 1 /* TEXT */)
+                                    _createTextVNode(_toDisplayString(group.items.length), 1)
                                   ]),
-                                  _: 2 /* DYNAMIC */
-                                }, 1024 /* DYNAMIC_SLOTS */)
+                                  _: 2
+                                }, 1024)
                               ]),
                               _createElementVNode("div", _hoisted_10, [
                                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(group.items, (item) => {
                                   return (_openBlock(), _createElementBlock("a", {
                                     key: item.key,
-                                    href: _ctx.doubanDispatchUrl(item.subject_id, item.type),
+                                    href: _unref(doubanDispatchUrl)(item.subject_id, item.type),
                                     target: "_blank",
                                     rel: "noopener noreferrer",
                                     class: "dc-poster",
@@ -649,25 +649,25 @@ return (_ctx, _cache) => {
                                           cover: "",
                                           class: "rounded",
                                           onError: $event => (_unref(markTimelineImageFailed)(item.key))
-                                        }, null, 8 /* PROPS */, ["src", "onError"]))
+                                        }, null, 8, ["src", "onError"]))
                                       : (_openBlock(), _createElementBlock("div", _hoisted_12, [
                                           _createVNode(_component_VIcon, {
                                             icon: "mdi-filmstrip",
                                             size: "14"
                                           })
                                         ]))
-                                  ], 8 /* PROPS */, _hoisted_11))
-                                }), 128 /* KEYED_FRAGMENT */))
+                                  ], 8, _hoisted_11))
+                                }), 128))
                               ])
                             ]))
-                          }), 128 /* KEYED_FRAGMENT */))
+                          }), 128))
                         ])
                       ])
                     ])
                   ])
                 ])
               ]))
-            : _createCommentVNode("v-if", true),
+            : _createCommentVNode("", true),
           (_unref(config).dashboard_rank_keys && _unref(config).dashboard_rank_keys.length)
             ? (_openBlock(), _createElementBlock("div", _hoisted_13, [
                 _createElementVNode("div", _hoisted_14, [
@@ -682,8 +682,8 @@ return (_ctx, _cache) => {
                           size: "15",
                           style: _normalizeStyle(_unref(rankIconStyle)(rk)),
                           class: "mr-1"
-                        }, null, 8 /* PROPS */, ["style"]),
-                        _createElementVNode("span", null, _toDisplayString(_unref(rankNameOf)(rk, _unref(rankHistory)[rk]?.[0])), 1 /* TEXT */)
+                        }, null, 8, ["style"]),
+                        _createElementVNode("span", null, _toDisplayString(_unref(rankNameOf)(rk, _unref(rankHistory)[rk]?.[0])), 1)
                       ]),
                       _createElementVNode("div", _hoisted_16, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((_unref(rankHistory)[rk] || []).slice(0, 5), (item, i) => {
@@ -701,37 +701,37 @@ return (_ctx, _cache) => {
                                 (item.poster)
                                   ? (_openBlock(), _createBlock(_component_VImg, {
                                       key: 0,
-                                      src: _ctx.toPosterThumbnail(item.poster),
+                                      src: _unref(toPosterThumbnail)(item.poster),
                                       cover: ""
-                                    }, null, 8 /* PROPS */, ["src"]))
+                                    }, null, 8, ["src"]))
                                   : (_openBlock(), _createBlock(_component_VIcon, {
                                       key: 1,
                                       icon: "mdi-filmstrip",
                                       size: "13"
                                     }))
                               ]),
-                              _: 2 /* DYNAMIC */
-                            }, 1024 /* DYNAMIC_SLOTS */),
-                            _createElementVNode("span", _hoisted_18, _toDisplayString(item.title), 1 /* TEXT */),
+                              _: 2
+                            }, 1024),
+                            _createElementVNode("span", _hoisted_18, _toDisplayString(item.title), 1),
                             (rk === 'coming' && item.wish_count)
-                              ? (_openBlock(), _createElementBlock("span", _hoisted_19, _toDisplayString(item.wish_count), 1 /* TEXT */))
-                              : _createCommentVNode("v-if", true)
-                          ], 8 /* PROPS */, _hoisted_17))
-                        }), 128 /* KEYED_FRAGMENT */)),
+                              ? (_openBlock(), _createElementBlock("span", _hoisted_19, _toDisplayString(item.wish_count), 1))
+                              : _createCommentVNode("", true)
+                          ], 8, _hoisted_17))
+                        }), 128)),
                         (!(_unref(rankHistory)[rk] || []).length)
                           ? (_openBlock(), _createElementBlock("div", _hoisted_20, "暂无数据"))
-                          : _createCommentVNode("v-if", true)
+                          : _createCommentVNode("", true)
                       ])
                     ]))
-                  }), 128 /* KEYED_FRAGMENT */))
+                  }), 128))
                 ])
               ]))
-            : _createCommentVNode("v-if", true),
+            : _createCommentVNode("", true),
           (!_unref(loading) && !_unref(folioLoading) && !_unref(config).dashboard_rank_keys?.length && !_unref(timelineGroups).length)
             ? (_openBlock(), _createElementBlock("div", _hoisted_21, " 请在配置页「仪表显示」中选择要显示的榜单 "))
-            : _createCommentVNode("v-if", true)
+            : _createCommentVNode("", true)
         ]),
-        _: 1 /* STABLE */
+        _: 1
       }),
       _createVNode(_component_VDialog, {
         modelValue: _unref(showDialog),
@@ -756,30 +756,30 @@ return (_ctx, _cache) => {
                         ? (_openBlock(), _createBlock(_component_VImg, {
                             key: 0,
                             src: _unref(dialogPoster)()
-                          }, null, 8 /* PROPS */, ["src"]))
+                          }, null, 8, ["src"]))
                         : (_openBlock(), _createBlock(_component_VIcon, {
                             key: 1,
                             icon: "mdi-filmstrip"
                           }))
                     ]),
-                    _: 1 /* STABLE */
+                    _: 1
                   })
                 ]),
                 default: _withCtx(() => [
                   _createVNode(_component_VCardTitle, { class: "text-body-1 font-weight-bold pa-0" }, {
                     default: _withCtx(() => [
-                      _createTextVNode(_toDisplayString(_unref(dialogItem)?.item?.title || ''), 1 /* TEXT */)
+                      _createTextVNode(_toDisplayString(_unref(dialogItem)?.item?.title || ''), 1)
                     ]),
-                    _: 1 /* STABLE */
+                    _: 1
                   }),
                   _createVNode(_component_VCardSubtitle, { class: "text-caption pa-0" }, {
                     default: _withCtx(() => [
-                      _createTextVNode(_toDisplayString(_unref(dialogItem)?.rk ? _unref(rankNameOf)(_unref(dialogItem).rk, _unref(dialogItem).item) : ''), 1 /* TEXT */)
+                      _createTextVNode(_toDisplayString(_unref(dialogItem)?.rk ? _unref(rankNameOf)(_unref(dialogItem).rk, _unref(dialogItem).item) : ''), 1)
                     ]),
-                    _: 1 /* STABLE */
+                    _: 1
                   })
                 ]),
-                _: 1 /* STABLE */
+                _: 1
               }),
               _createVNode(_component_VDivider),
               (_unref(dialogResolveError))
@@ -790,8 +790,8 @@ return (_ctx, _cache) => {
                     density: "compact",
                     class: "mx-3 mt-3",
                     text: _unref(dialogResolveError)
-                  }, null, 8 /* PROPS */, ["text"]))
-                : _createCommentVNode("v-if", true),
+                  }, null, 8, ["text"]))
+                : _createCommentVNode("", true),
               _createVNode(_component_VCardActions, { class: "pa-3 pt-2 dc-dialog-actions" }, {
                 default: _withCtx(() => [
                   _createVNode(_component_VBtn, {
@@ -803,10 +803,10 @@ return (_ctx, _cache) => {
                     onClick: _unref(doSubscribe)
                   }, {
                     default: _withCtx(() => [...(_cache[6] || (_cache[6] = [
-                      _createTextVNode("订阅", -1 /* CACHED */)
+                      _createTextVNode("订阅", -1)
                     ]))]),
-                    _: 1 /* STABLE */
-                  }, 8 /* PROPS */, ["disabled", "onClick"]),
+                    _: 1
+                  }, 8, ["disabled", "onClick"]),
                   _createVNode(_component_VBtn, {
                     variant: "tonal",
                     "prepend-icon": "mdi-movie-open-outline",
@@ -816,10 +816,10 @@ return (_ctx, _cache) => {
                     onClick: _unref(doOpenTmdb)
                   }, {
                     default: _withCtx(() => [...(_cache[7] || (_cache[7] = [
-                      _createTextVNode("TMDB", -1 /* CACHED */)
+                      _createTextVNode("TMDB", -1)
                     ]))]),
-                    _: 1 /* STABLE */
-                  }, 8 /* PROPS */, ["loading", "disabled", "onClick"]),
+                    _: 1
+                  }, 8, ["loading", "disabled", "onClick"]),
                   _createVNode(_component_VBtn, {
                     href: _unref(sourceButtonHref)() || undefined,
                     target: "_blank",
@@ -832,26 +832,26 @@ return (_ctx, _cache) => {
                     onClick: _unref(openSource)
                   }, {
                     default: _withCtx(() => [
-                      _createTextVNode(_toDisplayString(_unref(sourceButtonLabel)()), 1 /* TEXT */)
+                      _createTextVNode(_toDisplayString(_unref(sourceButtonLabel)()), 1)
                     ]),
-                    _: 1 /* STABLE */
-                  }, 8 /* PROPS */, ["href", "color", "prepend-icon", "disabled", "onClick"])
+                    _: 1
+                  }, 8, ["href", "color", "prepend-icon", "disabled", "onClick"])
                 ]),
-                _: 1 /* STABLE */
+                _: 1
               })
             ]),
-            _: 1 /* STABLE */
+            _: 1
           })
         ]),
-        _: 1 /* STABLE */
-      }, 8 /* PROPS */, ["modelValue"])
+        _: 1
+      }, 8, ["modelValue"])
     ]),
-    _: 1 /* STABLE */
+    _: 1
   }))
 }
 }
 
 };
-const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-48c4cfe8"]]);
+const Dashboard = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7a930da6"]]);
 
 export { Dashboard as default };

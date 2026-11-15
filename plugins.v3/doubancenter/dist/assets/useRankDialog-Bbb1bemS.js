@@ -347,4 +347,4 @@ function useRankDialog({ requestScope, resolveRankMedia, tmdbIdOf }) {
   return { dialogItem, showDialog, dialogResolving, dialogResolveError, dialogResolveToken, showActionDialog }
 }
 
-export { useRankDialog as a, useRankMediaActions as b, rankIconColors as c, rankNames as r, sourceDescriptor as s, useManagementPermissions as u };
+export { useRankDialog as a, useRankMediaActions as b, rankIconColors as c, doubanDispatchUrl as d, rankNames as r, sourceDescriptor as s, useManagementPermissions as u };

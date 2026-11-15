@@ -1,4 +1,6 @@
 <script setup>
+import { toPosterThumbnail } from './api'
+import { doubanDispatchUrl } from './source'
 import { useDashboardRuntime } from './dashboard/useDashboardRuntime'
 
 const props = defineProps({

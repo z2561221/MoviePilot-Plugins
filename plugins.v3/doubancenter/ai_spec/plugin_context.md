@@ -90,6 +90,7 @@ DoubanCenter 3.0.21 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 - V3 聚焦测试：设置 `MOVIEPILOT_BACKEND_PATH` 为固定 V3 宿主后运行 `python -m pytest tests/v3/doubancenter -q`。
 - Python 语法：`python -m compileall -q plugins.v3/doubancenter`。
 - 联邦构建：`pnpm --dir plugins.v3/doubancenter build`，并确认 `dist/assets/remoteEntry.js` 引用的资产均存在。
+- 前端行为及产物渲染：`node --experimental-vm-modules --test tests/v3/doubancenter/*.test.cjs`；`frontend_render.test.cjs`实际加载四个联邦暴露入口并渲染有榜单海报/时间线数据的Dashboard模板和插槽。Vue使用共享实例，Vuetify仅替代表面，不代表浏览器布局及宿主加载验收。
 - 版本门禁：核对 `package.v3.json` 的 `DoubanCenter` 条目、`plugin.json`、源码 `plugin_version` 与当前 `history`，本周期均为 `3.0.21`；不修改 V2 元数据。
 - MP 本地闭环：使用开发技能的 `accept_local.py` 同步至可用的 MP 本地仓库；需要时从发现结果安装准确的本地来源，再执行 `POST /api/v1/plugin/reload/DoubanCenter`，回读 history、installed、overview、remotes 和静态资产。页面验收由用户完成。
 
@@ -124,3 +125,4 @@ DoubanCenter 3.0.21 是 MoviePilot V3 专用本地插件，整合豆瓣榜单订
 - 订阅历史正常新增和初始化维护批量归档；底层保存及归档恢复不自动裁剪，保留先存目标再移除恢复副本的边界。stats、subscribe_history、overview、archive_records仅投影读取。
 - 归档去重按来源与标题分组后调用原匹配函数，保留缺字段兼容及顺序。
 - RSS刷新立即发出，以单独榜单代次阻止旧页面快照覆盖新结果；时间线异步回包仍独立完成。
+- Dashboard模板使用的来源链接与海报函数直接从source/api绑定；抽出composable后须验证有数据模板，setup及暴露模块能导入不能替代渲染检查。
