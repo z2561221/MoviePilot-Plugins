@@ -31,6 +31,15 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
 
+## 2026-11-15 剩余性能优化及职责拆分
+
+- `service/upload_limit_apply.py` 按下载器与额度合批，最多100个hash/请求，未变化任务不写。QB逻辑零额度仍用1 B/s，TR保留KiB与启用标记。失败块分别记错误，保留待确认意图和原值，不盲目逐项重试；停用检查在块边界执行。
+- `storage/sync_delete_jobs.py` 独立保存任务详情，以 sync_delete_job_index 摘要支持排序与准入；新任务或更新的旧任务保存到 sync_delete_job_record_<ID>。旧 sync_delete_jobs 只读兼容并保留，每次删除检查点继续逐任务保存和回读。
+- 详情与索引是独立事务：任务未确认不发布索引、不准入队列或输出完成日志；重载时从详情收敛摘要差异，不自动重放任务；缺失新详情不回退陈旧历史。分页只读取当前页详情；裁剪先发布索引，失败副本保留。
+- 存储格式降级须先在停止写入并备份后，由 DeleteJobStore.all() 导出最新完整状态到旧key并撤销新索引，再恢复旧源码。直接恢复源码会使旧版忽略新格式任务，禁止把升级前历史覆盖后来状态。
+- `service/coordination.py` 集中共享锁、停止代次和避让索引；转种、辅种、校验直接依赖协调模块。sync_delete 原出口继续兼容。
+- 回归：test_job_store.py 与 test_upload_limit_batches.py；实际检查点、恢复、旧清单和通知回归一并保留。未改动的Vue产物复用第一批构建。
+
 ## 2026-11-15 第一批性能优化
 
 - 补刀候选筛选每轮只读取一次归档状态；执行每个任务前仍复核归档，管理员中途归档的任务不继续重命名。

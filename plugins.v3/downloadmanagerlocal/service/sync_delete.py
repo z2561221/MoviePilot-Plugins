@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import re
 from copy import deepcopy
-from functools import wraps
 from pathlib import PurePosixPath
 from queue import Empty, Full, Queue
 from threading import Event, RLock, Thread
@@ -22,8 +21,6 @@ from ..adapter.sync_delete import SyncDeleteAdapter
 from ..model.source_paths import SourcePaths
 from ..model.sync_delete import (
     BLOCKS_KEY,
-    JOBS_KEY,
-    MAX_JOBS,
     MAX_PENDING,
     MAX_TARGETS,
     MEDIA_EXTENSIONS,
@@ -41,81 +38,15 @@ from ..model.sync_delete import (
     text,
     within,
 )
-from ..utils.torrent_adapter import normalize_torrent
+from ..storage.sync_delete_jobs import DeleteJobStore
+from .coordination import (
+    coordinated as coordinated,
+    operation_lock as operation_lock,
+    operation_stopped as operation_stopped,
+    task_blocked as task_blocked,
+)
 
 _INIT_LOCK = RLock()
-
-
-def operation_lock(plugin):
-    """下载、辅种、校验与删除共用实例锁，避免扫描后又重新创建目标。"""
-    with _INIT_LOCK:
-        if not hasattr(plugin, "_sync_delete_operation_lock"):
-            plugin._sync_delete_operation_lock = RLock()
-        return plugin._sync_delete_operation_lock
-
-
-def operation_stopped(plugin, generation: int) -> bool:
-    """共享停止判定用于在途查询回包后的写入门禁。"""
-    event = getattr(plugin, "_event", None)
-    return (int(getattr(plugin, "_transfer_stop_generation", 0) or 0) != generation
-            or (event is not None and event.is_set()))
-
-
-def coordinated(function):
-    """为已有批次入口提供同实例互斥，不改变普通执行结果。"""
-    @wraps(function)
-    def wrapper(plugin, *args, **kwargs):
-        """等锁前固定停止代次，取消后不进入业务，嵌套调用恢复外层快照。"""
-        generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
-        guard = operation_lock(plugin)
-        while not operation_stopped(plugin, generation):
-            if guard.acquire(timeout=0.2):
-                break
-        else:
-            return None
-        previous = getattr(plugin, "_sync_delete_block_snapshot", None)
-        previous_index = getattr(plugin, "_sync_delete_block_index", None)
-        try:
-            if operation_stopped(plugin, generation):
-                return None
-            plugin._sync_delete_block_snapshot = (plugin.get_data(BLOCKS_KEY) or {}) if hasattr(plugin, "get_data") else {}
-            plugin._sync_delete_block_index = _block_identity_index(plugin._sync_delete_block_snapshot)
-            return function(plugin, *args, **kwargs)
-        finally:
-            plugin._sync_delete_block_snapshot = previous
-            plugin._sync_delete_block_index = previous_index
-            guard.release()
-    return wrapper
-
-
-def _block_identity_index(blocks) -> frozenset:
-    """为批次避让快照建立索引，保留下载器、hash 与创建时间的原匹配语义。"""
-    identities = set()
-    if not isinstance(blocks, dict):
-        return frozenset()
-    for block in blocks.values():
-        identity = block.get("identity", [])
-        downloader = block.get("downloader")
-        if (len(identity) == 3 and isinstance(downloader, str)
-                and isinstance(identity[0], str) and isinstance(identity[1], (int, float))):
-            identities.add((downloader, identity[0], identity[1]))
-    return frozenset(identities)
-
-
-def task_blocked(plugin, downloader: str, torrent, kind: str) -> bool:
-    """仅阻止同一创建时间/路径的旧任务；重新下载后的新任务不被永久封锁。"""
-    if not hasattr(plugin, "get_data"):
-        return False
-    index = getattr(plugin, "_sync_delete_block_index", None)
-    if index is None:
-        blocks = getattr(plugin, "_sync_delete_block_snapshot", None)
-        if blocks is None:
-            blocks = plugin.get_data(BLOCKS_KEY) or {}
-        index = _block_identity_index(blocks)
-    if not index:
-        return False
-    current = normalize_torrent(torrent, downloader, kind)
-    return (downloader, current.torrent_hash, current.added_at) in index
 
 
 def relation_records(plugin) -> dict:
@@ -552,6 +483,7 @@ class DeleteRuntime:
     def __init__(self, plugin):
         """创建当前实例专属的锁、停止信号与有界队列。"""
         self.plugin = plugin
+        self.store = DeleteJobStore(plugin)
         self.lock = RLock()
         self.stop = Event()
         self.queue = Queue(MAX_PENDING)
@@ -559,25 +491,12 @@ class DeleteRuntime:
 
     def jobs(self):
         """读取持久任务，损坏的数据不解释为空历史。"""
-        value = self.plugin.get_data(JOBS_KEY) or {}
-        if not isinstance(value, dict):
-            raise DeleteRejected("同步删除历史损坏，停止执行")
-        return value
+        return self.store.all()
 
     def save(self, job):
         """持久化任务并核对回读，只裁剪已经完成的历史。"""
         with self.lock:
-            jobs = self.jobs()
-            jobs[job["id"]] = deepcopy(job)
-            completed = sorted((row for row in jobs.values() if row["state"] in TERMINAL_STATES),
-                               key=lambda row: row.get("updated_at", 0))
-            for row in completed:
-                if len(jobs) <= MAX_JOBS and time() - row.get("updated_at", 0) <= 30 * 86400:
-                    continue
-                jobs.pop(row["id"], None)
-            self.plugin.save_data(JOBS_KEY, jobs)
-            if self.plugin.get_data(JOBS_KEY) != jobs:
-                raise DeleteRejected("删除意图保存未确认")
+            self.store.save(job)
 
     def check(self, config):
         """写入前确认当前实例、开关和执行配置仍然有效。"""
@@ -591,9 +510,9 @@ class DeleteRuntime:
         with self.lock:
             config = config_for(self.plugin)
             self.check(config)
-            jobs = self.jobs()
+            jobs = self.store.summaries()
             if job_id:
-                job = deepcopy(jobs.get(job_id))
+                job = self.store.get(job_id)
                 if not job or job["state"] in {"queued", "running"} | TERMINAL_STATES:
                     raise DeleteRejected("该记录不能重试")
                 if job.get("plan") and job["plan"].get("version") != PLAN_VERSION:
@@ -777,7 +696,7 @@ class DeleteRuntime:
                 if not acquired:
                     continue
                 try:
-                    job = deepcopy(self.jobs().get(job_id))
+                    job = self.store.get(job_id)
                     if job:
                         self.execute(job)
                 finally:
@@ -811,7 +730,7 @@ def start_runtime(plugin):
             raise DeleteRejected("旧同步删除线程尚未退出")
         runtime = DeleteRuntime(plugin)
         plugin._sync_delete_runtime = runtime
-        for job in list(runtime.jobs().values()):
+        for job in runtime.store.reconcile().values():
             if job["state"] in {"queued", "running"}:
                 job.update(state="failed", error="重载后保留未决任务，请核验后重试", updated_at=time())
                 runtime.save(job)
@@ -820,7 +739,7 @@ def start_runtime(plugin):
             SourcePaths(config_for(plugin))
             runtime.thread = Thread(target=runtime.run, name=f"{plugin.__class__.__name__}-sync-delete", daemon=True)
             runtime.thread.start()
-            logger.info(f"同步删除执行器已启动：保留 {len(runtime.jobs())} 条历史，等待 Emby 删除通知")
+            logger.info(f"同步删除执行器已启动：保留 {len(runtime.store.summaries())} 条历史，等待 Emby 删除通知")
 
 
 def stop_runtime(plugin):
