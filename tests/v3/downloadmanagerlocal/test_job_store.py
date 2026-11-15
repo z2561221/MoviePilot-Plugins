@@ -6,7 +6,13 @@ from collections import Counter
 from time import time
 
 import pytest
-from app.plugins.downloadmanagerlocal.model.sync_delete import JOBS_KEY, DeleteRejected
+from app.plugins.downloadmanagerlocal.model.sync_delete import (
+    DEFAULTS,
+    JOBS_KEY,
+    DeleteRejected,
+    event_snapshot,
+)
+from app.plugins.downloadmanagerlocal.service import sync_delete as runtime_service
 from app.plugins.downloadmanagerlocal.storage.sync_delete_jobs import (
     JOB_INDEX_KEY,
     DeleteJobStore,
@@ -178,3 +184,80 @@ def test_sqlite_roundtrip_isolated_by_plugin_identity():
         assert second.get("same")["state"] == "failed"
     finally:
         db.close()
+
+
+def test_unindexed_new_task_is_never_admitted_or_resumed_after_restart():
+    """全新详情成功但索引失败时拒绝队列准入，重启不发现并重放孤立详情。"""
+    plugin = JsonStore()
+    for key, value in DEFAULTS.items():
+        setattr(plugin, "_" + key, value)
+    plugin._enabled = plugin._sync_delete_enabled = True
+    original = plugin.save_data
+
+    def lose_index(key, value):
+        """模拟独立详情写入成功而索引静默失败。"""
+        if key != JOB_INDEX_KEY:
+            original(key, value)
+
+    plugin.save_data = lose_index
+    runtime = runtime_service.DeleteRuntime(plugin)
+    event = event_snapshot({"event": "deep.delete", "channel": "emby", "item_path": "/emby/A.strm"})
+    with pytest.raises(DeleteRejected, match="摘要索引"):
+        runtime.submit(event)
+    assert runtime.queue.empty() and runtime.stop.is_set()
+    records = [json.loads(value) for key, value in plugin.values.items() if key.startswith("sync_delete_job_record_")]
+    assert len(records) == 1 and records[0]["state"] == "queued"
+    plugin.save_data = original
+    plugin._enabled = plugin._sync_delete_enabled = False
+    runtime_service.start_runtime(plugin)
+    restarted = plugin._sync_delete_runtime
+    assert restarted.queue.empty() and restarted.thread is None and restarted.jobs() == {}
+    assert restarted.store.get(records[0]["id"]) is None
+
+
+def test_runtime_storage_failure_stops_further_admission_without_more_orphans():
+    """第一次索引失败关闭执行器，随后20次通知不再写新详情。"""
+    plugin = JsonStore()
+    for key, value in DEFAULTS.items():
+        setattr(plugin, "_" + key, value)
+    plugin._enabled = plugin._sync_delete_enabled = True
+    original = plugin.save_data
+
+    def lose_index(key, value):
+        """只拒绝摘要存储，保留详情存储成功的现场。"""
+        if key != JOB_INDEX_KEY:
+            original(key, value)
+
+    plugin.save_data = lose_index
+    runtime = runtime_service.DeleteRuntime(plugin)
+    event = event_snapshot({"event": "deep.delete", "channel": "emby", "item_path": "/emby/A.strm"})
+    with pytest.raises(DeleteRejected, match="摘要索引"):
+        runtime.submit(event)
+    for _ in range(20):
+        with pytest.raises(DeleteRejected, match="已停止"):
+            runtime.submit(event)
+    assert runtime.queue.empty()
+    assert len([key for key in plugin.values if key.startswith("sync_delete_job_record_")]) == 1
+
+
+@pytest.mark.xfail(strict=True, reason="已知：新任务索引持续失败留下孤立详情；数据补偿清理未获本批授权")
+def test_repeated_new_task_index_failures_should_not_accumulate_unindexed_details():
+    """以期望不累积为门禁，明确记录仍待独立处理的存储失败问题。"""
+    plugin = JsonStore()
+    original = plugin.save_data
+
+    def lose_index(key, value):
+        """详情存储正常，索引持续不可写。"""
+        if key != JOB_INDEX_KEY:
+            original(key, value)
+
+    plugin.save_data = lose_index
+    store = DeleteJobStore(plugin)
+    for number in range(20):
+        with pytest.raises(DeleteRejected, match="摘要索引"):
+            store.save(job(f"unpublished-{number}", "queued"))
+    orphan_keys = [key for key in plugin.values if key.startswith("sync_delete_job_record_")]
+    retained_bytes = sum(len(plugin.values[key]) for key in orphan_keys)
+    plugin.save_data = original
+    assert DeleteJobStore(plugin).reconcile() == {}
+    assert not orphan_keys, f"20次失败保留{len(orphan_keys)}条孤立详情，共{retained_bytes}字节"

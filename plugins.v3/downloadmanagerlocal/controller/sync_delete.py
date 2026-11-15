@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..adapter.sync_delete import SyncDeleteAdapter
 from ..model.sync_delete import DeleteRejected, config_for, event_snapshot
-from ..service.sync_delete import build_plan
+from ..service.sync_delete_planner import build_plan
 from ..storage.sync_delete_jobs import DeleteJobStore
 
 
