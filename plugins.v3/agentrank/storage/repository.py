@@ -331,14 +331,16 @@ class AgentRankRepository:
                 record_type = str(item.get("record_type") or "")
                 if record_type == "conversation_message":
                     record = ConversationMessage.from_dict(item)
-                    messages.append(record)
                 elif record_type == "conversation_command":
                     record = ConversationCommand.from_dict(item)
-                    commands.append(record)
                 else:
                     raise ValueError("conversation record type is unknown")
                 if record.profile_id != target:
                     raise ValueError("conversation record profile mismatch")
+                if record_type == "conversation_message":
+                    messages.append(record)
+                else:
+                    commands.append(record)
             except (TypeError, ValueError, KeyError) as error:
                 self._record_recovery(key, "ignored_corrupt_item", str(error))
                 if strict:

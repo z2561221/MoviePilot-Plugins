@@ -528,10 +528,13 @@ def test_conversation_endpoints_allow_profiles_and_pass_actor_privilege():
         def __init__(self):
             self.calls = []
 
-        def snapshot(self, profile_id):
+        def snapshot(self, profile_id, *, actor_id="", mark_read=False):
             """返回空对话快照。"""
             self.calls.append(("snapshot", profile_id))
-            return {"thread": None, "messages": [], "commands": []}
+            data = {"thread": None, "messages": [], "commands": []}
+            if actor_id:
+                data["status"] = self.status(profile_id, actor_id=actor_id, mark_read=mark_read)
+            return data
 
         def status(self, profile_id, *, actor_id, mark_read=False):
             """记录未读状态查询与已读动作。"""

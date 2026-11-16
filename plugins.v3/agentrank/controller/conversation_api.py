@@ -19,13 +19,9 @@ class ConversationApiMixin:
         target = self._profile_id(profile_id)
         try:
             service = self._conversation_service()
-            data = service.snapshot(target)
-            if actor_id:
-                data["status"] = service.status(
-                    target,
-                    actor_id=actor_id,
-                    mark_read=bool(mark_read),
-                )
+            data = service.snapshot(
+                target, actor_id=actor_id, mark_read=bool(mark_read)
+            )
         except ConversationError as error:
             raise ApiContractError(
                 error.status_code, error.code, error.message
