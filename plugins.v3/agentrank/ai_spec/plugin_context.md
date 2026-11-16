@@ -18,6 +18,27 @@
 - 前端 API 由 `controller/routes.py::build_api_routes()` 统一注册，端点绑定位于 `controller/endpoints.py`，并全部声明为 `auth: "bear"`。浏览器端只能使用宿主注入的 `api` 客户端，且必须以宿主传入的 `pluginId` 组装当前实例路由。
 - 推荐卡片的原生订阅类型与 TMDB 详情路径共用 `nativeMediaType`：优先读取 `candidate_id` 的 `tmdb:movie:` / `tmdb:tv:` 身份，再读取条目或 metadata 的 `mp_media_type`，最后使用 `media_type` 回退。`anime` 是推荐分类，不能覆盖已确定的电影身份。原生订阅拒绝、取消或异常时停止；仅在宿主未提供原生入口时转入插件订阅链。
 
+## 性能读取边界
+
+- 榜单页面调用 `config/options?discover=false`，只读取已配置身份；设置页保留默认完整 Emby 用户和媒体库发现。
+- 仪表板只读取 `board`，详情页继续读取 `overview`；两类缓存按实例和画像分别保存，变更同时失效，迟到旧请求重新取得当前数据。普通赞踩局部更新，不立即重拉总览。
+- 历史榜单只序列化当前页，消费记录一次读取；候选重合及历史再推荐统计仍参照全部保留轮次。
+- 短期信号在画像锁内按幂等键和业务字段去重；同意图重试返回原记录，不更新其 `observed_at` 或衰减起点。候选、轮次、revision、种类、来源、强度、半衰期和 metadata 改变仍报冲突。详情消费与短期信号分两段保存，信号失败后重试不重复增加已保存的详情计数。
+- 播放详情只补齐缺少的名称和 TMDB ID，补查最多四路，批量结果之外的条目不补入。反馈投影仅在仓库实例内缓存最多八个榜单，按序号增量读取；裁剪、重置或恢复后重建，完整复核期限为一分钟且不因追加而延长。持久化 key 和格式保持原合同。
+
+## 结构与资源职责
+
+- `storage/locks.py` 按插件数据域共享在用锁。已核验宿主 `44606a` 的原生数据接口以实例类名隔离；自定义数据替身按对象身份隔离。同数据域的多个 repository 共锁，不同实例互不争用。弱引用注册表在持有者、等待者和外部引用都结束后释放条目；禁止在删除画像时直接移除在用锁。复合动作保留榜单锁、画像锁、Telegram 锁的原有顺序。
+- `storage/feedback_projection.py` 独立拥有最多八个榜单的 LRU 和具名赞踩快照。同画像共享一个账本索引，追加同时推进其已有投影；完整读取、裁剪、恢复和损坏各自维护版本与失效。60 秒是读取时的完整重验证期限，物理释放依靠 LRU、失效或生命周期关闭。
+- `service/board_history.py` 通过四个只读仓库入口生成分页和比较摘要。controller 负责鉴权、快照序列化和响应组装，保留所有原有 DTO 字段、历史回退和跨页统计。
+- `service/lifecycle.py` 停止旧 runtime 后调用仓库 `release_read_caches()`。关闭的缓存禁止迟到读取重新发布数据；持久化读取仍可用，重新初始化使用新的 repository/cache。普通停用和 reload 不迁移或删除持久化数据。
+
+## 推荐输入与存储叶子边界
+
+- `RecommendationOrchestrator` 保留注入入口、运行登记/释放、检索/排序及最终提交协调；输入阶段委托 `service/recommendation_input.py`。`RecommendationRunContext` 只共享身份、起点时间和 metrics/errors，`RecommendationInputs` 返回播放、策略、记忆、画像、偏好五个原对象，不复制快照。
+- `service/recommendation_support.py` 维护角色调用、脱敏指标、阶段进度、重试及运行历史结算。输入阶段保留原 probe 降级、policy 复核、画像缓存与校验失败顺序；Agent 调用预算和失败保留旧榜单的入口沿用。
+- `storage/data.py` 统一插件数据读取、模型/作用域校验、恢复日志、逐键回读和反向回退；`storage/telegram.py` 只依赖该设施和 RepositoryLocks，维护选择、重试 CAS 与待确认会话。Repository 保留兼容方法；跨记录原子保存继续由原协调者调用同一数据设施，不拆成独立保存。
+
 ## 推荐主链
 
 1. Playback Reporting 探测通过后，按 `profile_id` 冻结最近播放快照。
@@ -101,8 +122,8 @@
 ```powershell
 Remove-Item Env:CONFIG_DIR -ErrorAction SilentlyContinue
 $env:DB_TYPE = 'sqlite'
-& 'D:\AIGC\MoviePilot\.venv-test\Scripts\python.exe' -m compileall -q plugins.v3\agentrank
-& 'D:\AIGC\MoviePilot\.venv-test\Scripts\python.exe' -m pytest -q tests\v3\agentrank
+& 'D:\AIGC\All In Docker\MoviePilot\.venv-test\Scripts\python.exe' -m compileall -q plugins.v3\agentrank
+& 'D:\AIGC\All In Docker\MoviePilot\.venv-test\Scripts\python.exe' -m pytest -q tests\v3\agentrank
 pnpm --dir plugins.v3\agentrank\frontend build
 git diff --check
 ```

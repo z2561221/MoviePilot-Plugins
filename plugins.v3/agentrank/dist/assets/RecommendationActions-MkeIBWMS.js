@@ -113,7 +113,7 @@ function emptyAttribution(profileId = '') {
 /**
  * 统一管理 AgentRank Emby identity 选择、只读数据与变更动作。
  */
-function useAgentRankState(api, pluginId) {
+function useAgentRankState(api, pluginId, { boardOnly = false } = {}) {
   const sharedCache = sharedCacheFor(api, pluginId);
   const getApi = (path, params = {}) => getPluginApi(api, pluginId, path, params);
   const postApi = (path, payload = {}) => postPluginApi(api, pluginId, path, payload);
@@ -342,8 +342,13 @@ function useAgentRankState(api, pluginId) {
 
   function invalidateProfileCache(profileId = selectedProfileId.value) {
     if (!profileId) return
-    const entry = profileCacheEntry(profileId);
-    entry.updatedAt = 0;
+    for (const key of [profileId, `board:${profileId}`]) {
+      const entry = sharedCache.profiles.get(key);
+      if (entry) {
+        entry.updatedAt = 0;
+        entry.generation += 1;
+      }
+    }
   }
 
   async function refreshProfileAfterMutation(profileId = selectedProfileId.value) {
@@ -364,7 +369,7 @@ function useAgentRankState(api, pluginId) {
 
   function fetchOptions() {
     if (!sharedCache.optionsRequest) {
-      sharedCache.optionsRequest = getApi('config/options')
+      sharedCache.optionsRequest = getApi('config/options', { discover: false })
         .then(value => {
           sharedCache.options = value;
           sharedCache.optionsUpdatedAt = Date.now();
@@ -406,14 +411,19 @@ function useAgentRankState(api, pluginId) {
   }
 
   function profileCacheEntry(profileId) {
-    if (!sharedCache.profiles.has(profileId)) {
-      sharedCache.profiles.set(profileId, { value: null, updatedAt: 0, request: null });
+    const key = boardOnly ? `board:${profileId}` : profileId;
+    if (!sharedCache.profiles.has(key)) {
+      sharedCache.profiles.set(key, { value: null, updatedAt: 0, request: null, generation: 0 });
     }
-    return sharedCache.profiles.get(profileId)
+    return sharedCache.profiles.get(key)
   }
 
   function applyProfileData(data, profileId) {
     const username = selectedIdentity.value?.username || '';
+    if (boardOnly) {
+      board.value = data || emptyBoard(profileId, username);
+      return board.value
+    }
     const overviewData = data || { profile_id: profileId, username };
     const recentHistory = Array.isArray(overviewData.history)
       ? overviewData.history
@@ -433,13 +443,21 @@ function useAgentRankState(api, pluginId) {
 
   function fetchProfileData(profileId, entry) {
     if (!entry.request) {
-      entry.request = getApi('overview', { profile_id: profileId })
+      const generation = entry.generation;
+      const request = getApi(boardOnly ? 'board' : 'overview', { profile_id: profileId })
         .then(value => {
+          if (generation !== entry.generation) {
+            if (entry.request === request) entry.request = null;
+            return fetchProfileData(profileId, entry)
+          }
           entry.value = value;
           entry.updatedAt = Date.now();
           return value
         })
-        .finally(() => { entry.request = null; });
+        .finally(() => {
+          if (entry.request === request) entry.request = null;
+        });
+      entry.request = request;
     }
     return entry.request
   }
@@ -620,6 +638,7 @@ function useAgentRankState(api, pluginId) {
     const effectiveKind = result?.event?.kind || action;
     if (currentItem) currentItem.feedback_kind = effectiveKind === 'neutral' ? '' : effectiveKind;
     currentBoard.revision = Number(result?.board_revision || currentBoard.revision || 1);
+    invalidateProfileCache(targetProfile);
     return result
   }
 

@@ -12,7 +12,7 @@ const props = defineProps({
   pluginId: { type: String, default: '' },
   sourcePluginId: { type: String, default: '' },
 })
-const state = useAgentRankState(props.api, props.pluginId)
+const state = useAgentRankState(props.api, props.pluginId, { boardOnly: true })
 const snackbar = ref({ show: false, message: '', color: 'success' })
 let runProgressTimer = null
 let disposed = false

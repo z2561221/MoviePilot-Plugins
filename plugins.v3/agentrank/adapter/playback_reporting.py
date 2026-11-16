@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
@@ -181,7 +182,9 @@ class PlaybackReportingAdapter:
         library_ids: Optional[Iterable[str]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """在所选内容库内批量读取播放条目及其剧集父级详情。"""
-        ids = [str(item) for item in item_ids if str(item or "").strip()][:500]
+        ids = list(dict.fromkeys(
+            str(item).strip() for item in item_ids if str(item or "").strip()
+        ))[:500]
         if not ids:
             return {}
         selected_libraries = (
@@ -214,14 +217,7 @@ class PlaybackReportingAdapter:
                     if item.get("Id")
                 }
             )
-        for item_id in ids:
-            synced = self._access.synced_item(server_name, item_id)
-            if synced and item_id in details:
-                details[item_id].setdefault("ProviderIds", {})
-                if synced.get("tmdbid") and not details[item_id]["ProviderIds"].get("Tmdb"):
-                    details[item_id]["ProviderIds"]["Tmdb"] = str(synced["tmdbid"])
-                if synced.get("title") and not details[item_id].get("Name"):
-                    details[item_id]["Name"] = synced["title"]
+        self._backfill_details(server_name, details, ids)
         series_ids = {
             str(item.get("SeriesId"))
             for item in details.values()
@@ -246,13 +242,44 @@ class PlaybackReportingAdapter:
                         if item.get("Id")
                     }
                 )
-                for series_id in missing_series:
-                    synced = self._access.synced_item(server_name, series_id)
-                    if synced and series_id in details:
-                        details[series_id].setdefault("ProviderIds", {})
-                        if synced.get("tmdbid") and not details[series_id]["ProviderIds"].get("Tmdb"):
-                            details[series_id]["ProviderIds"]["Tmdb"] = str(synced["tmdbid"])
+                self._backfill_details(server_name, details, missing_series)
         return details
+
+    def _backfill_details(
+        self, server_name: str, details: dict[str, dict[str, Any]], item_ids: Iterable[str]
+    ) -> None:
+        """仅补齐批量结果缺失的身份字段；不引入所选内容库之外的条目。"""
+        missing = [
+            item_id for item_id in dict.fromkeys(item_ids)
+            if item_id in details and (
+                not (details[item_id].get("ProviderIds") or {}).get("Tmdb")
+                or not details[item_id].get("Name")
+            )
+        ]
+        if not missing:
+            return
+
+        def lookup(item_id: str) -> dict[str, Any]:
+            return self._access.synced_item(server_name, item_id)
+
+        def apply(item_id: str, synced: dict[str, Any]) -> None:
+            if not synced:
+                return
+            detail = details[item_id]
+            providers = detail.get("ProviderIds") or {}
+            if synced.get("tmdbid") and not providers.get("Tmdb"):
+                detail["ProviderIds"] = {**providers, "Tmdb": str(synced["tmdbid"])}
+            if synced.get("title") and not detail.get("Name"):
+                detail["Name"] = synced["title"]
+
+        if len(missing) == 1:
+            apply(missing[0], lookup(missing[0]))
+            return
+        with ThreadPoolExecutor(
+            max_workers=min(4, len(missing)), thread_name_prefix="agentrank-playback"
+        ) as executor:
+            for item_id, synced in zip(missing, executor.map(lookup, missing)):
+                apply(item_id, synced)
 
     def collect(
         self,

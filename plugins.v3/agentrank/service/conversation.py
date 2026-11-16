@@ -862,13 +862,30 @@ class ConversationService:
             data["created"] = bool(created)
         return data
 
-    def snapshot(self, profile_id: str) -> Dict[str, Any]:
-        """读取一个 profile 的当前有界对话快照。"""
-        thread = self._repository.load_conversation_thread(profile_id)
-        if thread is None:
-            return {"thread": None, "messages": [], "commands": []}
-        messages, commands = self._repository.load_conversation_records(profile_id)
-        return self._snapshot_data(thread, messages, commands)
+    def snapshot(
+        self, profile_id: str, *, actor_id: str = "", mark_read: bool = False
+    ) -> Dict[str, Any]:
+        """读取有界对话快照，可用同批消息计算操作者的未读状态。"""
+        target = str(profile_id or "").strip()
+        actor = str(actor_id or "").strip()
+        if actor_id and (not target or not actor):
+            raise ConversationError(
+                "conversation_actor_required", "无法确认当前操作用户", 403
+            )
+        thread = self._repository.load_conversation_thread(target)
+        messages, commands = (
+            self._repository.load_conversation_records(target)
+            if thread is not None or actor_id else ([], [])
+        )
+        data = (
+            self._snapshot_data(thread, messages, commands)
+            if thread is not None else {"thread": None, "messages": [], "commands": []}
+        )
+        if actor_id:
+            data["status"] = self._status_data(
+                target, actor, thread, messages, mark_read=mark_read
+            )
+        return data
 
     def append_feedback_notice(
         self,
@@ -946,6 +963,18 @@ class ConversationService:
             )
         thread = self._repository.load_conversation_thread(target)
         messages, _commands = self._repository.load_conversation_records(target)
+        return self._status_data(target, actor, thread, messages, mark_read=mark_read)
+
+    def _status_data(
+        self,
+        target: str,
+        actor: str,
+        thread: Optional[ConversationThread],
+        messages: Sequence[ConversationMessage],
+        *,
+        mark_read: bool,
+    ) -> Dict[str, Any]:
+        """按已读取的消息计算未读状态，保留首次标记与显式已读行为。"""
         assistant_ids = [
             item.message_id
             for item in messages

@@ -109,7 +109,10 @@ class PendingCenterService:
             ),
         )
 
-    def _question_title(self, record: PendingQuestion) -> str:
+    def _question_title(
+        self, record: PendingQuestion, *,
+        snapshot_titles: Optional[Dict[tuple[str, str], Dict[str, str]]] = None,
+    ) -> str:
         """根据问题绑定事件恢复用户可识别的作品或观看上下文标题。"""
         dimension = str(record.preference_dimension or "").strip().split(":")
         if len(dimension) == 4 and dimension[0] == "pending_interview":
@@ -133,28 +136,32 @@ class PendingCenterService:
             None,
         )
         if event is not None and event.run_id:
-            candidate = next(
-                (
-                    item
-                    for item in self._repository.load_candidate_snapshot(
-                        event.run_id, record.profile_id
+            titles = snapshot_titles if snapshot_titles is not None else {}
+            key = (record.profile_id, event.run_id)
+            if key not in titles:
+                by_candidate: Dict[str, str] = {}
+                for item in self._repository.load_candidate_snapshot(
+                    event.run_id, record.profile_id
+                ):
+                    by_candidate.setdefault(
+                        item.candidate_id, str(item.title or "").strip()
                     )
-                    if item.candidate_id == record.candidate_id
-                ),
-                None,
-            )
-            title = str(getattr(candidate, "title", "") or "").strip()
+                titles[key] = by_candidate
+            title = titles[key].get(record.candidate_id, "")
             if title:
                 return f"关于《{title}》的一次确认"
         return f"{self._agent_name} 想确认一件事"
 
-    def _question_item(self, record: PendingQuestion) -> PendingCenterItem:
+    def _question_item(
+        self, record: PendingQuestion, *,
+        snapshot_titles: Optional[Dict[tuple[str, str], Dict[str, str]]] = None,
+    ) -> PendingCenterItem:
         """把歧义问询投影为安全选项与自定义回答能力。"""
         return PendingCenterItem(
             item_type="question",
             item_id=record.question_id,
             profile_id=record.profile_id,
-            title=self._question_title(record),
+            title=self._question_title(record, snapshot_titles=snapshot_titles),
             summary=record.question,
             candidate_id=record.candidate_id,
             detail_lines=record.uncertainties,
@@ -274,8 +281,9 @@ class PendingCenterService:
             for item in self._repository.load_memory_proposals(target)
             if visible(item.status, "pending_confirmation")
         )
+        snapshot_titles: Dict[tuple[str, str], Dict[str, str]] = {}
         items.extend(
-            self._question_item(item)
+            self._question_item(item, snapshot_titles=snapshot_titles)
             for item in self._repository.load_pending_questions(target)
             if visible(item.status, "pending")
         )

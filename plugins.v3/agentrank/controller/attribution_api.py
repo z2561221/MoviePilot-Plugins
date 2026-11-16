@@ -242,7 +242,7 @@ class AttributionApiMixin:
     def learning_health(self, profile_id: Any) -> Dict[str, Any]:
         """返回当前 profile 的短期学习、确认记忆和归因覆盖摘要。"""
         target = self._profile_id(profile_id)
-        return self._success(self._repository().build_learning_health(target).to_dict())
+        return self._success(self._repository().calculate_learning_health(target).to_dict())
 
     def record_exposure(self, payload: Any) -> Dict[str, Any]:
         """记录当前榜单实际进入页面可见区的一次曝光。"""

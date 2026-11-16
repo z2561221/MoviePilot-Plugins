@@ -7,6 +7,7 @@ from app import schemas
 from .errors import ApiContractError
 from ..model.config import configured_identities, default_config
 from ..model.identity import EmbyIdentity
+from ..service.board_history import BoardHistoryService
 from ..service.prompt import configured_agent_display_name
 
 
@@ -64,7 +65,7 @@ class ReadApiMixin:
         data["data_lifecycle"] = self._data_lifecycle_data(profile_ids)
         return response
 
-    def config_options(self) -> Dict[str, Any]:
+    def config_options(self, discover: bool = True) -> Dict[str, Any]:
         """返回 Config 与 Emby 身份切换器需要的安全选项。"""
         from ..service.notification_type import notification_type_options
 
@@ -76,7 +77,7 @@ class ReadApiMixin:
             identity["profile_id"]: identity for identity in selected_identities
         }
         access = getattr(self.plugin, "_emby_access", None)
-        if access is not None and hasattr(access, "enumerate_identities"):
+        if discover and access is not None and hasattr(access, "enumerate_identities"):
             try:
                 for identity in access.enumerate_identities() or []:
                     identity_map[identity.profile_id] = identity.to_dict()
@@ -84,7 +85,7 @@ class ReadApiMixin:
                 pass
         identities = list(identity_map.values())
         libraries = {}
-        if access is not None and hasattr(access, "enumerate_libraries"):
+        if discover and access is not None and hasattr(access, "enumerate_libraries"):
             for identity_data in identities:
                 try:
                     identity = EmbyIdentity.from_dict(identity_data)
@@ -105,7 +106,7 @@ class ReadApiMixin:
                 "playback_status": {
                     identity["profile_id"]: self._playback_data(identity["profile_id"])
                     for identity in selected_identities
-                    if getattr(self.plugin, "_playback_service", None) is not None
+                    if discover and getattr(self.plugin, "_playback_service", None) is not None
                 },
             }
         )
@@ -118,17 +119,28 @@ class ReadApiMixin:
         board = repository.load_board(target)
         archive = repository.load_archive(target)
         history = repository.load_run_history(target)
+        memory = repository.load_preference_memory(target)
+        questions = repository.load_pending_questions(target)
+        consumptions = repository.load_board_consumptions(target)
+        attributions = repository.load_outcome_attributions(target)
         return self._success(
             {
                 "profile_id": target,
                 "username": self._display_name(target),
-                "profile": self._profile_data(target, profile),
-                "board": self._board_data(board) if board else None,
+                "profile": self._profile_data(
+                    target, profile, memory=memory, questions=questions
+                ),
+                "board": self._board_data(
+                    board, consumptions=consumptions, attributions=attributions
+                ) if board else None,
                 "archive": archive.to_dict(),
                 "latest_run": history[0].to_dict() if history else None,
                 "history": [item.to_dict() for item in history[:15]],
                 "history_total": len(history),
-                "learning_health": repository.build_learning_health(target).to_dict(),
+                "learning_health": repository.calculate_learning_health(
+                    target, memory=memory, questions=questions,
+                    consumptions=consumptions, attributions=attributions,
+                ).to_dict(),
                 "agent_display_name": configured_agent_display_name(
                     self.plugin._config.get("agent_display_name")
                 ),
@@ -190,104 +202,29 @@ class ReadApiMixin:
     ) -> Dict[str, Any]:
         """返回只读的历史榜单快照及相邻轮次变化摘要。"""
         target = self._profile_id(profile_id)
-        repository = self._repository()
-        boards = list(repository.load_board_history(target))
-        legacy_fallback = False
-        notice = ""
-        if not boards:
-            current = repository.load_board(target)
-            if current is not None and current.recommendations:
-                # 历史功能上线前没有快照时，至少让用户看到当前榜单，并明确标记起点。
-                boards = [current]
-                legacy_fallback = True
-                notice = "历史榜单从本次开始记录，当前榜单为上线前的最后一轮。"
-            else:
-                notice = "榜单生成后，这里会记录每一轮的完整榜单。"
-        runs = {
-            run.run_id: run
-            for run in repository.load_run_history(target)
-            if str(run.run_id or "").strip()
-        }
-        board_by_run_id = {
-            board.run_id: board
-            for board in boards
-            if str(board.run_id or "").strip()
-        }
-        def board_ids(value: Any) -> set[str]:
-            """提取一轮榜单中非空且去重的候选标识。"""
-            return {
-                str(item.candidate_id or "").strip()
-                for item in (value.recommendations if value else ())
-                if str(item.candidate_id or "").strip()
-            }
-
-        def overlap_rate(current_ids: set[str], previous_ids: set[str]) -> float:
-            """计算当前榜单与参照榜单的候选重合率。"""
-            if not current_ids or not previous_ids:
-                return 0.0
-            return round(len(current_ids & previous_ids) / max(1, len(current_ids)), 4)
-
+        history = BoardHistoryService(self._repository()).page(target, page, page_size)
         items: List[Dict[str, Any]] = []
-        for index, board in enumerate(boards):
-            current_ids = board_ids(board)
-            previous = board_by_run_id.get(str(board.previous_run_id or "").strip())
-            if previous is None and index + 1 < len(boards):
-                previous = boards[index + 1]
-            previous_ids = board_ids(previous)
-            older_ids = set().union(*(board_ids(value) for value in boards[index + 1 :]))
-            return_count = len((current_ids & older_ids) - previous_ids)
-            recent_rates = []
-            for recent_index in range(index, min(len(boards) - 1, index + 5)):
-                recent_current = board_ids(boards[recent_index])
-                recent_previous = board_ids(boards[recent_index + 1])
-                recent_rates.append(overlap_rate(recent_current, recent_previous))
-            run = runs.get(board.run_id)
-            metrics = dict(run.metrics or {}) if run is not None else {}
-            consumption = repository.load_board_consumption(
-                target, board.run_id, board.revision
-            )
-            board_data = self._board_snapshot_data(board)
+        for entry in history.items:
+            board_data = self._board_snapshot_data(entry.board)
             for item in board_data.get("recommendations") or []:
-                candidate_id = str(item.get("candidate_id") or "").strip()
-                item["history_state"] = (
-                    "repeat" if candidate_id in previous_ids else "new"
-                )
+                item["history_state"] = entry.history_state(item.get("candidate_id"))
             items.append(
                 {
                     "board": board_data,
-                    "run": run.to_dict() if run is not None else None,
-                    "new_count": len(current_ids - previous_ids),
-                    "overlap_count": len(current_ids & previous_ids),
-                    "previous_overlap_rate": overlap_rate(current_ids, previous_ids),
-                    "return_count": return_count,
-                    "returning_count": return_count,
-                    "recent_average_overlap_rate": round(
-                        sum(recent_rates) / len(recent_rates), 4
-                    ) if recent_rates else 0.0,
-                    "trigger_reason": str(
-                        metrics.get("trigger_reason") or (
-                            "legacy_snapshot" if legacy_fallback else "unknown"
-                        )
-                    ),
-                    "exposed": bool(consumption.exposed) if consumption else False,
-                    "exposure_count": int(consumption.exposure_count or 0) if consumption else 0,
-                    "interacted": bool(consumption.interacted) if consumption else False,
-                    "legacy_fallback": legacy_fallback,
+                    "run": entry.run.to_dict() if entry.run is not None else None,
+                    **entry.summary(),
                 }
             )
-        current_page = max(1, int(page or 1))
-        current_page_size = max(1, min(int(page_size or 10), 50))
-        start = (current_page - 1) * current_page_size
         return self._success(
             {
                 "profile_id": target,
                 "username": self._display_name(target),
-                "items": items[start : start + current_page_size],
-                "total": len(items),
-                "page": current_page,
-                "page_size": current_page_size,
-                "notice": notice,
-                "legacy_fallback": legacy_fallback,
+                "items": items,
+                "total": history.total,
+                "page": history.page,
+                "page_size": history.page_size,
+                "notice": history.notice,
+                "legacy_fallback": history.legacy_fallback,
             }
         )
 

@@ -114,6 +114,9 @@ class FeedbackActionService:
         target_run = str(run_id or "").strip()
         if not target_run:
             return {}
+        projector = getattr(self._repository, "load_feedback_polarities", None)
+        if callable(projector):
+            return projector(profile_id, target_run)
         states: Dict[str, str] = {}
         for event in self._events(profile_id):
             if (

@@ -345,14 +345,15 @@ def test_api_error_normalizer_reads_fastapi_validation_details():
         assert marker in api
 
 
-def test_ranking_surfaces_cache_overview_by_stable_profile_id():
+def test_ranking_surfaces_cache_by_stable_profile_id_and_view_kind():
     """榜单首屏按稳定 profile_id 聚合缓存，过期刷新失败可见且可重试。"""
     state = _read("useAgentRankState.js")
     page = _read("Page.vue")
     assert "const cacheByApi = new WeakMap()" in state
     assert "const PROFILE_CACHE_TTL_MS = 60 * 1000" in state
-    assert "getApi('overview', { profile_id: profileId })" in state
-    assert "getApi('board'" not in state
+    assert "getApi(boardOnly ? 'board' : 'overview', { profile_id: profileId })" in state
+    assert "const key = boardOnly ? `board:${profileId}` : profileId" in state
+    assert "useAgentRankState(props.api, props.pluginId)" in page
     assert "getApi('profile'" not in state
     assert "{ legacyLoading: cached ? '' : 'data' }" in state
     assert "void runOperation(" in state
@@ -458,7 +459,7 @@ def test_profile_view_edits_archives_restores_preferences_and_shows_board_matche
     for label in ("播放样本", "偏好标签", "避雷标签", "本轮命中", "归档标签", "恢复标签"):
         assert label in page
     assert "ar-page__profile-groups" in page
-    assert "getApi('overview', { profile_id: profileId })" in state
+    assert "getApi(boardOnly ? 'board' : 'overview', { profile_id: profileId })" in state
     assert "'profile/tags'" in state
 
 
