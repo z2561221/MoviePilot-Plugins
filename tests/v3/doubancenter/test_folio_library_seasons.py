@@ -9,7 +9,12 @@ import pytest
 from app.plugins.doubancenter.adapter import folio_library, folio_media
 from app.plugins.doubancenter.controller import schemas as api_schemas
 from app.plugins.doubancenter.model import folio_record
-from app.plugins.doubancenter.service import folio, folio_repair, folio_watch
+from app.plugins.doubancenter.service import (
+    folio,
+    folio_account,
+    folio_repair,
+    folio_watch,
+)
 
 from tests.v3.doubancenter.folio_fakes import (
     MUSHOKU_SUBJECTS,
@@ -118,7 +123,7 @@ def test_first_episode_date_survives_skip_retry_and_marked_events(monkeypatch):
             calls.append(kwargs)
             return len(calls) > 1
 
-    monkeypatch.setattr(folio, "DoubanApi", Account)
+    monkeypatch.setattr(folio_account, "DoubanApi", Account)
     event = SimpleNamespace(item_name=media.title, item_type="TV", season_id=2, episode_id=1,
                             server_name="Embyserver", item_id="72893",
                             json_object={"Item": {"SeriesId": "72893", "SeasonId": "72960"}, "Date": "2026-09-02T02:37:21"})
@@ -185,7 +190,7 @@ def test_old_cours_retry_uses_repaired_library_identity_without_promoting_old_st
             calls.append(kwargs)
             return True
 
-    monkeypatch.setattr(folio, "DoubanApi", Account)
+    monkeypatch.setattr(folio_account, "DoubanApi", Account)
     processed = plugin.get_data("folio_data")
     assert folio._sync_to_douban(plugin, "old-title", "do", "TV", processed, origin=old_origin)
     assert [(call["subject_id"], call["status"]) for call in calls] == [("35460732", "do")]
@@ -229,7 +234,7 @@ def test_legacy_retry_resolves_library_before_unrepaired_cours_can_duplicate(mon
         calls.append(kwargs)
         return True
 
-    monkeypatch.setattr(folio, "DoubanApi", lambda **kwargs: SimpleNamespace(set_watching_status=mark))
+    monkeypatch.setattr(folio_account, "DoubanApi", lambda **kwargs: SimpleNamespace(set_watching_status=mark))
     processed = plugin.get_data("folio_data")
     assert folio._sync_to_douban(plugin, "old-title", "do", "TV", processed, origin=retry_origin)
     assert list(processed) == ["old-title"] and not plugin._wait_process

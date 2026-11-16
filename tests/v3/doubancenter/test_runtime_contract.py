@@ -1,7 +1,8 @@
 """豆瓣中心 V3 生命周期、命名空间与网络合同测试。"""
 
-from app.plugins.doubancenter import DoubanCenter, doubanapi, feed, folio, migration
+from app.plugins.doubancenter import DoubanCenter, doubanapi, feed, migration
 from app.plugins.doubancenter.adapter import douban_account
+from app.plugins.doubancenter.service import wish_sync
 
 
 class _FakeResponse:
@@ -69,6 +70,7 @@ def test_init_stops_previous_run_before_config_migration_and_tasks(monkeypatch):
     """重复初始化必须先停止旧资源，再覆盖配置、迁移数据和启动一次性任务。"""
     events = []
     plugin = object.__new__(DoubanCenter)
+    plugin.get_data = lambda key, **kwargs: None
     plugin.stop_service = lambda: events.append("stop")
     plugin.update_config = lambda config: events.append("config")
     monkeypatch.setattr(
@@ -82,7 +84,7 @@ def test_init_stops_previous_run_before_config_migration_and_tasks(monkeypatch):
         lambda: events.append("normalize"),
     )
     monkeypatch.setattr(feed, "run_once", lambda current: events.append("feed"))
-    monkeypatch.setattr(folio, "run_wish_scheduled", lambda current: events.append("wish"))
+    monkeypatch.setattr(wish_sync, "run_wish_scheduled", lambda current: events.append("wish"))
 
     plugin.init_plugin({"enabled": True, "onlyonce": True, "wish_onlyonce": True})
 

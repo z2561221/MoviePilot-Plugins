@@ -12,12 +12,29 @@ TIMELINE_MONTH_LIMIT = 3
 TIMELINE_ITEM_LIMIT = 50
 
 
+def visible_timeline_records(data: dict) -> dict:
+    """先按页面窗口选取档案，隐藏历史不触发媒体库补图。"""
+    records = timeline_records(data)
+    selected, months = {}, {}
+    for key, record in sorted(records.items(), key=lambda item: str(item[1]["timestamp"]), reverse=True):
+        timestamp = datetime.datetime.fromisoformat(str(record["timestamp"]))
+        month = (timestamp.year, timestamp.month)
+        if month not in months:
+            if len(months) >= TIMELINE_MONTH_LIMIT:
+                break
+            months[month] = 0
+        if months[month] < TIMELINE_ITEM_LIMIT:
+            selected[key] = record
+            months[month] += 1
+    return selected
+
+
 def get_folio_data(plugin, raw: bool = False) -> dict:
     """读取豆瓣时间数据，当前插件无数据时回退到原 DoubanCenter 数据。"""
     data = storage.read_folio_data(plugin)
     if not data:
         data = storage.read_folio_data(plugin, plugin_id="DoubanCenter")
-    return {"data": data if raw else folio_library.project_posters(plugin, timeline_records(data))}
+    return {"data": data if raw else folio_library.project_posters(plugin, visible_timeline_records(data))}
 
 
 def get_timeline_items(
@@ -27,7 +44,7 @@ def get_timeline_items(
 ) -> List[dict]:
     """按固定单排策略构建豆瓣时间线条目。"""
     data = storage.read_folio_data(plugin)
-    data = folio_library.project_posters(plugin, timeline_records(data))
+    data = folio_library.project_posters(plugin, visible_timeline_records(data))
     return build_timeline_items(
         data,
         mobile=mobile,

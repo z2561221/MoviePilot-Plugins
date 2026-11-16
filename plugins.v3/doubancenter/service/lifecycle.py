@@ -12,21 +12,34 @@ class RunStopped(RuntimeError):
 
 _CURRENT_RUN = ContextVar("doubancenter_run", default=None)
 _FALLBACK_RANK_LOCK = RLock()
+_FALLBACK_LIFECYCLE_LOCK = RLock()
 
 
 def start(plugin) -> None:
     """建立新代次，旧任务持有的停止信号永不复用。"""
-    stop(plugin)
-    plugin._run_stop = Event()
+    with getattr(plugin, "_lifecycle_lock", _FALLBACK_LIFECYCLE_LOCK):
+        stop(plugin)
+        plugin._run_stop = Event()
 
 
 def stop(plugin) -> None:
     """发出协作停止信号，不等待不可取消的外部网络请求。"""
-    event = getattr(plugin, "_run_stop", None)
-    if event is not None:
-        event.set()
-    # 换掉缓存容器；在途旧查询即使返回，也不能把缓存重新挂回新代次。
-    plugin._folio_series_cache = {}
+    with getattr(plugin, "_lifecycle_lock", _FALLBACK_LIFECYCLE_LOCK):
+        event = getattr(plugin, "_run_stop", None)
+        if event is not None:
+            event.set()
+        plugin._folio_series_cache = {}
+        plugin._folio_library_poster_cache = {}
+        plugin._folio_library_season_cache = {}
+
+
+def publish_cache(plugin, event, field: str, cache: dict) -> bool:
+    """仅保护代次核对和缓存挂接，与停止共用短锁；锁内不执行媒体IO。"""
+    with getattr(plugin, "_lifecycle_lock", _FALLBACK_LIFECYCLE_LOCK):
+        if event is not getattr(plugin, "_run_stop", None) or (event is not None and event.is_set()):
+            return False
+        setattr(plugin, field, cache)
+        return True
 
 
 def checkpoint(plugin) -> None:

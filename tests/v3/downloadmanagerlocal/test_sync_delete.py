@@ -220,8 +220,8 @@ def test_dedup_is_path_scoped_and_instance_isolated():
     assert left.submit(event()) == a
     assert left.submit(event("/emby/B.strm")) != a
     assert right.submit(event()) != a
-    assert len(first.get_data(JOBS_KEY)) == 2
-    assert len(second.get_data(JOBS_KEY)) == 1
+    assert len(left.jobs()) == 2
+    assert len(right.jobs()) == 1
 
 
 def test_disabled_or_stopped_runtime_cannot_submit_or_continue():

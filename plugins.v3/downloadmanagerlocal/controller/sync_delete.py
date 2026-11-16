@@ -10,8 +10,9 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..adapter.sync_delete import SyncDeleteAdapter
-from ..model.sync_delete import JOBS_KEY, DeleteRejected, config_for, event_snapshot
-from ..service.sync_delete import build_plan
+from ..model.sync_delete import DeleteRejected, config_for, event_snapshot
+from ..service.sync_delete_planner import build_plan
+from ..storage.sync_delete_jobs import DeleteJobStore
 
 
 class PreviewRequest(BaseModel):
@@ -79,11 +80,9 @@ def preview(plugin, payload: PreviewRequest, token: Annotated[schemas.TokenPaylo
 def history(plugin, page: int = 1, page_size: int = 15) -> HistoryResult:
     """只读历史不初始化执行器，也不恢复未决任务。"""
     page, page_size = max(1, page), max(1, min(50, page_size))
-    jobs = plugin.get_data(JOBS_KEY) or {}
-    rows = sorted(jobs.values(), key=lambda row: row.get("updated_at", 0), reverse=True)
-    offset = (page - 1) * page_size
+    total, rows = DeleteJobStore(plugin).page(page, page_size)
     runtime = getattr(plugin, "_sync_delete_runtime", None)
-    return HistoryResult(items=rows[offset:offset + page_size], total=len(rows), page=page, page_size=page_size,
+    return HistoryResult(items=rows, total=total, page=page, page_size=page_size,
                          enabled=bool(getattr(plugin, "_enabled", False) and getattr(plugin, "_sync_delete_enabled", False)),
                          worker_running=bool(runtime and not runtime.stop.is_set() and runtime.thread and runtime.thread.is_alive()))
 

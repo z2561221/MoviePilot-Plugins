@@ -37,7 +37,7 @@ from ..model.state import (
 from ..utils.sensitive import mask_sensitive_url
 from ..utils.torrent_adapter import get_label, get_tracker_urls
 from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
-from .sync_delete import coordinated, task_blocked
+from .coordination import coordinated, task_blocked
 from .transfer import _transfer_stopped
 
 IYUU_QUERY_CHUNK_SIZE = 100

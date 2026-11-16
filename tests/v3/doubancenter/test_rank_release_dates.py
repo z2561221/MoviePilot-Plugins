@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from app.plugins.doubancenter import utils
-from app.plugins.doubancenter.service import rank_pipeline
+from app.plugins.doubancenter.service import rank_candidates
 from app.plugins.doubancenter.storage import records
 
 from tests.v3.doubancenter import test_rank_seasons
@@ -51,7 +51,7 @@ def test_valid_snapshot_avoids_an_extra_network_lookup(rank_lab):
 
     rank_lab.plugin.chain.tmdb_info = unavailable
     rank_lab.plugin._rank_configs["coming"]["air_days"] = 10
-    rank_pipeline._process_coming_snapshots(rank_lab.plugin, [coming_snapshot(rank_lab)], COMING)
+    rank_candidates._process_coming_snapshots(rank_lab.plugin, [coming_snapshot(rank_lab)], COMING)
 
     assert lookups == []
     assert len(rank_lab.added) == 1
@@ -67,7 +67,7 @@ def test_coming_window_includes_ten_days_and_premiere_day(rank_lab, date, subscr
     """上映前十天与上映当天可订阅，十一天前和上映后不通过未来窗口。"""
     rank_lab.media.season_info[0]["air_date"] = date
     rank_lab.plugin._rank_configs["coming"]["air_days"] = 10
-    rank_pipeline._process_coming_snapshots(rank_lab.plugin, [coming_snapshot(rank_lab)], COMING)
+    rank_candidates._process_coming_snapshots(rank_lab.plugin, [coming_snapshot(rank_lab)], COMING)
     assert bool(rank_lab.added) is subscribed
 
 
@@ -129,13 +129,13 @@ def test_missing_date_remains_retryable_until_target_season_is_known(rank_lab):
     rank_lab.plugin.chain.tmdb_info = lambda **_kwargs: {"first_air_date": "2022-04-01", "seasons": []}
     snapshot = coming_snapshot(rank_lab)
     lines = []
-    rank_pipeline._process_coming_snapshots(rank_lab.plugin, [snapshot], COMING, result_lines=lines)
+    rank_candidates._process_coming_snapshots(rank_lab.plugin, [snapshot], COMING, result_lines=lines)
     assert rank_lab.added == []
     assert any("第6季首播日期" in line and "下轮重试" in line for line in lines)
     assert not any(item.get("subscribed") for item in records.read_rank_history(rank_lab.plugin, "coming"))
 
     rank_lab.media.season_info = [{"season_number": 6, "air_date": "2026-09-19"}]
-    rank_pipeline._process_coming_snapshots(rank_lab.plugin, [snapshot], COMING)
+    rank_candidates._process_coming_snapshots(rank_lab.plugin, [snapshot], COMING)
     assert len(rank_lab.added) == 1
     assert rank_lab.added[0]["season"] == 6
 
@@ -143,10 +143,10 @@ def test_missing_date_remains_retryable_until_target_season_is_known(rank_lab):
 def test_direct_coming_rss_uses_the_same_target_season_date(rank_lab, monkeypatch):
     """传统 RSS 入口同样复用第六季日期，不受整剧首播日期影响。"""
     rank_lab.plugin._rank_configs["coming"]["air_days"] = 10
-    monkeypatch.setattr(rank_pipeline, "_fetch_coming_rss", lambda *_args: [
+    monkeypatch.setattr(rank_candidates, "_fetch_coming_rss", lambda *_args: [
         {"title": "Slow Horses Season 6", "link": "https://example.test/subject/36689816"},
     ])
-    rank_pipeline._process_coming(rank_lab.plugin, "https://example.test/rss", COMING)
+    rank_candidates._process_coming(rank_lab.plugin, "https://example.test/rss", COMING)
     assert len(rank_lab.added) == 1
     assert rank_lab.added[0]["season"] == 6
     assert records.read_rank_history(rank_lab.plugin, "coming")[0]["air_date"] == "2026-09-19"

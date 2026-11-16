@@ -10,7 +10,7 @@ from app.schemas.types import MessageType
 from app.sdk.config import settings
 from app.sdk.logging import logger
 
-from .sync_delete import coordinated, task_blocked
+from .coordination import coordinated, task_blocked
 from bencode import bdecode, bencode
 
 from ..adapter.moviepilot import is_downloader_type

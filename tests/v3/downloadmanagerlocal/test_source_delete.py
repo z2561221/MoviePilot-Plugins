@@ -127,7 +127,7 @@ def test_real_event_entry_enqueues_snapshot_without_looking_up_deleted_destinati
     first = cleanup.handle_sync_delete_by_hash_event(plugin, notification)
     second = cleanup.handle_sync_delete_by_hash_event(plugin, notification)
     assert first["accepted"] and first == second
-    assert len(plugin.data[JOBS_KEY]) == 1
+    assert len(runtime.jobs()) == 1
     job = runtime.jobs()[first["job_id"]]
     assert job["plan"]["tasks"] and job["plan"]["channel"] == "download"
     runtime.execute(job, adapter)

@@ -11,7 +11,7 @@ from app.sdk.logging import logger
 from ..adapter.moviepilot import get_downloader_service
 from ..model.state import SEED_RECHECK_QUEUE_KEY
 from ..utils.torrent_adapter import get_hash, get_label
-from .sync_delete import coordinated, operation_stopped, task_blocked
+from .coordination import coordinated, operation_stopped, task_blocked
 
 
 def _queue_lock(plugin) -> threading.RLock:

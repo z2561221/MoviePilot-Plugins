@@ -108,19 +108,20 @@ for (const mode of ['leave', 'unmount', 'switch']) {
   })
 }
 
-test('仪表盘等待读取期间离页，不再发出 RSS 刷新写请求', async () => {
-  const pending = []; let posts = 0, defer = false
+test('榜单刷新已发出后离页，不再回写结果或追加刷新', async () => {
+  let resolveRefresh, posts = 0
   const props = vue.reactive({ pluginId: 'DoubanCenter', config: {}, api: {
-    get: () => defer ? new Promise(r => pending.push(r)) : Promise.resolve(ok({})),
-    post: async () => { posts++; return ok({}) },
+    get: async () => ok({}),
+    post: () => { posts++; return new Promise(resolve => { resolveRefresh = resolve }) },
   } })
   const f = await mount('Dashboard.vue', props)
   try {
-    await tick(); defer = true
     const run = f.state.refreshDashboard(); await tick(); f.leave()
-    pending.forEach(resolve => resolve(ok({}))); await run
-    assert.equal(posts, 0)
+    resolveRefresh(ok({ tv_global: [{ title: 'stale' }] })); await run
+    assert.equal(posts, 1)
     assert.equal(f.state.refreshing, false)
+    assert.equal(f.state.refreshResult, '')
+    assert.equal(f.state.rankHistory.tv_global, undefined)
   } finally { f.app.unmount() }
 })
 
@@ -307,4 +308,72 @@ test('管理权限随API和实例变化，旧授权及失败均不能开放按�
     assert.equal(access.canManage.value, false)
     assert.match(access.permissionError.value, /权限读取失败/)
   } finally { scope.stop() }
+})
+
+
+test('刷新榜单不等待时间线，旧榜单回包不覆盖新结果且时间线仍可完成', async () => {
+  let resolveFolio, resolveRank
+  const posts = []
+  const props = vue.reactive({ pluginId: 'DoubanCenter', config: {}, api: {
+    get: url => {
+      if (url.endsWith('/folio_data')) return new Promise(resolve => { resolveFolio = resolve })
+      if (url.endsWith('/rank_history')) return new Promise(resolve => { resolveRank = resolve })
+      return Promise.resolve(ok({ can_manage: true }))
+    },
+    post: async url => { posts.push(url); return ok({ tv_global: [{ title: 'fresh' }] }) },
+  } })
+  const f = await mount('Dashboard.vue', props)
+  try {
+    assert.equal(typeof resolveFolio, 'function')
+    const request = f.state.refreshDashboard()
+    await tick()
+    assert.equal(posts.length, 1)
+    assert.match(posts[0], /refresh_rss$/)
+    await request
+    assert.equal(f.state.rankHistory.tv_global[0].title, 'fresh')
+    resolveRank(ok({ tv_global: [{ title: 'stale' }] }))
+    resolveFolio(ok({ movie: { timestamp: '2026-11-01 00:00:00', subject_name: 'movie' } }))
+    await tick(); await tick()
+    assert.equal(f.state.rankHistory.tv_global[0].title, 'fresh')
+    assert.equal(f.state.folioData.movie.subject_name, 'movie')
+  } finally {
+    resolveRank?.(ok({})); resolveFolio?.(ok({}))
+    f.app.unmount()
+  }
+})
+
+test('刷新期间开始的页面读取也不能覆盖已刷新的榜单', async () => {
+  let resolveRefresh, defer = false
+  const ranks = []
+  const props = vue.reactive({ pluginId: 'DoubanCenter', config: {}, api: {
+    get: url => defer && url.endsWith('/rank_history')
+      ? new Promise(resolve => ranks.push(resolve)) : Promise.resolve(ok({})),
+    post: () => new Promise(resolve => { resolveRefresh = resolve }),
+  } })
+  const f = await mount('Dashboard.vue', props)
+  try {
+    await tick()
+    const refresh = f.state.refreshDashboard()
+    defer = true
+    const read = f.state.load(); await tick()
+    resolveRefresh(ok({ tv_global: [{ title: 'fresh' }] })); await refresh
+    ranks[0](ok({ tv_global: [{ title: 'stale' }] })); await read
+    assert.equal(f.state.rankHistory.tv_global[0].title, 'fresh')
+  } finally { f.app.unmount() }
+})
+
+test('刷新失败仍接收正常加载的榜单快照', async () => {
+  let resolveRank
+  const props = vue.reactive({ pluginId: 'DoubanCenter', config: {}, api: {
+    get: url => url.endsWith('/rank_history')
+      ? new Promise(resolve => { resolveRank = resolve }) : Promise.resolve(ok({})),
+    post: async () => ({ success: false, message: 'offline', data: null }),
+  } })
+  const f = await mount('Dashboard.vue', props)
+  try {
+    await f.state.refreshDashboard()
+    resolveRank(ok({ tv_global: [{ title: 'cached' }] })); await tick(); await tick()
+    assert.equal(f.state.rankHistory.tv_global[0].title, 'cached')
+    assert.equal(f.state.refreshResult, 'offline')
+  } finally { f.app.unmount() }
 })

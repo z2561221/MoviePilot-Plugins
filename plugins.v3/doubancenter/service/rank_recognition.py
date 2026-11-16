@@ -1,12 +1,16 @@
 """豆瓣中心榜单条目识别编排服务。"""
 
-from typing import Any, Callable, Tuple
+from collections.abc import Callable
+from typing import Any
 
 from app.schemas.types import MediaType
 from app.sdk.media import MetaInfo
 
 from .. import utils
+from ..adapter import douban as douban_adapter
+from ..model import rank as rank_model
 from . import bangumi_tmdb as bangumi_tmdb_service
+from . import rank_media
 
 
 def recognize_rss_item(
@@ -14,13 +18,13 @@ def recognize_rss_item(
     item: dict,
     rank: dict,
     *,
-    infer_media_type: Callable[[dict, dict], str],
-    resolved_media_type: Callable[[dict, dict, Any], str],
-    extract_bangumi_id: Callable[[dict], Any],
-    fetch_bangumi_subject: Callable[[Any, Any], Any],
-    bangumi_subject_title: Callable[..., str],
-    bangumi_subject_year: Callable[..., str],
-) -> Tuple[Any, Any, str]:
+    infer_media_type: Callable[[dict, dict], str] = rank_model.infer_media_type,
+    resolved_media_type: Callable[[dict, dict, Any], str] = rank_media._resolved_media_type_name,
+    extract_bangumi_id: Callable[[dict], Any] = rank_media._extract_bangumi_id,
+    fetch_bangumi_subject: Callable[[Any, Any], Any] = rank_media._fetch_bangumi_subject,
+    bangumi_subject_title: Callable[..., str] = rank_media._bangumi_subject_title,
+    bangumi_subject_year: Callable[..., str] = rank_media._bangumi_subject_year,
+) -> tuple[Any, Any, str]:
     """按榜单路由识别 RSS 媒体，未知类型交给宿主自动判断。"""
     item = item if isinstance(item, dict) else {}
     rank = rank if isinstance(rank, dict) else {}
@@ -69,9 +73,9 @@ def recognize_snapshot_item(
     rank: dict,
     existing: dict,
     *,
-    apply_bangumi: Callable[[Any, dict, dict], Any],
-    apply_display: Callable[..., Any],
-    douban_original_title_fetcher: Callable[..., Any],
+    apply_bangumi: Callable[[Any, dict, dict], Any] = rank_media._apply_bangumi_recognition,
+    apply_display: Callable[..., Any] = rank_media._apply_display_recognition,
+    douban_original_title_fetcher: Callable[..., Any] = douban_adapter.fetch_mobile_original_titles,
 ):
     """按榜单类型选择 Bangumi 或通用展示识别器。"""
     if rank_key == "bangumi":

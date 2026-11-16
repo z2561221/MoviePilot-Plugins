@@ -193,13 +193,9 @@ def build_overview_response(
     rank_history_reader: Callable[[object, str], List[dict]],
     existing_subscription_checker: Callable[[dict], bool],
 ) -> Dict[str, Any]:
-    """读取并治理运行总览所需数据，然后组装总览响应。"""
-    archive_service.remove_legacy_observation_completed_archives(plugin)
-
+    """只读投影运行总览所需数据，然后组装总览响应。"""
     subscribe_records = storage.read_subscribe_records(plugin)
-    subscribe_records, changed_subscribe_records = subscribe_history_service.dedupe_records(subscribe_records)
-    if changed_subscribe_records:
-        storage.save_subscribe_records(plugin, subscribe_records)
+    subscribe_records, _ = subscribe_history_service.dedupe_records(subscribe_records)
 
     rank_histories = {}
     ranks = []
@@ -214,20 +210,16 @@ def build_overview_response(
         ranks.append({**rank, "history": history})
 
     anti_cheat_logs = storage.read_anti_cheat_logs(plugin)
-    anti_cheat_logs, changed_anti_cheat_logs = observation_service.reconcile_anti_cheat_logs(
+    anti_cheat_logs, _ = observation_service.reconcile_anti_cheat_logs(
         anti_cheat_logs,
         subscribe_records=subscribe_records,
         ranks=ranks,
         archived_completion_titles=observation_service.archived_completion_titles(plugin),
         existing_subscription_checker=existing_subscription_checker,
     )
-    if changed_anti_cheat_logs:
-        storage.save_anti_cheat_logs(plugin, anti_cheat_logs)
 
     archive_records = storage.read_archive_records(plugin)
-    archive_records, changed_archive_records = archive_service.dedupe_archive_records(archive_records)
-    if changed_archive_records:
-        storage.save_archive_records(plugin, archive_records)
+    archive_records, _ = archive_service.dedupe_archive_records(archive_records)
 
     folio_data = storage.read_folio_data(plugin)
     wish_state = storage.read_folio_wish_state(plugin)

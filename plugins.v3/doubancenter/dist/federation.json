@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "revision": "87829e3e525ddac4c86c24a9197da1dcf0cc11bb2679d382f62839bae663e473",
+  "path": "dist/assets/r87829e3e525ddac4c86c24a9197da1dcf0cc11bb2679d382f62839bae663e473",
+  "files": {
+    "__federation_expose_AppPage-BI04oKKW.js": "4b10660b9315ffb50076c271d31fa5d39ebd60f9fccc96202c089c067e2c6937",
+    "__federation_expose_AppPage-CIGT4IJ1.css": "8a83cf209c3d3663e0e5007e3cdbb293a1701dd431f9d93b42cdedd826a0cbd2",
+    "__federation_expose_Config-BcCbiUXG.css": "30f3430e83f91552ca848c13d9e36123fa63fa9e13aca30ca88209b793836290",
+    "__federation_expose_Config-DFG1Pk-C.js": "370cb07c2f4a2b2ce7ff86b8f6f4504122d70b879b570b5c49cc507e9ffa28b6",
+    "__federation_expose_Dashboard-DeUYY1UE.css": "1bc0f6aa31ccac3fe2e29de7631aace66c67bd0f2172176d37867776531860fc",
+    "__federation_expose_Dashboard-pbJbFC4D.js": "ab11d9beec379646cb99bbcf45c2dcf7bbb6951edb5b9648da10e76001fd4209",
+    "__federation_expose_Page-B0Fg7Rq1.js": "b40cc6adea0725f8ae4ceb936d688e032420bf6c68461aee02dc4eaa64aa6a32",
+    "__federation_expose_Page-Bx9-gj34.css": "00b30076f4ac9ce7ba226a5cb193d63735f5f5a30f14f0763046fee72015cecf",
+    "__federation_fn_import-JrT3xvdd.js": "4776b5a84c2055e4a6907ebf7377f6abd86f26b7d520d685a13b40d5aa8538aa",
+    "remoteEntry.js": "874656c6b9ca343a3812ebeb4e41bbadfb962c8d82b74da17a1102dfcc13217d",
+    "useRankDialog-Bbb1bemS.js": "fc92145b2beae6699581f2576712c1403903657228f904b9606d622cc85fe7c2",
+    "useRequestScope-CDEhkzJg.js": "7f3c907470e66d279183b8b03d1a2c044e496916d2f6785832eb90cb163363d1"
+  }
+}
