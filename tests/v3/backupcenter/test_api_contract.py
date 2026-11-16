@@ -3,6 +3,7 @@
 import importlib
 import json
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -145,6 +146,44 @@ def test_controller_returns_raw_business_data() -> None:
 
     assert result == {"configured": True}
     assert "success" not in result
+
+
+def test_manual_moviepilot_selection_and_names_are_resolved_under_lock(monkeypatch):
+    """整机备份不先读取插件清单，名称由创建中的同一选择在锁内解析。"""
+    held = []
+
+    @contextmanager
+    def operation_lock():
+        held.append(True)
+        try:
+            yield
+        finally:
+            held.pop()
+
+    def forbidden_listing():
+        pytest.fail("创建前不应另外获取插件清单")
+
+    def names(ids):
+        assert held == [True]
+        assert ids == ["DemoClone"]
+        return {"DemoClone": "分身名称"}
+
+    def create(scope, **kwargs):
+        assert held == [True]
+        assert scope.plugin_settings
+        assert kwargs["plugin_ids"] is None
+        assert kwargs["plugin_names"](["DemoClone"]) == {"DemoClone": "分身名称"}
+        return {"backup_id": "backup-atomic-selection"}
+
+    plugin = SimpleNamespace(
+        _operation_lock=operation_lock(),
+        _backup_service=SimpleNamespace(available_plugin_ids=forbidden_listing, create_backup=create),
+        get_backup_password=lambda: "",
+    )
+    controller = BackupCenterApiController(plugin)
+    monkeypatch.setattr(controller, "_plugin_name_map", names)
+    request = api_model.CreateBackupRequest(target="moviepilot", selection={"plugin_settings": True})
+    assert controller._create_backup(request) == {"backup_id": "backup-atomic-selection"}
 
 
 def test_controller_errors_use_v3_http_message() -> None:

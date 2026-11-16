@@ -1,12 +1,25 @@
 """备份范围与恢复范围的数据模型。"""
 
-from dataclasses import asdict, dataclass
 import re
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, Iterable, List
 
 
 class ScopeError(ValueError):
     """表示备份或恢复范围无效。"""
+
+
+class BackupServiceError(RuntimeError):
+    """表示备份创建或包校验失败。"""
+
+
+@dataclass(frozen=True)
+class BackupCreationContext:
+    """只在本次创建中使用的配置、插件选择与名称。"""
+
+    config: dict[str, Any]
+    plugin_ids: list[str]
+    plugin_names: dict[str, str]
 
 
 @dataclass(frozen=True)

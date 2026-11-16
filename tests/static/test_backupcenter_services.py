@@ -2,17 +2,17 @@
 
 import copy
 import importlib.util
-import sys
-import sqlite3
+import json
 import shutil
+import sqlite3
 import subprocess
+import sys
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
-
 
 PLUGIN_DIR = Path(__file__).resolve().parents[2] / "plugins.v3" / "backupcenter"
 PACKAGE_NAME = "backupcenter_under_test"
@@ -163,6 +163,10 @@ operation_log_module = _load(
 
 class _SystemConfig:
     """提供备份创建所需的宿主配置快照。"""
+
+    def get(self, key):
+        """模拟宿主按枚举键读取已安装插件。"""
+        return self.all().get(key.value)
 
     def all(self):
         """返回包含已安装插件的测试配置。"""
@@ -474,6 +478,67 @@ def test_available_plugin_ids_include_virtual_instances(tmp_path, monkeypatch):
     service = backup_module.BackupService(plugin, _service_settings(tmp_path))
 
     assert service.available_plugin_ids() == ["DemoPlugin", "DemoPluginClone"]
+
+
+def test_plugin_listing_reads_only_installed_config(tmp_path, monkeypatch):
+    """仅查询插件选项时不加载完整系统配置，仍核对一次实例来源。"""
+    plugin = type("BackupCenter", (_Plugin,), {})(tmp_path)
+    reads = []
+
+    def get(key):
+        reads.append(key)
+        return ["DemoPlugin", "BackupCenter"]
+
+    def forbidden_all():
+        pytest.fail("插件清单不应读取完整系统配置")
+
+    plugin.systemconfig.get = get
+    plugin.systemconfig.all = forbidden_all
+    service = backup_module.BackupService(plugin)
+    monkeypatch.setattr(service, "_plugin_instances", lambda: {
+        "DemoClone": {"source_plugin_id": "DemoPlugin"},
+        "BackupSibling": {"source_plugin_id": "BackupCenter"},
+    })
+    assert service.available_plugin_ids() == ["DemoPlugin", "DemoClone"]
+    assert reads == [_SystemConfigKey.UserInstalledPlugins]
+
+
+def test_creation_uses_one_fresh_config_and_instance_selection(tmp_path, monkeypatch):
+    """每包仅读取一次配置与实例目录，下一包重新读取并按相同选择取名。"""
+    plugin = type("BackupCenter", (_Plugin,), {})(tmp_path)
+    service = backup_module.BackupService(plugin, _service_settings(tmp_path))
+    state = {"installed": "DemoPlugin", "all_reads": 0, "instance_reads": 0}
+    names_read = []
+
+    def config():
+        state["all_reads"] += 1
+        return {"UserInstalledPlugins": [state["installed"], "BackupCenter"],
+                "Language": "zh-CN", f"plugin.{state['installed']}": {"enabled": True}}
+
+    def instances():
+        state["instance_reads"] += 1
+        return {"BackupSibling": {"source_plugin_id": "BackupCenter"}}
+
+    def names(ids):
+        names_read.append(list(ids))
+        return {plugin_id: f"名称-{plugin_id}" for plugin_id in ids}
+
+    plugin.systemconfig.all = config
+    monkeypatch.setattr(service, "_plugin_instances", instances)
+    scope = backup_model.BackupScope(mp_settings=True, plugin_data=False, plugin_files=False)
+    first = service.create_backup(scope, backup_kind="automatic", plugin_names=names)
+    state["installed"] = "OtherPlugin"
+    second = service.create_backup(scope, backup_kind="automatic", plugin_names=names)
+
+    assert (state["all_reads"], state["instance_reads"]) == (2, 2)
+    assert names_read == [["DemoPlugin"], ["OtherPlugin"]]
+    for manifest, plugin_id in [(first, "DemoPlugin"), (second, "OtherPlugin")]:
+        assert manifest["selected_plugins"] == [{"id": plugin_id, "name": f"名称-{plugin_id}"}]
+        with zipfile.ZipFile(service.get_backup_path(manifest["backup_id"]) / "payload.zip") as payload:
+            system_config = json.loads(payload.read("payload/system_config.json"))
+            configs = json.loads(payload.read("payload/plugin_configs.json"))
+        assert system_config == {"UserInstalledPlugins": [plugin_id, "BackupCenter"], "Language": "zh-CN"}
+        assert configs == {plugin_id: {"enabled": True}}
 
 
 def test_corrupt_manifest_is_skipped_when_listing_backups(tmp_path):
@@ -897,6 +962,39 @@ def test_automatic_retention_deletes_only_old_automatic_backups(tmp_path):
     assert (service.get_backup_root() / "backup-manual").is_dir()
     assert (service.get_backup_root() / "backup-auto-mid").is_dir()
     assert not (service.get_backup_root() / "backup-auto-old").exists()
+
+
+def test_retention_skips_package_size_and_protects_other_kinds(tmp_path, monkeypatch):
+    """公开列表保留准确体积；自动保留不递归读取负载且保留手动、应急与指定包。"""
+    plugin = _Plugin(tmp_path)
+    service = backup_module.BackupService(plugin)
+    kinds = ["automatic", "manual", "emergency", "automatic", "automatic", "automatic"]
+    for index, kind in enumerate(kinds):
+        path = service.get_backup_root() / f"backup-{index}"
+        path.mkdir()
+        manifest_module.ManifestService.write_json(path / "manifest.public.json", {
+            "backup_id": path.name, "backup_kind": kind, "created_at": f"2026-08-{20-index:02d}T00:00:00+00:00"
+        })
+        nested = path / "nested"
+        nested.mkdir()
+        (nested / "payload.bin").write_bytes(b"payload")
+    corrupt = service.get_backup_root() / "backup-corrupt"
+    corrupt.mkdir()
+    (corrupt / "manifest.public.json").write_text("{broken", encoding="utf-8")
+    listed = service.list_backups()
+    assert len(listed) == 6
+    for item in listed:
+        path = service.get_backup_path(item["backup_id"])
+        assert item["package_size"] == (path / "manifest.public.json").stat().st_size + 7
+    plugin.records["backup_index"] = listed
+
+    def forbidden_rglob(*_args, **_kwargs):
+        pytest.fail("自动保留不应遍历包内负载")
+
+    monkeypatch.setattr(Path, "rglob", forbidden_rglob)
+    assert service.prune_automatic_backups(1, ["backup-5"]) == ["backup-3", "backup-4"]
+    assert [item["backup_id"] for item in plugin.records["backup_index"]] == ["backup-0", "backup-1", "backup-2", "backup-5"]
+    assert all(service.get_backup_path(f"backup-{index}").exists() for index in (0, 1, 2, 5))
 
 
 def test_plugin_data_restore_replaces_all_selected_plugins_via_public_api(tmp_path):

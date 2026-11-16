@@ -167,7 +167,7 @@ class BackupCenterApiController:
                 )
         else:
             plugin_ids = (
-                self.plugin._backup_service.available_plugin_ids()
+                None
                 if scope.plugin_settings or scope.plugin_data or scope.plugin_files
                 else []
             )
@@ -176,7 +176,7 @@ class BackupCenterApiController:
                 scope,
                 plugin_ids=plugin_ids,
                 password=self.plugin.get_backup_password(),
-                plugin_names=self._plugin_name_map(plugin_ids),
+                plugin_names=self._plugin_name_map,
                 manual_target=target,
             )
 
