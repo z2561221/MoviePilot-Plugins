@@ -15,14 +15,12 @@ from app.sdk.database import create_backup as create_database_backup
 from version import APP_VERSION
 
 from ..model.backup import BackupScope, RestoreSelection, normalize_plugin_ids
+from ..model.restore import RestorePayloadPlan, RestoreServiceError
 from .backup_service import BackupService, BackupServiceError
 from .crypto_service import BackupCryptoError, CryptoService
 from .manifest_service import ManifestError, ManifestService
 from .plugin_data import normalize_plugin_data_rows
-
-
-class RestoreServiceError(RuntimeError):
-    """表示恢复预检、兼容性或写入失败。"""
+from .restore_payload import RestorePayloadReader
 
 
 class RestoreService:
@@ -129,7 +127,17 @@ class RestoreService:
     @staticmethod
     def _read_optional_json(path: Path) -> Dict[str, Any]:
         """读取可选 JSON 文件，缺失时返回空对象。"""
-        return ManifestService.read_json(path) if path.is_file() else {}
+        return RestorePayloadReader.read_optional_json(path) or {}
+
+    def _config_payload(
+        self, payload_root: Path | RestorePayloadPlan, filename: str
+    ) -> Dict[str, Any]:
+        """旧 Path 调用按需读取；恢复编排使用本次已经解析的配置。"""
+        if isinstance(payload_root, RestorePayloadPlan):
+            if filename == "system_config.json":
+                return payload_root.system_settings or {}
+            return payload_root.plugin_configs or {}
+        return self._read_optional_json(payload_root / filename)
 
     def preview(self, backup_id: Any) -> Dict[str, Any]:
         """返回不读取负载内容的恢复预检结果。"""
@@ -188,9 +196,9 @@ class RestoreService:
             if private_manifest.get(field) != public_manifest.get(field):
                 raise RestoreServiceError("备份公开摘要与负载不匹配")
 
-    def _restore_system_settings(self, payload_root: Path) -> int:
+    def _restore_system_settings(self, payload_root: Path | RestorePayloadPlan) -> int:
         """恢复非插件系统配置，不在线替换 app.env 或插件安装清单。"""
-        settings_data = self._read_optional_json(payload_root / "system_config.json")
+        settings_data = self._config_payload(payload_root, "system_config.json")
         restored = 0
         excluded = {"UserInstalledPlugins"}
         for key, value in settings_data.items():
@@ -200,9 +208,9 @@ class RestoreService:
             restored += 1
         return restored
 
-    def _system_settings_snapshot(self, payload_root: Path) -> Dict[str, Tuple[bool, Any]]:
+    def _system_settings_snapshot(self, payload_root: Path | RestorePayloadPlan) -> Dict[str, Tuple[bool, Any]]:
         """记录恢复涉及的系统配置原值，供失败时精确回滚。"""
-        settings_data = self._read_optional_json(payload_root / "system_config.json")
+        settings_data = self._config_payload(payload_root, "system_config.json")
         all_settings = getattr(self.plugin.systemconfig, "all", None)
         current = all_settings() if callable(all_settings) else {}
         excluded = {"UserInstalledPlugins"}
@@ -271,9 +279,9 @@ class RestoreService:
             raise RestoreServiceError(f"插件配置删除入口不可用：{plugin_id}")
         deleter(f"plugin.{plugin_id}")
 
-    def _restore_plugin_settings(self, payload_root: Path, plugin_ids: Iterable[str]) -> int:
+    def _restore_plugin_settings(self, payload_root: Path | RestorePayloadPlan, plugin_ids: Iterable[str]) -> int:
         """恢复指定插件的持久化配置键。"""
-        configs = self._read_optional_json(payload_root / "plugin_configs.json")
+        configs = self._config_payload(payload_root, "plugin_configs.json")
         restored = 0
         for plugin_id in plugin_ids:
             if plugin_id not in configs:
@@ -283,10 +291,10 @@ class RestoreService:
         return restored
 
     def _plugin_config_snapshot(
-        self, payload_root: Path, plugin_ids: Iterable[str]
+        self, payload_root: Path | RestorePayloadPlan, plugin_ids: Iterable[str]
     ) -> Dict[str, Tuple[bool, Any]]:
         """记录备份中目标插件配置的原值和存在性。"""
-        configs = self._read_optional_json(payload_root / "plugin_configs.json")
+        configs = self._config_payload(payload_root, "plugin_configs.json")
         snapshot: Dict[str, Tuple[bool, Any]] = {}
         for plugin_id in plugin_ids:
             if plugin_id not in configs:
@@ -306,24 +314,18 @@ class RestoreService:
                 self._delete_plugin_config(plugin_id)
 
     def _validated_plugin_data_rows(
-        self, payload_root: Path, plugin_ids: Iterable[str]
+        self, payload_root: Path | RestorePayloadPlan, plugin_ids: Iterable[str]
     ) -> Tuple[List[str], List[Tuple[str, str, Any]]]:
         """在修改宿主数据前验证并展开全部 PluginData 行。"""
-        data = self._read_optional_json(payload_root / "plugin_data.json")
-        included_ids: List[str] = []
-        validated: List[Tuple[str, str, Any]] = []
-        for plugin_id in plugin_ids:
-            if plugin_id not in data:
-                continue
-            rows = data.get(plugin_id)
-            if not isinstance(rows, list):
-                raise RestoreServiceError(f"插件数据格式无效：{plugin_id}")
-            included_ids.append(plugin_id)
-            for row in rows:
-                if not isinstance(row, dict) or not str(row.get("key") or "").strip():
-                    raise RestoreServiceError(f"插件数据项无效：{plugin_id}")
-                validated.append((plugin_id, str(row["key"]), row.get("value")))
-        return included_ids, validated
+        if isinstance(payload_root, RestorePayloadPlan):
+            selected = set(plugin_ids)
+            return (
+                [plugin_id for plugin_id in payload_root.data_plugin_ids if plugin_id in selected],
+                [row for row in payload_root.data_rows if row[0] in selected],
+            )
+        return RestorePayloadReader.validate_plugin_data(
+            self._read_optional_json(payload_root / "plugin_data.json"), plugin_ids
+        )
 
     def _read_plugin_data_rows(self, plugin_id: str) -> List[Tuple[str, Any]]:
         """通过宿主公开插件接口读取一个插件的全部数据。"""
@@ -345,7 +347,7 @@ class RestoreService:
         for plugin_id, key, value in rows:
             self.plugin.save_data(key, value, plugin_id=plugin_id)
 
-    def _restore_plugin_data(self, payload_root: Path, plugin_ids: Iterable[str]) -> int:
+    def _restore_plugin_data(self, payload_root: Path | RestorePayloadPlan, plugin_ids: Iterable[str]) -> int:
         """替换目标插件数据，失败时使用写入前快照补偿回滚。"""
         included_ids, rows = self._validated_plugin_data_rows(payload_root, plugin_ids)
         snapshots = {
@@ -622,6 +624,7 @@ class RestoreService:
             ) as payload_root:
                 private_manifest = ManifestService.read_json(payload_root / "manifest.json")
                 self._verify_private_manifest(public_manifest, private_manifest)
+                payload_plan = RestorePayloadReader.load(payload_root, selection, selected_plugin_ids)
                 host_database_backup_name = self._create_host_database_backup()
                 plugin_selection = (
                     selected_plugin_ids
@@ -630,10 +633,10 @@ class RestoreService:
                 )
                 manager, stopped_plugins = self._stop_target_plugins(plugin_selection)
                 if selection.mp_settings:
-                    system_snapshot = self._system_settings_snapshot(payload_root)
+                    system_snapshot = self._system_settings_snapshot(payload_plan)
                 if selection.plugin_settings:
                     config_snapshot = self._plugin_config_snapshot(
-                        payload_root, selected_plugin_ids
+                        payload_plan, selected_plugin_ids
                     )
                 if selection.plugin_data:
                     data_snapshot = self._plugin_data_snapshot(selected_plugin_ids)
@@ -676,16 +679,16 @@ class RestoreService:
                 }
                 if selection.mp_settings:
                     modified_scopes.add("system")
-                    result["restored"]["mp_settings"] = self._restore_system_settings(payload_root)
+                    result["restored"]["mp_settings"] = self._restore_system_settings(payload_plan)
                 if selection.plugin_settings:
                     modified_scopes.add("config")
                     result["restored"]["plugin_settings"] = self._restore_plugin_settings(
-                        payload_root, selected_plugin_ids
+                        payload_plan, selected_plugin_ids
                     )
                 if selection.plugin_data:
                     modified_scopes.add("data")
                     result["restored"]["plugin_data"] = self._restore_plugin_data(
-                        payload_root, selected_plugin_ids
+                        payload_plan, selected_plugin_ids
                     )
                 if selection.plugin_files:
                     modified_scopes.add("files")
