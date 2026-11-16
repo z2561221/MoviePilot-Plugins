@@ -4,13 +4,19 @@ import ast
 import json
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMPONENTS = REPO_ROOT / "plugins.v3" / "doubancenter" / "src" / "components"
 PAGE_COMPONENTS = COMPONENTS / "page"
 CONFIG_COMPONENTS = COMPONENTS / "config"
 DASHBOARD_BACKEND = REPO_ROOT / "plugins.v3" / "doubancenter" / "service" / "dashboard.py"
 PLUGIN_ROOT = REPO_ROOT / "plugins.v3" / "doubancenter"
+
+
+def _dashboard_source():
+    """联邦视图和运行状态共同承担既有前端合同。"""
+    return ((COMPONENTS / "Dashboard.vue").read_text(encoding="utf-8") + "\n" +
+            (COMPONENTS / "dashboard/useDashboardRuntime.js").read_text(encoding="utf-8") + "\n" +
+            (COMPONENTS / "useRankDialog.js").read_text(encoding="utf-8"))
 
 
 def test_api_client_reads_final_v3_envelope_without_double_unwrap():
@@ -26,8 +32,9 @@ def test_api_client_reads_final_v3_envelope_without_double_unwrap():
 def test_page_and_dashboard_forward_media_identity_pair():
     """详情页和仪表盘订阅请求均优先传递来源与媒体 ID。"""
     actions = (COMPONENTS / "useRankMediaActions.js").read_text(encoding="utf-8")
-    page_runtime = (PAGE_COMPONENTS / "usePageRuntime.js").read_text(encoding="utf-8")
-    dashboard = (COMPONENTS / "Dashboard.vue").read_text(encoding="utf-8")
+    page_runtime = ((PAGE_COMPONENTS / "usePageRuntime.js").read_text(encoding="utf-8") + "\n" +
+                    (COMPONENTS / "useRankDialog.js").read_text(encoding="utf-8"))
+    dashboard = _dashboard_source()
     for source in (page_runtime, dashboard):
         assert "useRankMediaActions" in source
         assert "async function resolveRankMedia" not in source
@@ -43,9 +50,10 @@ def test_page_and_dashboard_forward_media_identity_pair():
 
 def test_rank_dialog_resolves_missing_tmdb_identity_before_enabling_link():
     """榜单条目缺少 TMDB ID 时，详情弹窗应自动识别并显示加载状态。"""
-    page_runtime = (PAGE_COMPONENTS / "usePageRuntime.js").read_text(encoding="utf-8")
+    page_runtime = ((PAGE_COMPONENTS / "usePageRuntime.js").read_text(encoding="utf-8") + "\n" +
+                    (COMPONENTS / "useRankDialog.js").read_text(encoding="utf-8"))
     page_dialog = (PAGE_COMPONENTS / "PageActionDialog.vue").read_text(encoding="utf-8")
-    dashboard = (COMPONENTS / "Dashboard.vue").read_text(encoding="utf-8")
+    dashboard = _dashboard_source()
     for source in (page_runtime, dashboard):
         assert "async function showActionDialog" in source
         assert "if (tmdbIdOf(item)) return" in source
@@ -97,7 +105,7 @@ def test_federation_build_retains_previous_hashed_assets():
 
 def test_timeline_image_error_has_visible_placeholder():
     """时间线海报代理失败时仍显示明确占位，不留下空洞。"""
-    source = (COMPONENTS / "Dashboard.vue").read_text(encoding="utf-8")
+    source = _dashboard_source()
     assert "const timelineImageFailed = ref({})" in source
     assert "function markTimelineImageFailed(key)" in source
     assert "!timelineImageFailed[item.key]" in source
@@ -107,7 +115,7 @@ def test_timeline_image_error_has_visible_placeholder():
 
 def test_dashboard_retries_timeline_without_blocking_core_data():
     """时间线瞬时失败应有限重试，配置与榜单仍优先完成渲染。"""
-    source = (COMPONENTS / "Dashboard.vue").read_text(encoding="utf-8")
+    source = _dashboard_source()
 
     assert "const TIMELINE_RETRY_DELAYS_MS = [800, 2500]" in source
     assert "const TIMELINE_RETRY_TIMEOUT_MS = 12000" in source
@@ -125,8 +133,7 @@ def test_dashboard_retries_timeline_without_blocking_core_data():
         "function showActionDialog", 1
     )[0]
     assert "await postPluginApi(props.api, dashboardPluginId.value, 'refresh_rss', {})" in refresh_source
-    assert "await load()" in refresh_source
-    assert refresh_source.index("await load()") < refresh_source.index("await postPluginApi")
+    assert "await load()" not in refresh_source
     assert '@click="refreshDashboard"' in source
 
 
@@ -134,7 +141,7 @@ def test_vue_components_use_instance_scoped_plugin_id():
     """联邦组件通过注入或宿主配置解析当前插件实例 ID。"""
     page = (COMPONENTS / "Page.vue").read_text(encoding="utf-8")
     config = (COMPONENTS / "Config.vue").read_text(encoding="utf-8")
-    dashboard = (COMPONENTS / "Dashboard.vue").read_text(encoding="utf-8")
+    dashboard = _dashboard_source()
     app_page = (COMPONENTS / "AppPage.vue").read_text(encoding="utf-8")
 
     assert "pluginId: { type: String, default: 'DoubanCenter' }" in page
@@ -161,7 +168,8 @@ def test_timeline_api_reads_persisted_data_without_history_repair():
 def test_archive_view_is_paginated_without_forcing_home_page_scroll():
     """详情首页自然伸展，仅详情与发现页的归档状态承载内部滚动。"""
     page = (COMPONENTS / "Page.vue").read_text(encoding="utf-8")
-    page_runtime = (PAGE_COMPONENTS / "usePageRuntime.js").read_text(encoding="utf-8")
+    page_runtime = ((PAGE_COMPONENTS / "usePageRuntime.js").read_text(encoding="utf-8") + "\n" +
+                    (COMPONENTS / "useRankDialog.js").read_text(encoding="utf-8"))
     page_content = (PAGE_COMPONENTS / "PageContent.vue").read_text(encoding="utf-8")
     app_page = (COMPONENTS / "AppPage.vue").read_text(encoding="utf-8")
     base_page_rule = next(line for line in page.splitlines() if line.startswith(".dc-page {"))

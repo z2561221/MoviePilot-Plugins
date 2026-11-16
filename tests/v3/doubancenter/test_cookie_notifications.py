@@ -4,7 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 from app.plugins.doubancenter.adapter import douban_account
-from app.plugins.doubancenter.service import folio
+from app.plugins.doubancenter.service import folio_account
+from app.plugins.doubancenter.service import folio_account as folio
 
 
 def _plugin(post_message):
@@ -114,7 +115,7 @@ def test_cookie_probe_does_not_send_false_sync_alert(monkeypatch, status):
         calls.append(kwargs)
         return SimpleNamespace(get_login_status=lambda: (status, "测试响应"))
 
-    monkeypatch.setattr(folio, "DoubanApi", client)
+    monkeypatch.setattr(folio_account, "DoubanApi", client)
     folio.check_cookie_periodically(plugin)
     folio.check_cookie_periodically(plugin)
     assert calls == [{"user_cookie": "dbcl2=test-cookie"}]
@@ -127,7 +128,7 @@ def test_confirmed_login_alert_uses_folio_switch_and_own_title(monkeypatch, enab
     messages = []
     plugin = _plugin(lambda **message: messages.append(message))
     plugin._folio_notify = enabled
-    monkeypatch.setattr(folio, "DoubanApi", lambda **_: SimpleNamespace(
+    monkeypatch.setattr(folio_account, "DoubanApi", lambda **_: SimpleNamespace(
         get_login_status=lambda: ("login_required", "HTTP 401")))
     folio.check_cookie_periodically(plugin)
     plugin._last_cookie_check_time = 0
@@ -148,7 +149,7 @@ def test_probe_exception_is_unknown_and_does_not_leak_secret(monkeypatch):
         """模拟包含敏感正文的网络异常。"""
         raise RuntimeError("sensitive-cookie")
 
-    monkeypatch.setattr(folio, "DoubanApi", fail)
+    monkeypatch.setattr(folio_account, "DoubanApi", fail)
     monkeypatch.setattr(folio, "logger", SimpleNamespace(warning=logs.append))
     folio.check_cookie_periodically(plugin)
     assert messages == []

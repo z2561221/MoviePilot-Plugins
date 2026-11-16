@@ -1,12 +1,13 @@
 """
 DoubanCenter - 仪表盘模块
 """
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from app.chain.media import MediaChain
 from app.schemas.types import MediaType
 from app.sdk.media import MetaInfo
 
+from ..model.identity import identity_from_media
 from ..storage import records as storage
 from . import archive as archive_service
 from . import dashboard_config as dashboard_config_service
@@ -17,20 +18,40 @@ from . import dashboard_rank_media as dashboard_rank_media_service
 from . import dashboard_rank_subscription as dashboard_rank_subscription_service
 from . import dashboard_stats as dashboard_stats_service
 from . import dashboard_subscribe_history as dashboard_subscribe_history_service
-from . import folio
 from . import observation as observation_service
 
 DETAIL_SECTION_LIMIT = 5
 
+# 与已拆分领域函数完全同形的旧符号仅保留别名。
+_fin = dashboard_folio_service.finish_timeline_item
+_dedupe_subscribe_records = dashboard_subscribe_history_service.dedupe_records
+_observed_item_subscription_exists = observation_service.observed_item_subscription_exists
+_same_record = dashboard_subscribe_history_service.same_record
+_archive_record_key = archive_service.archive_record_key
+_archive_record_score = archive_service.archive_record_score
+_same_archive_record = archive_service.same_archive_record
+_update_archive_item_from_record = archive_service.update_archive_item_from_record
+_dedupe_archive_records = archive_service.dedupe_archive_records
+_archive_record = archive_service.archive_record
+_detail_record_time = archive_service.detail_record_time
+_latest_detail_indexes = archive_service.latest_detail_indexes
+_archive_detail_overflow = archive_service.archive_detail_overflow
+_archive_anti_cheat_overflow = archive_service.archive_anti_cheat_overflow
+_anti_cheat_log_key = archive_service.anti_cheat_log_key
+_remove_legacy_observation_completed_archives = archive_service.remove_legacy_observation_completed_archives
+_remove_archive = archive_service.remove_archive
+_dedupe_anti_cheat_logs = observation_service.dedupe_anti_cheat_logs
+_observation_completion_log = observation_service.observation_completion_log
 
-def get_dashboard(self, key: str, **kwargs) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
+
+def get_dashboard(self, key: str, **kwargs) -> Optional[tuple[dict[str, Any], dict[str, Any], list[dict]]]:
     """返回仪表盘卡片的列配置与基础属性。"""
     cols = {"cols": 12, "md": 12}
     attrs = {"refresh": 600, "border": True, "title": "豆瓣中心", "subtitle": "追剧观影时间线"}
     return cols, attrs, None
 
 
-def get_timeline_items(self, mobile: bool = False) -> List[dict]:
+def get_timeline_items(self, mobile: bool = False) -> list[dict]:
     """返回豆瓣时间线展示条目。"""
     return dashboard_folio_service.get_timeline_items(self, mobile=mobile, poster_resolver=_resolve_folio_poster)
 
@@ -39,7 +60,7 @@ def _resolve_folio_poster(item: dict) -> Optional[str]:
     """识别豆瓣时间线条目的海报地址。"""
     meta = MetaInfo(item.get("subject_name"))
     meta.type = MediaType("电视剧" if not item.get("type", "") else item.get("type"))
-    source, media_id = folio.identity_from_media(item)
+    source, media_id = identity_from_media(item)
     if source and media_id:
         media_info = MediaChain().recognize_media(
             meta=meta,
@@ -51,16 +72,6 @@ def _resolve_folio_poster(item: dict) -> Optional[str]:
     else:
         media_info = MediaChain().recognize_media(meta=meta, mtype=meta.type, cache=True)
     return media_info.poster_path if media_info else None
-
-
-def _fin(item, limit):
-    """补齐月份标题统计并限制该月展示条数。"""
-    return dashboard_folio_service.finish_timeline_item(item, limit)
-
-
-def api_folio_data(self, raw: bool = False):
-    """直接返回持久化的豆瓣时间数据，不在页面请求中执行媒体识别。"""
-    return dashboard_folio_service.get_folio_data(self, raw=raw)
 
 
 def api_config(self):
@@ -91,11 +102,6 @@ def api_config(self):
             wish_failed=storage.read_folio_wish_failed(self),
         )
     }
-
-
-def _dedupe_subscribe_records(records: list) -> tuple:
-    """按状态、TMDB、标题、年份和榜单合并订阅历史。"""
-    return dashboard_subscribe_history_service.dedupe_records(records)
 
 
 def api_rank_history(self):
@@ -190,14 +196,27 @@ def _add_silent_subscription(sc, title, year, mt, tmdb_id=None, bangumi_id=None)
     )
 
 
+def maintain_records(self):
+    """初始化时治理旧记录，后续写入直接批量归档，页面查询保持只读。"""
+    archive_service.remove_legacy_observation_completed_archives(self)
+    records = storage.read_subscribe_records(self)
+    deduped, changed = _dedupe_subscribe_records(records)
+    if changed or len(deduped) > DETAIL_SECTION_LIMIT:
+        deduped, _ = archive_service.archive_detail_overflow(self, deduped, "subscribe_history", "订阅历史")
+        storage.save_subscribe_records(self, deduped)
+    archives = storage.read_archive_records(self)
+    normalized = [archive_service.normalize_archive_item(item) for item in archives if isinstance(item, dict)]
+    deduped, changed = archive_service.dedupe_archive_records(normalized)
+    if changed or normalized != archives:
+        storage.save_archive_records(self, deduped)
+
+
 def api_stats(self):
     """订阅统计：基于 subscribe_records 统计"""
     from .rank_pipeline import get_rank_definitions
 
     records = storage.read_subscribe_records(self)
-    records, changed = _dedupe_subscribe_records(records)
-    if changed:
-        storage.save_subscribe_records(self, records)
+    records, _ = _dedupe_subscribe_records(records)
     return {"data": dashboard_stats_service.build_stats(records, get_rank_definitions(self))}
 
 
@@ -220,97 +239,6 @@ def _item_existing_subscription(item: dict) -> bool:
         and (item.get("existing") or item.get("existing_at"))
         and item.get("existing_reason") == "subscribe"
     )
-
-
-def _observed_item_subscription_exists(item: dict, rank_key: str = "") -> bool:
-    """检查观察队列条目是否已经存在订阅。"""
-    return observation_service.observed_item_subscription_exists(item, rank_key=rank_key)
-
-
-def _same_record(
-    item: dict,
-    unique: str = "",
-    time: str = "",
-    title: str = "",
-    tmdbid: Any = None,
-    media_source: Any = None,
-    media_id: Any = None,
-) -> bool:
-    """按稳定字段判断是否为同一条详情页记录。"""
-    return dashboard_subscribe_history_service.same_record(
-        item,
-        unique=unique,
-        time=time,
-        title=title,
-        tmdbid=tmdbid,
-        media_source=media_source,
-        media_id=media_id,
-    )
-
-
-def _archive_record_key(source: str, record: dict) -> tuple:
-    """生成归档记录去重键。"""
-    return archive_service.archive_record_key(source, record)
-
-
-def _archive_record_score(record: dict) -> int:
-    """计算归档原始记录的信息完整度。"""
-    return archive_service.archive_record_score(record)
-
-
-def _same_archive_record(source: str, left: dict, right: dict) -> bool:
-    """按来源判断两条归档原始记录是否重复。"""
-    return archive_service.same_archive_record(source, left, right)
-
-
-def _update_archive_item_from_record(archive: dict, source: str, record: dict, source_name: str = "") -> dict:
-    """用更完整的原始记录刷新归档展示字段。"""
-    return archive_service.update_archive_item_from_record(archive, source, record, source_name)
-
-
-def _dedupe_archive_records(archives: list) -> tuple:
-    """压缩重复归档记录，保留信息更完整的一条。"""
-    return archive_service.dedupe_archive_records(archives)
-
-
-def _archive_record(self, source: str, record: dict, source_name: str = "", dedupe: bool = False) -> Optional[dict]:
-    """将详情页删除的记录写入归档。"""
-    return archive_service.archive_record(self, source, record, source_name, dedupe=dedupe)
-
-
-def _detail_record_time(record: dict) -> str:
-    """返回详情页记录用于新旧排序的时间字段。"""
-    return archive_service.detail_record_time(record)
-
-
-def _latest_detail_indexes(records: list, limit: int = DETAIL_SECTION_LIMIT) -> set:
-    """按时间选出详情页应保留的最新记录下标。"""
-    return archive_service.latest_detail_indexes(records, limit)
-
-
-def _archive_detail_overflow(self, records: list, source: str, source_name: str, limit: int = DETAIL_SECTION_LIMIT) -> tuple:
-    """保留最新详情记录，并将超出上限的条目写入归档。"""
-    return archive_service.archive_detail_overflow(self, records, source, source_name, limit)
-
-
-def _archive_anti_cheat_overflow(self, logs: list, limit: int = DETAIL_SECTION_LIMIT) -> tuple:
-    """分别限制黑名拦截与观察日志的详情页展示数量。"""
-    return archive_service.archive_anti_cheat_overflow(self, logs, limit)
-
-
-def _anti_cheat_log_key(record: dict) -> tuple:
-    """生成观察日志记录的去重键。"""
-    return archive_service.anti_cheat_log_key(record)
-
-
-def _remove_legacy_observation_completed_archives(self) -> bool:
-    """将旧版观察完成归档迁回观察日志并从归档页移除。"""
-    return archive_service.remove_legacy_observation_completed_archives(self)
-
-
-def _remove_archive(self, archive_id: str) -> Optional[dict]:
-    """从归档列表取出并删除一条归档记录。"""
-    return archive_service.remove_archive(self, archive_id)
 
 
 def api_delete_subscribe_history(
@@ -364,11 +292,6 @@ def api_delete_observation(self, unique: str = "", rank_key: str = "", title: st
     )
 
 
-def _dedupe_anti_cheat_logs(logs: list) -> tuple:
-    """按原因、标题和详情合并观察日志。"""
-    return observation_service.dedupe_anti_cheat_logs(logs)
-
-
 def _finished_observation_titles(self) -> set:
     """收集已经结束观察的条目标题，用于清理观察日志。"""
     records = storage.read_subscribe_records(self)
@@ -377,11 +300,6 @@ def _finished_observation_titles(self) -> set:
         ranks=_rank_history_snapshots(self),
         existing_subscription_checker=_item_existing_subscription,
     )
-
-
-def _observation_completion_log(item: dict, rank: dict) -> Optional[dict]:
-    """从榜单历史构造观察完成日志。"""
-    return observation_service.observation_completion_log(item, rank)
 
 
 def _append_observation_completion_logs(self, logs: list) -> tuple:
@@ -450,11 +368,6 @@ def api_restore_archive(self, archive_id: str = ""):
     return archive_service.restore_archive_record(self, archive_id, _same_record)
 
 
-def api_delete_archive(self, archive_id: str = ""):
-    """永久删除一条归档记录。"""
-    return archive_service.delete_archive_record(self, archive_id)
-
-
 def api_delete_anti_cheat_log(self, time: str = "", title: str = "", reason: str = ""):
     """删除一条观察日志记录。"""
     return observation_service.delete_anti_cheat_log(
@@ -464,3 +377,13 @@ def api_delete_anti_cheat_log(self, time: str = "", title: str = "", reason: str
         reason=reason,
         archive_record_callback=_archive_record,
     )
+
+
+def api_folio_data(self, raw: bool = False):
+    """适配控制层的self命名参数，业务委托给时间线服务。"""
+    return dashboard_folio_service.get_folio_data(self, raw=raw)
+
+
+def api_delete_archive(self, archive_id: str = ""):
+    """适配控制层的self命名参数，业务委托给归档服务。"""
+    return archive_service.delete_archive_record(self, archive_id)

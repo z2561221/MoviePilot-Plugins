@@ -2,7 +2,6 @@
 
 from typing import Any, Callable, Optional
 
-from . import archive as archive_service
 from ..storage import records as storage
 from ..model.identity import identity_from_media, legacy_identity
 
@@ -79,19 +78,11 @@ def paginate_subscribe_history(
     page_size: int = 20,
     limit: int = DETAIL_SECTION_LIMIT,
 ) -> dict:
-    """返回已去重、倒序并治理溢出的订阅历史分页。"""
+    """只读返回已去重的最新详情历史，溢出治理由写入阶段承担。"""
     records = storage.read_subscribe_records(plugin)
-    records, changed = dedupe_records(records)
+    records, _ = dedupe_records(records)
     records.sort(key=lambda item: item.get("time", ""), reverse=True)
-    records, overflow_changed = archive_service.archive_detail_overflow(
-        plugin,
-        records,
-        "subscribe_history",
-        "订阅历史",
-        limit,
-    )
-    if changed or overflow_changed:
-        storage.save_subscribe_records(plugin, records)
+    records = records[:limit] if limit > 0 else records
     safe_page = max(int(page), 1)
     safe_page_size = max(int(page_size), 1)
     total = len(records)

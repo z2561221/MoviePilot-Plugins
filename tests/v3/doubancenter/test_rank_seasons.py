@@ -5,7 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 from app.plugins.doubancenter import utils
-from app.plugins.doubancenter.service import rank_pipeline, subscription
+from app.plugins.doubancenter.service import (
+    rank_candidates,
+    rank_pipeline,
+    subscription,
+)
 from app.plugins.doubancenter.storage import records
 from app.schemas.types import MediaSource, MediaType
 from app.sdk.media import MetaInfo
@@ -53,7 +57,7 @@ def rank_lab(monkeypatch):
             """当前没有已完成订阅。"""
             return False
 
-    monkeypatch.setattr(rank_pipeline, "SubscribeChain", FakeSubscribeChain)
+    monkeypatch.setattr(rank_candidates, "SubscribeChain", FakeSubscribeChain)
     monkeypatch.setattr(subscription.subscription_query, "_sdk_queries", lambda: None)
     monkeypatch.setattr(subscription.subscription_query, "_legacy_active", lambda params: False)
     monkeypatch.setattr(subscription.subscription_query, "_legacy_history", lambda params: False)
@@ -91,7 +95,7 @@ def test_refresh_and_auto_subscription_keep_requested_season(rank_lab, rank_key,
     )
     assert rank_lab.recognized == [6]
     assert snapshots[0]["entry"]["season"] == 6
-    process = rank_pipeline._process_coming_snapshots if rank_key == "coming" else rank_pipeline._process_general_snapshots
+    process = rank_candidates._process_coming_snapshots if rank_key == "coming" else rank_candidates._process_general_snapshots
     process(rank_lab.plugin, snapshots, rank)
 
     assert len(rank_lab.added) == 1
@@ -107,7 +111,7 @@ def test_refresh_and_auto_subscription_keep_requested_season(rank_lab, rank_key,
 
 def test_snapshot_uses_chinese_display_title_when_raw_title_has_no_season():
     """RSS 原名不含季号时保留中文展示名中的明确季号。"""
-    meta = rank_pipeline._snapshot_meta(
+    meta = rank_candidates._snapshot_meta(
         {"title": "Slow Horses"}, {"title": "流人 第六季"}, MediaType.TV,
     )
     assert meta.begin_season == 6
@@ -117,7 +121,7 @@ def test_snapshot_uses_chinese_display_title_when_raw_title_has_no_season():
 def test_explicit_season_survives_snapshot_and_direct_recognition(rank_lab, season):
     """不依赖标题也能传递显式季号，包括特别篇的零季。"""
     item = {"title": "Slow Horses", "season": season}
-    meta = rank_pipeline._snapshot_meta(item, {"season": season}, MediaType.TV)
+    meta = rank_candidates._snapshot_meta(item, {"season": season}, MediaType.TV)
     assert meta.begin_season == int(season)
     recognized_meta, media, _ = rank_pipeline._recognize_rss_item(
         rank_lab.plugin, item, {"key": "tv_global", "route": "/douban/list/tv_global_best_weekly"},

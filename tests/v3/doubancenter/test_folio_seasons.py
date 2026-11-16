@@ -5,13 +5,17 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-
 from app.plugins.doubancenter.adapter import folio_media
 from app.plugins.doubancenter.model import folio_record
-from app.plugins.doubancenter.service import dashboard_folio, folio
+from app.plugins.doubancenter.service import dashboard_folio, folio, folio_account
+
 from tests.v3.doubancenter.folio_fakes import (
-    FolioMediaChain, FolioPlugin, HUANZHU_SUBJECTS, MUSHOKU_SUBJECTS,
-    huanzhu_media, mushoku_media,
+    HUANZHU_SUBJECTS,
+    MUSHOKU_SUBJECTS,
+    FolioMediaChain,
+    FolioPlugin,
+    huanzhu_media,
+    mushoku_media,
 )
 
 
@@ -125,7 +129,7 @@ def test_duplicate_events_and_aliases_do_not_rewrite_completed_season(monkeypatc
             status_calls.append(kwargs)
             return True
 
-    monkeypatch.setattr(folio, "DoubanApi", Account)
+    monkeypatch.setattr(folio_account, "DoubanApi", Account)
     plugin = FolioPlugin()
     processed = {}
     origin = folio._playback_origin(media, "TV", 2)
@@ -144,7 +148,7 @@ def test_unknown_legacy_pending_subject_cannot_write_douban(monkeypatch):
     """只有旧标题和错误豆瓣 ID 的待重试项不能绕过季校验。"""
     plugin = FolioPlugin()
     plugin._wait_process = {"还珠格格 第2季": {"subject_id": "1786739", "status": "do", "type": "TV"}}
-    monkeypatch.setattr(folio, "DoubanApi", lambda **kwargs: pytest.fail("未核验身份不能创建写入客户端"))
+    monkeypatch.setattr(folio_account, "DoubanApi", lambda **kwargs: pytest.fail("未核验身份不能创建写入客户端"))
     assert not folio._sync_to_douban(plugin, "还珠格格 第2季", "do", "TV", {})
     assert plugin._wait_process["还珠格格 第2季"]["subject_id"] == "1786739"
 
@@ -247,7 +251,7 @@ def test_pending_completed_status_is_not_downgraded_by_later_start(monkeypatch):
             calls.append(kwargs["status"])
             return len(calls) > 1
 
-    monkeypatch.setattr(folio, "DoubanApi", Account)
+    monkeypatch.setattr(folio_account, "DoubanApi", Account)
     plugin = FolioPlugin()
     processed = {}
     origin = folio._playback_origin(media, "TV", 2)

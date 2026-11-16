@@ -4,6 +4,7 @@ import io
 import re
 import time
 from collections.abc import Mapping
+from threading import RLock
 from urllib.parse import urlencode, urlparse
 
 from app.sdk.logging import logger
@@ -13,10 +14,12 @@ from app.sdk.services import MediaServerHelper
 from PIL import Image
 
 from ..model import folio_record
+from ..service.lifecycle import publish_cache
 
 CACHE_SECONDS = 300
 MISS_CACHE_SECONDS = 60
 CACHE_LIMIT = 256
+_FALLBACK_POSTER_LOCK = RLock()
 _PROVIDERS = {
     "themoviedb": "tmdb", "douban": "douban", "thetvdb": "tvdb",
     "imdb": "imdb", "bangumi": "bangumi",
@@ -219,6 +222,7 @@ def _season_episodes(service, series_id: str, season_id: str, number: int, memo:
 
 def load_season(plugin, origin: dict, *, refresh: bool = False) -> dict | None:
     """读取实际入库分季，外部剧集组不参与季号解释；按插件实例短期缓存。"""
+    event = getattr(plugin, "_run_stop", None)
     try:
         services = list(MediaServerHelper().get_services(type_filter="emby").values())
         service_key = tuple((service.name, _base_url(service)) for service in services)
@@ -267,7 +271,7 @@ def load_season(plugin, origin: dict, *, refresh: bool = False) -> dict | None:
         if len(cache) >= CACHE_LIMIT:
             cache.pop(next(iter(cache)))
         cache[key] = (now + CACHE_SECONDS, result)
-        plugin._folio_library_season_cache = cache
+        publish_cache(plugin, event, "_folio_library_season_cache", cache)
         return result
     except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as err:
         logger.debug(f"实际媒体库分季不可用：{type(err).__name__}")
@@ -306,7 +310,16 @@ def _eligible(record: dict) -> bool:
 
 
 def project_posters(plugin, records: dict) -> dict:
-    """只读替换时间线展示图片，按实例短期缓存并保留原档案及缺图回退。"""
+    """同一实例并发请求复用已完成的补图，保留原档案及缺图回退。"""
+    event = getattr(plugin, "_run_stop", None)
+    with getattr(plugin, "_folio_poster_lock", _FALLBACK_POSTER_LOCK):
+        if event is not None and event.is_set():
+            return records
+        return _project_posters(plugin, records, event)
+
+
+def _project_posters(plugin, records: dict, event) -> dict:
+    """仅在所属代次内发布缓存，停止后的在途查询不重新占用缓存。"""
     eligible = {key: record for key, record in records.items() if _eligible(record)}
     if not eligible:
         return records
@@ -323,6 +336,8 @@ def project_posters(plugin, records: dict) -> dict:
     cache = {key: value for key, value in cache.items() if value[0] > now}
     memo, result = {}, dict(records)
     for key, record in eligible.items():
+        if event is not None and event.is_set():
+            break
         origin = _poster_origin(record)
         cache_key = (folio_record.fingerprint(origin), service_key)
         if cache_key not in cache:
@@ -333,7 +348,7 @@ def project_posters(plugin, records: dict) -> dict:
                 poster = None
             if len(cache) >= CACHE_LIMIT:
                 cache.pop(next(iter(cache)))
-            cache[cache_key] = (now + (CACHE_SECONDS if poster else MISS_CACHE_SECONDS), poster)
+            cache[cache_key] = (time.monotonic() + (CACHE_SECONDS if poster else MISS_CACHE_SECONDS), poster)
         poster = cache[cache_key][1]
         if poster:
             image_url = SecurityUtils.sign_url(poster["url"])
@@ -343,5 +358,5 @@ def project_posters(plugin, records: dict) -> dict:
                 "poster_source": "mediaserver", "poster_fallback_path": record.get("poster_path") or "",
                 "library_poster": dict(poster["reference"]),
             }
-    plugin._folio_library_poster_cache = cache
+    publish_cache(plugin, event, "_folio_library_poster_cache", cache)
     return result

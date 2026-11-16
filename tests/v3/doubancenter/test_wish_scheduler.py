@@ -3,9 +3,10 @@
 from types import SimpleNamespace
 
 import pytest
-from apscheduler.triggers.cron import CronTrigger
-from app.plugins.doubancenter import DoubanCenter, feed, folio, migration
+from app.plugins.doubancenter import DoubanCenter, feed, migration
 from app.plugins.doubancenter.service import lifecycle, scheduler, webhook
+from app.plugins.doubancenter.service import wish_sync as folio
+from apscheduler.triggers.cron import CronTrigger
 
 
 @pytest.fixture
@@ -13,6 +14,7 @@ def scheduler_lab(monkeypatch):
     """保留初始化和代次绑定行为，但不运行网络、数据库或真实订阅。"""
     events = []
     plugin = object.__new__(DoubanCenter)
+    plugin.get_data = lambda key, **kwargs: None
     plugin._scheduler = None
     plugin.update_config = lambda config: None
     monkeypatch.setattr(migration, "migrate_plugin_media_identity", lambda *a, **kw: None)

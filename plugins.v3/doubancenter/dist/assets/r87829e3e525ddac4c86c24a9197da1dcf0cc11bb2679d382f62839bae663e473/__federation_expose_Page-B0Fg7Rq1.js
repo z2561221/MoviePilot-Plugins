@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { a as useRankMediaActions, s as sourceDescriptor, u as useManagementPermissions } from './useRankMediaActions-DA74ZBLE.js';
+import { a as useRankDialog, b as useRankMediaActions, r as rankNames, c as rankIconColors, s as sourceDescriptor, u as useManagementPermissions } from './useRankDialog-Bbb1bemS.js';
 import { _ as _export_sfc, u as useRequestScope, t as toPosterThumbnail, a as getPluginApi, o as openNativeSubscription, p as postPluginApi } from './useRequestScope-CDEhkzJg.js';
 
 const {resolveComponent:_resolveComponent$2,openBlock:_openBlock$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$2,withCtx:_withCtx$2,createVNode:_createVNode$2,toDisplayString:_toDisplayString$2,createTextVNode:_createTextVNode$2} = await importShared('vue');
@@ -838,31 +838,9 @@ return (_ctx, _cache) => {
 };
 const PageContent = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-3668aeea"]]);
 
-const {reactive,ref,watch} = await importShared('vue');
+const {reactive,ref} = await importShared('vue');
 
 const INITIAL_LOAD_TIMEOUT_MS = 8000;
-
-const rankNames = {
-  coming: '即将上映',
-  tv_real_time: '实时热门',
-  tv_chinese: '华语口碑',
-  tv_global: '全球口碑',
-  movie_weekly: '电影口碑',
-  bangumi: 'BangumiTV',
-  douban_wish: '豆瓣想看',
-  unknown: '未归类',
-};
-
-const rankIconColors = {
-  coming: '#f97316',
-  tv_real_time: '#06b6d4',
-  tv_chinese: '#eab308',
-  tv_global: '#ef4444',
-  movie_weekly: '#ec4899',
-  bangumi: '#8b5cf6',
-  douban_wish: '#10b981',
-  unknown: '#94a3b8',
-};
 
 function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   const loading = ref(false);
@@ -880,11 +858,11 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
   const actionMessage = ref('');
   const actionOk = ref(true);
   const loadError = ref('');
-  const dialogItem = ref(null);
-  const showDialog = ref(false);
-  const dialogResolving = ref(false);
-  const dialogResolveError = ref('');
-  const dialogResolveToken = ref(0);
+  const { dialogItem, showDialog, dialogResolving, dialogResolveError, dialogResolveToken, showActionDialog } = useRankDialog({
+    requestScope: () => requestScope,
+    resolveRankMedia: (...args) => resolveRankMedia(...args),
+    tmdbIdOf: item => tmdbIdOf(item),
+  });
 
   let requestEpoch = 0;
   function invalidateRequests() {
@@ -899,12 +877,7 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
     showDialog.value = false;
     dialogResolving.value = false;
   });
-  watch(showDialog, open => {
-    if (!open) {
-      dialogResolveToken.value += 1;
-      dialogResolving.value = false;
-    }
-  }, { flush: 'sync' });
+
 
   function beginRequest() {
     const epoch = ++requestEpoch;
@@ -1143,27 +1116,6 @@ function usePageRuntime({ api, pluginId, nativeSubscribe }) {
     await runDelete('delete_archive', { archive_id: item?.id || '' }, rowKey('archive-delete', item, index), '已删除归档记录');
   }
 
-  async function showActionDialog(rk, item) {
-    if (!requestScope.isActive()) return
-    const current = requestScope.capture();
-    const token = ++dialogResolveToken.value;
-    dialogItem.value = { rk, item: { ...(item || {}) } };
-    dialogResolveError.value = '';
-    dialogResolving.value = false;
-    showDialog.value = true;
-    if (tmdbIdOf(item)) return
-    dialogResolving.value = true;
-    try {
-      const media = await resolveRankMedia(rk, item);
-      if (!current() || token !== dialogResolveToken.value) return
-      dialogItem.value = { rk, item: media };
-      if (!tmdbIdOf(media)) dialogResolveError.value = '未找到对应的 TMDB 条目';
-    } catch (error) {
-      if (current() && token === dialogResolveToken.value) dialogResolveError.value = error?.message || 'TMDB 识别失败';
-    } finally {
-      if (current() && token === dialogResolveToken.value) dialogResolving.value = false;
-    }
-  }
 
   function dialogPoster() {
     const item = dialogItem.value?.item || {};

@@ -2,17 +2,19 @@
 
 from types import SimpleNamespace
 
-from app.schemas.types import MediaSource, MediaType
-from app.sdk.media import MetaInfo
-
-from app.plugins.doubancenter import DoubanCenter, feed
+from app.plugins.doubancenter import DoubanCenter
 from app.plugins.doubancenter.adapter import bangumi as bangumi_adapter
 from app.plugins.doubancenter.adapter import douban as douban_adapter
 from app.plugins.doubancenter.adapter import rss as rss_adapter
 from app.plugins.doubancenter.model.identity import convert_identity
-from app.plugins.doubancenter.service import dashboard_rank_media
-from app.plugins.doubancenter.service import dashboard_rank_subscription
-from app.plugins.doubancenter.service import bangumi_tmdb
+from app.plugins.doubancenter.service import (
+    bangumi_tmdb,
+    dashboard_rank_media,
+    dashboard_rank_subscription,
+    rank_media,
+)
+from app.schemas.types import MediaSource, MediaType
+from app.sdk.media import MetaInfo
 
 
 def test_bangumi_subject_prefers_rsshub_chinese_title_and_poster():
@@ -64,9 +66,10 @@ def test_bangumi_subject_prefers_rsshub_chinese_title_and_poster():
 def test_plugin_init_does_not_fetch_bangumi_history(monkeypatch):
     """插件初始化不得同步请求 BGM，历史补全由榜单刷新链路承担。"""
     plugin = object.__new__(DoubanCenter)
+    plugin.get_data = lambda key, **kwargs: None
     plugin.stop_service = lambda: None
     plugin.update_config = lambda config: None
-    monkeypatch.setattr(feed, "normalize_bangumi_history", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr(rank_media, "normalize_bangumi_history", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError))
     monkeypatch.setattr("app.plugins.doubancenter.migration.migrate_plugin_media_identity", lambda *args, **kwargs: None)
     monkeypatch.setattr("app.plugins.doubancenter.migration.normalize_legacy_subscribe_usernames", lambda: None)
 
@@ -474,7 +477,7 @@ def test_preserve_existing_tmdb_identity_during_transient_refresh_failure():
         "poster": "tmdb-poster.jpg",
     }
 
-    feed._preserve_existing_tmdb_identity(entry, existing)
+    rank_media._preserve_existing_tmdb_identity(entry, existing)
 
     assert entry["media_source"] == MediaSource.TMDB.value
     assert entry["media_id"] == "60625"
@@ -501,7 +504,7 @@ def test_preserve_existing_tmdb_identity_rejects_changed_douban_subject():
         "poster": "old-poster.jpg",
     }
 
-    feed._preserve_existing_tmdb_identity(entry, existing)
+    rank_media._preserve_existing_tmdb_identity(entry, existing)
 
     assert entry.get("media_source") is None
     assert entry.get("media_id") is None
@@ -534,7 +537,7 @@ def test_rank_refresh_converts_douban_identity_before_recognition():
         "douban_id": "36508123",
     }
 
-    result = feed._apply_display_recognition(
+    result = rank_media._apply_display_recognition(
         plugin,
         item,
         entry,
@@ -578,7 +581,7 @@ def test_rank_refresh_keeps_douban_name_for_marble_hall_murders():
         "original_title": item["title"],
     }
 
-    result = feed._apply_display_recognition(
+    result = rank_media._apply_display_recognition(
         plugin,
         item,
         entry,
@@ -618,7 +621,7 @@ def test_rank_refresh_keeps_douban_name_for_slow_horses_season_six():
         "douban_id": "36689816",
     }
 
-    result = feed._apply_display_recognition(
+    result = rank_media._apply_display_recognition(
         plugin,
         item,
         entry,
@@ -662,7 +665,7 @@ def test_rank_refresh_restores_chinese_title_when_current_rss_title_is_english()
         "tmdb_title": "Marble Hall Murders",
     }
 
-    result = feed._apply_display_recognition(
+    result = rank_media._apply_display_recognition(
         plugin,
         item,
         entry,
@@ -709,7 +712,7 @@ def test_rank_refresh_reuses_existing_tmdb_identity_before_network_conversion():
         "link": "https://movie.douban.com/subject/36508123/",
     }
 
-    result = feed._apply_display_recognition(
+    result = rank_media._apply_display_recognition(
         plugin,
         item,
         entry,
@@ -750,7 +753,7 @@ def test_rank_refresh_uses_media_chain_when_plugin_base_chain_cannot_convert():
         "douban_id": "36508123",
     }
 
-    result = feed._apply_display_recognition(
+    result = rank_media._apply_display_recognition(
         plugin,
         item,
         entry,
@@ -792,7 +795,7 @@ def test_rank_refresh_keeps_douban_identity_when_mapping_is_missing():
         "douban_id": "36689816",
     }
 
-    result = feed._apply_display_recognition(
+    result = rank_media._apply_display_recognition(
         plugin,
         item,
         entry,
@@ -1149,11 +1152,11 @@ def test_bangumi_rank_refresh_saves_tmdb_identity(monkeypatch):
         save_data=lambda key, value: None,
     )
     subject = {"id": 622206, "name": "ヤニねこ", "name_cn": "烟猫", "date": "2026-04-01"}
-    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    monkeypatch.setattr(rank_media, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
     item = {"title": "ヤニねこ", "year": "2026", "bangumi_id": "622206"}
     entry = {"title": item["title"], "year": item["year"], "bangumi_id": "622206"}
 
-    result = feed._apply_bangumi_recognition(plugin, item, entry)
+    result = rank_media._apply_bangumi_recognition(plugin, item, entry)
 
     assert result is tmdb_media
     assert entry["media_source"] == MediaSource.TMDB.value
@@ -1181,7 +1184,7 @@ def test_bangumi_history_repairs_legacy_douban_identity_from_subject_link(monkey
         "date": "2026-04-01",
         "images": {"large": "https://lain.bgm.tv/pic/cover/l/43/ca/633836_ql0f3.jpg"},
     }
-    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    monkeypatch.setattr(rank_media, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
     history = [{
         "rank_key": "bangumi",
         "title": subject["name"],
@@ -1192,7 +1195,7 @@ def test_bangumi_history_repairs_legacy_douban_identity_from_subject_link(monkey
         "poster": None,
     }]
 
-    result = feed.normalize_bangumi_history(plugin, history)
+    result = rank_media.normalize_bangumi_history(plugin, history)
 
     assert result[0]["media_source"] == MediaSource.Bangumi.value
     assert result[0]["media_id"] == "633836"
@@ -1232,7 +1235,7 @@ def test_bangumi_history_replaces_wrong_tmdb_identity_with_parent_series(monkeyp
         "name_cn": "Re：从零开始的异世界生活 第四季 夺还篇",
         "date": "2026-04-01",
     }
-    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    monkeypatch.setattr(rank_media, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
     history = [{
         "rank_key": "bangumi",
         "title": "错误 TMDB 标题",
@@ -1244,7 +1247,7 @@ def test_bangumi_history_replaces_wrong_tmdb_identity_with_parent_series(monkeyp
         "poster": "wrong.jpg",
     }]
 
-    result = feed.normalize_bangumi_history(plugin, history)
+    result = rank_media.normalize_bangumi_history(plugin, history)
 
     assert result[0]["title"] == subject["name_cn"]
     assert result[0]["tmdb_title"] == tmdb_media.title
@@ -1282,7 +1285,7 @@ def test_bangumi_history_repairs_missing_season_for_saved_tmdb_identity(monkeypa
         "name_cn": "无职转生～到了异世界就拿出真本事～",
         "date": "2026-04-01",
     }
-    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    monkeypatch.setattr(rank_media, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
     history = [{
         "rank_key": "bangumi",
         "title": subject["name_cn"],
@@ -1294,7 +1297,7 @@ def test_bangumi_history_repairs_missing_season_for_saved_tmdb_identity(monkeypa
         "poster": tmdb_media.poster_path,
     }]
 
-    result = feed.normalize_bangumi_history(plugin, history)
+    result = rank_media.normalize_bangumi_history(plugin, history)
 
     assert result[0]["title"] == subject["name_cn"]
     assert result[0]["tmdb_title"] == tmdb_media.title
@@ -1313,7 +1316,7 @@ def test_bangumi_subject_link_precedes_legacy_douban_id():
         "link": "https://bgm.tv/subject/633836",
     }
 
-    assert feed._extract_bangumi_id(item) == "633836"
+    assert rank_media._extract_bangumi_id(item) == "633836"
 
 
 def test_bangumi_history_poster_repair_preserves_existing_tmdb_identity(monkeypatch):
@@ -1330,7 +1333,7 @@ def test_bangumi_history_poster_repair_preserves_existing_tmdb_identity(monkeypa
         "date": "2026-04-01",
         "images": {"large": "https://lain.bgm.tv/pic/cover/l/622206.jpg"},
     }
-    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
+    monkeypatch.setattr(rank_media, "_fetch_bangumi_subject", lambda current, bangumi_id: subject)
     history = [{
         "rank_key": "bangumi",
         "title": subject["name"],
@@ -1341,7 +1344,7 @@ def test_bangumi_history_poster_repair_preserves_existing_tmdb_identity(monkeypa
         "poster": None,
     }]
 
-    result = feed.normalize_bangumi_history(plugin, history)
+    result = rank_media.normalize_bangumi_history(plugin, history)
 
     assert result[0]["media_source"] == MediaSource.TMDB.value
     assert result[0]["media_id"] == "312949"
@@ -1377,7 +1380,7 @@ def test_bangumi_refresh_failure_preserves_saved_tmdb_identity_and_titles():
         "poster": "tmdb-94664.jpg",
     }
 
-    feed._preserve_existing_tmdb_identity(entry, existing)
+    rank_media._preserve_existing_tmdb_identity(entry, existing)
 
     assert entry["media_source"] == MediaSource.TMDB.value
     assert entry["media_id"] == "94664"
@@ -1402,7 +1405,7 @@ def test_bangumi_history_falls_back_to_host_identity_when_subject_is_empty(monke
         chain=chain,
         save_data=lambda key, value: saved.update({key: value}),
     )
-    monkeypatch.setattr(feed, "_fetch_bangumi_subject", lambda current, bangumi_id: None)
+    monkeypatch.setattr(rank_media, "_fetch_bangumi_subject", lambda current, bangumi_id: None)
     history = [{
         "rank_key": "bangumi",
         "title": "Re:ゼロから始める異世界生活 4th season 奪還編",
@@ -1412,7 +1415,7 @@ def test_bangumi_history_falls_back_to_host_identity_when_subject_is_empty(monke
         "poster": None,
     }]
 
-    result = feed.normalize_bangumi_history(plugin, history)
+    result = rank_media.normalize_bangumi_history(plugin, history)
 
     assert result[0]["media_source"] == MediaSource.Bangumi.value
     assert result[0]["media_id"] == "633836"
