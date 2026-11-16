@@ -811,15 +811,31 @@ class AgentRankRepository:
         )
 
     def build_learning_health(self, profile_id: str) -> LearningHealth:
-        """根据当前事实动态汇总学习健康度，不把数据少误判为故障。"""
+        """重新计算并保存健康摘要，保留业务事件的持久化入口。"""
+        return self.save_learning_health(self.calculate_learning_health(profile_id))
+
+    def calculate_learning_health(
+        self,
+        profile_id: str,
+        *,
+        memory: Optional[PreferenceMemory] = None,
+        questions: Optional[List[PendingQuestion]] = None,
+        consumptions: Optional[List[BoardConsumption]] = None,
+        attributions: Optional[List[OutcomeAttribution]] = None,
+    ) -> LearningHealth:
+        """只计算健康摘要，可复用同次查询已读取的数据，不持有跨请求缓存。"""
         target = str(profile_id or "").strip()
         signals = self.load_short_term_signals(target)
-        consumptions = self.load_board_consumptions(target)
-        memory = self.load_preference_memory(target)
+        if consumptions is None:
+            consumptions = self.load_board_consumptions(target)
+        if memory is None:
+            memory = self.load_preference_memory(target)
         proposals = self.load_memory_proposals(target)
-        questions = self.load_pending_questions(target)
+        if questions is None:
+            questions = self.load_pending_questions(target)
         understandings = self.load_feedback_understandings(target)
-        attributions = self.load_outcome_attributions(target)
+        if attributions is None:
+            attributions = self.load_outcome_attributions(target)
         stage_counts: Dict[str, int] = {}
         for record in attributions:
             stage = str(record.state or "").strip()
@@ -847,7 +863,7 @@ class AgentRankRepository:
             coverage = "partial"
         else:
             coverage = "complete"
-        health = LearningHealth(
+        return LearningHealth(
             profile_id=target,
             short_term_signal_count=len(signals),
             confirmed_memory_count=len(memory.active_items()),
@@ -862,8 +878,6 @@ class AgentRankRepository:
             attention_reason=attention_reason,
             legacy_baseline=not signals and not consumptions,
         )
-        self.save_learning_health(health)
-        return health
 
     def save_learning_health(self, health: LearningHealth) -> LearningHealth:
         """保存可公开投影的学习健康度摘要。"""

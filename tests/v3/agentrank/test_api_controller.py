@@ -1085,6 +1085,51 @@ def test_options_overview_board_profile_and_history_have_stable_data_shape():
     assert board_history["data"]["items"][0]["overlap_count"] == 0
 
 
+@pytest.mark.parametrize("seeded", [False, True])
+def test_overview_shares_reads_without_saving_health(monkeypatch, seeded):
+    """总览含空列表时仍只读一次共享数据，且不再写入健康摘要。"""
+    from collections import Counter
+    from copy import deepcopy
+
+    plugin = FakePlugin()
+    if seeded:
+        _seed(plugin)
+    repository = plugin._repository
+    plugin._attribution_service = SimpleNamespace(
+        list_records=repository.load_outcome_attributions
+    )
+    expected_health = repository.build_learning_health(HOME_PROFILE).to_dict()
+    before = deepcopy(plugin.data)
+    reads = Counter()
+    original_get = plugin.get_data
+
+    def counted_get(key=None):
+        """记录真实存储键的读取次数。"""
+        reads[key] += 1
+        return original_get(key)
+
+    monkeypatch.setattr(plugin, "get_data", counted_get)
+    result = AgentRankApiController(plugin).overview(HOME_PROFILE)["data"]
+    for prefix in ("preference_memory", "pending_questions", "board_consumption", "attribution"):
+        assert reads[repository._profile_key(prefix, HOME_PROFILE)] == 1
+    assert result["learning_health"] == expected_health
+    assert plugin.data == before
+    assert bool(result["board"]) is seeded
+
+
+def test_health_calculation_and_persistence_are_separate():
+    """只计算不覆盖已有摘要，原业务接口仍保存计算结果。"""
+    plugin = FakePlugin()
+    repository = plugin._repository
+    key = repository._learning_key("learning_health", HOME_PROFILE)
+    plugin.data[key] = {"previous": True}
+    computed = repository.calculate_learning_health(HOME_PROFILE)
+    assert plugin.data[key] == {"previous": True}
+    saved = repository.build_learning_health(HOME_PROFILE)
+    assert saved == computed
+    assert plugin.data[key] == computed.to_dict()
+
+
 def test_config_options_merges_online_emby_identities_with_selected_offline_values():
     """配置选择器可显示在线用户，同时保留离线但已选的稳定身份。"""
     plugin = FakePlugin()

@@ -119,17 +119,28 @@ class ReadApiMixin:
         board = repository.load_board(target)
         archive = repository.load_archive(target)
         history = repository.load_run_history(target)
+        memory = repository.load_preference_memory(target)
+        questions = repository.load_pending_questions(target)
+        consumptions = repository.load_board_consumptions(target)
+        attributions = repository.load_outcome_attributions(target)
         return self._success(
             {
                 "profile_id": target,
                 "username": self._display_name(target),
-                "profile": self._profile_data(target, profile),
-                "board": self._board_data(board) if board else None,
+                "profile": self._profile_data(
+                    target, profile, memory=memory, questions=questions
+                ),
+                "board": self._board_data(
+                    board, consumptions=consumptions, attributions=attributions
+                ) if board else None,
                 "archive": archive.to_dict(),
                 "latest_run": history[0].to_dict() if history else None,
                 "history": [item.to_dict() for item in history[:15]],
                 "history_total": len(history),
-                "learning_health": repository.build_learning_health(target).to_dict(),
+                "learning_health": repository.calculate_learning_health(
+                    target, memory=memory, questions=questions,
+                    consumptions=consumptions, attributions=attributions,
+                ).to_dict(),
                 "agent_display_name": configured_agent_display_name(
                     self.plugin._config.get("agent_display_name")
                 ),

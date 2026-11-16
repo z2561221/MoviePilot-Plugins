@@ -18,7 +18,10 @@ from .routes import (
     status_response as build_status_response,
 )
 from ..model.config import configured_identities
-from ..model.feedback import ShortTermSignal
+from ..model.feedback import BoardConsumption, ShortTermSignal
+from ..model.feedback_decision import PendingQuestion
+from ..model.memory import PreferenceMemory
+from ..model.outcome import OutcomeAttribution
 from ..service.conversation import ConversationService
 from ..service.data_lifecycle import DataLifecycleService
 from ..service.feedback_action import FeedbackActionService
@@ -441,7 +444,11 @@ class AgentRankApiController(
             )
         return service
 
-    def _board_data(self, board: Any) -> Dict[str, Any]:
+    def _board_data(
+        self, board: Any, *,
+        consumptions: List[BoardConsumption] | None = None,
+        attributions: List[OutcomeAttribution] | None = None,
+    ) -> Dict[str, Any]:
         """返回带最新反馈极性且海报已收敛为轻量 URL 的榜单响应。"""
         value = board.to_dict()
         polarity = FeedbackActionService(self._repository()).active_polarities(
@@ -451,17 +458,28 @@ class AgentRankApiController(
             item["feedback_kind"] = polarity.get(str(item.get("candidate_id") or ""), "")
         attribution_service = getattr(self.plugin, "_attribution_service", None)
         if attribution_service is not None:
-            attributions = {
+            records = (
+                attribution_service.list_records(board.profile_id)
+                if attributions is None else attributions
+            )
+            attribution_by_candidate = {
                 item.candidate_id: item.to_public_dict()
-                for item in attribution_service.list_records(board.profile_id)
+                for item in records
                 if item.run_id == board.run_id
             }
             for item in value.get("recommendations") or []:
-                item["outcome_attribution"] = attributions.get(
+                item["outcome_attribution"] = attribution_by_candidate.get(
                     str(item.get("candidate_id") or "")
                 )
-        consumption = self._repository().load_board_consumption(
-            board.profile_id, board.run_id, board.revision
+        consumption = (
+            self._repository().load_board_consumption(
+                board.profile_id, board.run_id, board.revision
+            )
+            if consumptions is None else next(
+                (item for item in consumptions
+                 if item.run_id == board.run_id and item.board_revision == board.revision),
+                None,
+            )
         )
         value["consumption"] = consumption.to_dict() if consumption is not None else None
         service = getattr(self.plugin, "_poster_service", None)
@@ -483,7 +501,11 @@ class AgentRankApiController(
         value["username"] = self._display_name(profile_id)
         return value
 
-    def _profile_data(self, profile_id: str, profile: Any = None) -> Dict[str, Any]:
+    def _profile_data(
+        self, profile_id: str, profile: Any = None, *,
+        memory: PreferenceMemory | None = None,
+        questions: List[PendingQuestion] | None = None,
+    ) -> Dict[str, Any]:
         """合并 Agent 原始画像与人工标签覆盖层。"""
         value = (
             profile.to_dict()
@@ -502,7 +524,8 @@ class AgentRankApiController(
         value["profile_id"] = profile_id
         value["username"] = self._display_name(profile_id)
         preferences = self._repository().load_profile_preferences(profile_id)
-        memory = self._repository().load_preference_memory(profile_id)
+        if memory is None:
+            memory = self._repository().load_preference_memory(profile_id)
         agent_tags = preferences.active_agent_tags(value.get("tags") or [])
         agent_negative_tags = preferences.active_agent_negative_tags(
             value.get("negative_tags") or []
@@ -527,7 +550,7 @@ class AgentRankApiController(
                 "archived_profile_tags": preferences.archived_entries(),
                 "questioning_state": FeedbackProposalService(
                     self._repository()
-                ).questioning_state(profile_id, memory=memory),
+                ).questioning_state(profile_id, memory=memory, questions=questions),
             }
         )
         return value

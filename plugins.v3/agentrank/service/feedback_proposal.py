@@ -69,13 +69,14 @@ class FeedbackProposalService:
         self._questioning_policy = QuestioningPolicy(interaction_mode)
 
     def questioning_state(
-        self, profile_id: str, *, memory: PreferenceMemory = None
+        self, profile_id: str, *, memory: PreferenceMemory = None,
+        questions: Optional[list[PendingQuestion]] = None,
     ) -> str:
         """返回画像当前的用户可见问询状态。"""
         target_memory = memory or self._repository.load_preference_memory(profile_id)
-        decision = self._questioning_policy.evaluate(
-            target_memory, self._repository.load_pending_questions(profile_id)
-        )
+        if questions is None:
+            questions = self._repository.load_pending_questions(profile_id)
+        decision = self._questioning_policy.evaluate(target_memory, questions)
         return decision.state
 
     def _time_window(self) -> tuple[str, str]:
