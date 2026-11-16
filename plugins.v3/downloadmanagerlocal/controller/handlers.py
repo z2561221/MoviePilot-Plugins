@@ -230,7 +230,9 @@ def api_overview(plugin):
     """返回详情页总览数据。"""
     try:
         diagnostics = plugin._diagnostics()
-        archive = plugin.rename_archive_stats()
+        archive = diagnostics.get("rename_archive") if isinstance(diagnostics, dict) else None
+        if not isinstance(archive, dict):
+            archive = plugin.rename_archive_stats()
         upload_limit = get_upload_limit_status(plugin)
         transfer_stats = load_transfer_stats(plugin)
         iyuu_stats = load_iyuu_stats(plugin)

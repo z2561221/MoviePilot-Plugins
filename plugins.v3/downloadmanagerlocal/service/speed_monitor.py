@@ -790,7 +790,9 @@ def handle_download_added_event(
             }
 
         previous_result = runtime.last_poll_results.get(downloader_id)
-        result = poll_downloader(service.instance, downloader_id, downloader_type)
+        result = poll_downloader(
+            service.instance, downloader_id, downloader_type, ids=[torrent_hash]
+        )
         runtime.last_poll_results[downloader_id] = result
         if not result.success:
             _mark_downloader_error(runtime, downloader_id)

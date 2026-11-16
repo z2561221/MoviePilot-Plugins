@@ -48,8 +48,9 @@ class FakeQbClient:
     def torrents_set_upload_limit(self, limit, torrent_hashes):
         """记录并应用 qB 单种限速。"""
         self.torrent_calls.append((torrent_hashes, limit))
+        targets = {str(value).lower() for value in (torrent_hashes if isinstance(torrent_hashes, list) else [torrent_hashes])}
         for torrent in self.torrents:
-            if torrent.get("hash", "").lower() == str(torrent_hashes).lower():
+            if torrent.get("hash", "").lower() in targets:
                 torrent["up_limit"] = limit
 
 
@@ -95,9 +96,10 @@ class FakeTransmissionClient:
     def change_torrent(self, **kwargs):
         """记录并应用单种限速。"""
         self.torrent_calls.append(dict(kwargs))
-        target = str(kwargs.get("ids") or "").lower()
+        ids = kwargs.get("ids") or ""
+        targets = {str(value).lower() for value in (ids if isinstance(ids, list) else [ids])}
         for torrent in self.torrents:
-            if str(torrent.hashString).lower() == target:
+            if str(torrent.hashString).lower() in targets:
                 torrent.uploadLimit = kwargs.get("uploadLimit", torrent.uploadLimit)
                 torrent.uploadLimited = kwargs.get("uploadLimited", torrent.uploadLimited)
 
@@ -364,7 +366,7 @@ def test_new_limited_site_torrent_uses_absolute_grace_then_joins_pool():
     after = limiter.run_upload_limit_cycle(plugin, now=3000)
     assert after["managed_torrents"] == 2
     assert after["grace_torrents"] == 0
-    assert any(call[0] == "new" for call in instance.qbc.torrent_calls)
+    assert any("new" in (call[0] if isinstance(call[0], list) else [call[0]]) for call in instance.qbc.torrent_calls)
 
 
 def test_site_limit_is_shared_between_qb_and_transmission():
