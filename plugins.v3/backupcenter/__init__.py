@@ -21,7 +21,7 @@ class BackupCenter(_PluginBase):
     plugin_desc = "「未来道具研究所」出品 · EL PSY CONGROO！"
     plugin_icon = "backup.png"
     plugin_color = "#00897B"
-    plugin_version = "3.0.9"
+    plugin_version = "3.0.10"
     plugin_label = "系统工具,数据安全"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"

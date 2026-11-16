@@ -2,7 +2,7 @@
 
 ## 插件定位
 
-`BackupCenter` 是面向 MoviePilot V3 的原生代际 Vue 联邦插件。宿主通过 `plugins.v3/backupcenter` 与 `package.v3.json` 加载当前实现；旧 `plugins.v2` 条目已标记 `v3:false`，不再作为 V3 回退实现。
+`BackupCenter` 是面向 MoviePilot V3 的原生代际 Vue 联邦插件。宿主通过 `plugins.v3/backupcenter` 与 `package.v3.json` 加载当前 V3-only 实现，不为它建立或改动 V2 条目。当前维护版本 3.0.10，沿用已批准的 3.x 版本序列。
 
 插件不修改 MoviePilot 主程序。它负责创建可选加密的校验逻辑备份、校验并导出自说明恢复包，以及执行受限的在线选择性恢复。完整数据库恢复始终要求管理员停机，并由主程序统一管理。
 
@@ -20,14 +20,16 @@
 
 ## 备份链路
 
-1. 从 `SystemConfig` 读取非插件设置、插件配置和已安装插件清单。
-2. 从 `PluginData` 按插件 ID 导出逻辑数据，并复制 `config/plugins/<PluginID>/` 标准数据目录；`BackupCenter` 本体和全部同源分身始终从插件范围排除，避免历史备份递归嵌套。
+1. 在原操作锁内形成一次新鲜的 `BackupCreationContext`，读取系统配置与真实实例目录、排除同源家族，再按同一选择解析名称。仅查询插件选项时读取 `UserInstalledPlugins`，不读取完整配置。
+2. 插件配置通过 `get_config(plugin_id=...)` 读取，`PluginData` 通过公开数据接口导出，标准目录通过 `get_data_path(plugin_id=...)` 定位；旧宿主才回退旧配置/目录。`BackupCenter` 本体和全部同源分身始终从插件范围排除，避免历史备份递归嵌套。
 3. 负载 ZIP 内写入私有 manifest、逻辑数据、文件、空目录及 `docs/` 教程副本；保留存在但为空的插件根目录，缺席的目录不伪造为空目录。
 4. 未设置口令时保存普通 `payload.zip`；设置口令时使用 scrypt 派生密钥并以流式 AES-256-GCM 保存为 `payload.enc`。两种格式的外层文件都使用 SHA-256 清单校验。
 5. 外层生成公开 manifest、恢复教程、核对清单、校验和及离线工具。
 6. 在线与离线校验均要求清单包含 `manifest.public.json` 和加密状态对应的 `payload.enc` / `payload.zip`，逐项验证文件存在与哈希。导出 API 在校验通过后生成临时 ZIP，响应完成后删除临时文件。
 
 自动备份与手动备份使用同一种清单格式。自动包和 MoviePilot 手动包可以在恢复时选择“配置”或“数据”，并进一步选择一个或多个已打包插件。单插件手动包恢复时仍可只恢复配置或只恢复数据。
+
+`service/backup_catalog.py` 管理目录、公开清单、索引和自动保留，`backup_service.py` 继续负责收集与创建负载并保留旧调用入口。公开列表保持 `package_size` 与原字段；自动保留使用轻量清单，不递归计算体积，仍只处理最旧自动包，保护手动、应急及指定保留包。创建上下文与目录清单不做跨请求缓存。
 
 ## 恢复边界
 
@@ -37,12 +39,15 @@
 - 恢复插件 ID 必须符合 MoviePilot 类名格式，并且存在于备份私有范围中。
 - 在线恢复拒绝 `BackupCenter` 本体与同源分身，避免在请求处理中停止或覆盖当前插件。
 - 解密后必须核对公开与私有 manifest 的 ID、版本、范围、插件列表和计数。
-- 系统设置与插件配置通过宿主 `SystemConfigOper.set()` 逐项提交，以同步其内存缓存；它们不承诺跨键全局事务，失败时必须使用应急备份回退。
+- `service/restore_payload.py` 在安全解包和清单一致性校验后，为本次请求建立新的 `RestorePayloadPlan`。系统与插件配置 JSON 各解析一次，选中的 PluginData 行在创建宿主恢复点及停止目标之前验证；文件缺失用 `None` 保留，空根对象、显式空配置/数据列表和未包含目标键分别处理。
+- `restore_service.py` 协调当前现场 snapshot、停止/重载、写入与补偿，旧 Path callable 入口继续有效。只复用本次已解包负载，不能复用上一请求预检或现用数据作为恢复负载。
+- 系统设置通过宿主 `SystemConfigOper.set()` 逐项提交；插件配置通过基类 `get_config/update_config` 访问实际实例。它们不承诺跨键全局事务，失败时按 `modified_scopes` 对已开始写入的范围补偿，补偿失败才使用应急备份回退。
 - `PluginData` 只通过插件公开的 `get_data/save_data/del_data` 接口读写；恢复前保存全部目标插件快照，任何写入异常都清理半成品并补偿回滚。
 - 插件恢复前停止当时处于运行态的目标插件，完成或失败后逐个重载；重载失败项由 `reload_required` 明确返回。
 - 恢复预检绑定请求代次、API、实例及备份 ID；选择变化或卸载后旧回包不再打开确认框，提交只使用已核验预检的 ID。
 - 重载必须同时刷新动态 API、命令与任务注册，失败进入 `reload_required`。`app.application.plugin.management.refresh_plugin_registrations` 是按宿主 `338687bee8` 验证的精确兼容例外，登记于 `.github/plugin-quality-exceptions.json`；稳定 SDK 提供等价入口后移除。守护用例为 `test_reload_rebinds_apis_to_restored_instance_and_reports_registration_failure`。
 - 插件标准数据目录先复制到同卷临时目录，再逐插件原子替换；多个插件目录之间不承诺全局原子性。
+- 外层 SHA-256、AES-GCM、ZIP 危险/重复路径检查、100000 成员与 20 GiB 总展开限制不能省略。目录缺失必须跳过，不能当作空目录清除现场数据。
 
 ## 备份包结构
 
@@ -73,11 +78,14 @@
 
 从插件仓根目录执行：
 
+Windows 使用 PowerShell 7 和现用 `D:/AIGC/All In Docker/MoviePilot/.venv-test/Scripts/python.exe`。明确设置匹配宿主的 `MOVIEPILOT_BACKEND_PATH`，CONFIG_DIR、TEMP、TMP、字节码和 pytest 输出均归本任务 active archive 批次。静态替身和宿主 V3 测试必须分进程运行，不把两个命名空间混进同一 pytest 会话。
+
 ```powershell
-& '<python>' -m compileall -q plugins.v3\backupcenter
-& '<python>' -m pytest -q tests\v3\backupcenter tests\static\test_backupcenter_services.py
-& '<pnpm>' --dir plugins.v3\backupcenter\frontend build
+$mpPython = 'D:/AIGC/All In Docker/MoviePilot/.venv-test/Scripts/python.exe'
+& $mpPython -X utf8 -B -m pytest -p no:cacheprovider --confcutdir=tests/static tests/static/test_backupcenter_services.py -k restore -q
+& $mpPython -X utf8 -B -m pytest -p no:cacheprovider --confcutdir=tests/v3/backupcenter tests/v3/backupcenter/test_api_contract.py -q
+& $mpPython -X utf8 -B -m ruff check --no-cache plugins.v3/backupcenter
 git diff --check
 ```
 
-本地运行态闭环为：受影响路径窄测试与必要的前端构建通过 -> 目标插件同步到 MP 本地仓库并按需安装 -> 目标插件 POST reload -> `/api/v1/plugin/history/BackupCenter` 回读版本、history、`installed=true`、`state=true` 与 `is_local=true`，并回读受影响 API。未变化的前端源码和产物复用已有证据；文件同步和哈希一致本身不代表运行态已验收。Chrome 桌面与 `390x844` 页面验收默认由用户完成，Codex 仅在明确授权后使用任务专用新标签页。
+本地运行态闭环为：受影响路径窄测试与必要的前端构建通过 -> 目标插件同步到 MP 本地仓库并按需安装 -> 目标插件 POST reload -> `/api/v1/plugin/history/BackupCenter` 回读版本、history、`installed=true`、布尔 `state` 与 `is_local=true`，并回读受影响 API；state 对照本任务实际开关，不单凭它判断加载健康。未变化的前端源码和产物复用已有证据；文件同步和哈希一致本身不代表运行态已验收。浏览器页面验收默认由用户完成，Codex 仅在明确授权后使用指定浏览器的任务专用新标签页。
