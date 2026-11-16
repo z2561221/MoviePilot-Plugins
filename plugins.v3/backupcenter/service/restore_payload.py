@@ -46,4 +46,5 @@ class RestorePayloadReader:
         plugin_configs = cls.read_optional_json(root / "plugin_configs.json") if selection.plugin_settings else None
         plugin_data = cls.read_optional_json(root / "plugin_data.json") if selection.plugin_data else None
         included_ids, rows = cls.validate_plugin_data(plugin_data or {}, plugin_ids)
-        return RestorePayloadPlan(root, system_settings, plugin_configs, plugin_data, tuple(included_ids), tuple(rows))
+        # 已验证行保留键和值即可，原始行字典及未选插件数据不跨恢复阶段存活。
+        return RestorePayloadPlan(root, system_settings, plugin_configs, plugin_data is not None, tuple(included_ids), tuple(rows))

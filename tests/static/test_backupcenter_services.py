@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import weakref
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -1682,7 +1683,7 @@ def test_restore_plan_distinguishes_missing_empty_and_omitted_plugin(tmp_path, m
     service, plugin, _system, _configs, payload, _events = _logical_restore_fixture(tmp_path, monkeypatch, values)
     selection = backup_model.RestoreSelection(plugin_data=True)
     plan = restore_module.RestorePayloadReader.load(payload, selection, ["PluginA"])
-    assert plan.plugin_data == value
+    assert plan.plugin_data_present is (value is not None)
     service.restore_logical("backup-plan", selection, ["PluginA"])
     assert plugin.plugin_records == {"PluginA": expected, "PluginB": {"kept": 2}}
 
@@ -1726,6 +1727,41 @@ def test_config_restore_plan_keeps_missing_empty_and_omitted_keys(tmp_path, monk
     assert configs["PluginA"] == ({} if value == {"PluginA": {}} else {"mode": "old"})
     assert configs["PluginB"] == {"mode": "kept"}
     assert system_values["Language"] == "old"
+
+
+def test_restore_releases_raw_rows_and_consumed_config_payloads(tmp_path, monkeypatch):
+    """数据写入前不再持有原始行容器或已消费配置，补偿仍依赖实时快照。"""
+    values = {"system_config.json": {"Language": "new"}, "plugin_configs.json": {"PluginA": {}},
+              "plugin_data.json": {"PluginA": [{"key": "new", "value": {"text": "value"}}]}}
+    service, plugin, _systems, _configs, _payload, _events = _logical_restore_fixture(tmp_path, monkeypatch, values)
+    references = {}
+    original_read = manifest_module.ManifestService.read_json
+
+    class PayloadObject(dict):
+        """允许直接观察原始 JSON 容器的存活期。"""
+
+    def read_json(path):
+        value = original_read(path)
+        if path.name in values:
+            value = PayloadObject(value)
+            references[path.name] = weakref.ref(value)
+        return value
+
+    original_restore_data = service._restore_plugin_data
+
+    def restore_data(plan, ids):
+        assert references["plugin_data.json"]() is None
+        assert references["system_config.json"]() is None
+        assert references["plugin_configs.json"]() is None
+        return original_restore_data(plan, ids)
+
+    monkeypatch.setattr(manifest_module.ManifestService, "read_json", read_json)
+    monkeypatch.setattr(service, "_restore_plugin_data", restore_data)
+    selection = backup_model.RestoreSelection(mp_settings=True, plugin_settings=True, plugin_data=True)
+    result = service.restore_logical("backup-plan", selection, ["PluginA"])
+    assert result["restored"]["plugin_data"] == 1
+    assert plugin.plugin_records["PluginA"] == {"new": {"text": "value"}}
+    assert all(reference() is None for reference in references.values())
 
 
 @pytest.mark.parametrize("method", ["_restore_system_settings", "_restore_plugin_settings", "_restore_plugin_data", "_restore_plugin_files"])

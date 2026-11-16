@@ -1,6 +1,5 @@
 """执行受限的在线选择性恢复，并委托宿主管理数据库恢复点。"""
 
-from copy import deepcopy
 import os
 import re
 import shutil
@@ -8,6 +7,8 @@ import tempfile
 import uuid
 import zipfile
 from contextlib import contextmanager
+from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, Iterator, List, Tuple
 
@@ -526,7 +527,9 @@ class RestoreService:
                     failed.append(plugin_id)
                     continue
                 # Reviewed host compatibility import; the manager alone leaves old API bindings.
-                from app.application.plugin.management import refresh_plugin_registrations
+                from app.application.plugin.management import (
+                    refresh_plugin_registrations,
+                )
 
                 refresh_plugin_registrations(plugin_id)
             except Exception:
@@ -680,16 +683,20 @@ class RestoreService:
                 if selection.mp_settings:
                     modified_scopes.add("system")
                     result["restored"]["mp_settings"] = self._restore_system_settings(payload_plan)
+                    payload_plan = replace(payload_plan, system_settings=None)
                 if selection.plugin_settings:
                     modified_scopes.add("config")
                     result["restored"]["plugin_settings"] = self._restore_plugin_settings(
                         payload_plan, selected_plugin_ids
                     )
+                    payload_plan = replace(payload_plan, plugin_configs=None)
                 if selection.plugin_data:
                     modified_scopes.add("data")
                     result["restored"]["plugin_data"] = self._restore_plugin_data(
                         payload_plan, selected_plugin_ids
                     )
+                # 后续目录写入及补偿只使用实时快照，不再需要配置或数据负载。
+                del payload_plan
                 if selection.plugin_files:
                     modified_scopes.add("files")
                     result["restored"]["plugin_files"] = self._restore_plugin_files(

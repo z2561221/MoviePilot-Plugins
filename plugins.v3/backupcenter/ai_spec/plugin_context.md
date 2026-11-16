@@ -39,7 +39,7 @@
 - 恢复插件 ID 必须符合 MoviePilot 类名格式，并且存在于备份私有范围中。
 - 在线恢复拒绝 `BackupCenter` 本体与同源分身，避免在请求处理中停止或覆盖当前插件。
 - 解密后必须核对公开与私有 manifest 的 ID、版本、范围、插件列表和计数。
-- `service/restore_payload.py` 在安全解包和清单一致性校验后，为本次请求建立新的 `RestorePayloadPlan`。系统与插件配置 JSON 各解析一次，选中的 PluginData 行在创建宿主恢复点及停止目标之前验证；文件缺失用 `None` 保留，空根对象、显式空配置/数据列表和未包含目标键分别处理。
+- `service/restore_payload.py` 在安全解包和清单一致性校验后，为本次请求建立新的 `RestorePayloadPlan`。系统与插件配置 JSON 各解析一次，选中的 PluginData 行在创建宿主恢复点及停止目标之前验证；配置缺失用 `None` 保留，数据保留文件存在性、目标身份和已验证行，空根对象、显式空配置/数据列表和未包含目标键分别处理。原始数据行字典不跨阶段保留，配置写入后释放对应负载，目录阶段只保留实时补偿快照。
 - `restore_service.py` 协调当前现场 snapshot、停止/重载、写入与补偿，旧 Path callable 入口继续有效。只复用本次已解包负载，不能复用上一请求预检或现用数据作为恢复负载。
 - 系统设置通过宿主 `SystemConfigOper.set()` 逐项提交；插件配置通过基类 `get_config/update_config` 访问实际实例。它们不承诺跨键全局事务，失败时按 `modified_scopes` 对已开始写入的范围补偿，补偿失败才使用应急备份回退。
 - `PluginData` 只通过插件公开的 `get_data/save_data/del_data` 接口读写；恢复前保存全部目标插件快照，任何写入异常都清理半成品并补偿回滚。
