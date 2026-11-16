@@ -276,25 +276,37 @@ def write_torrent_upload_limit(
     limit_kib: int,
 ) -> TorrentUploadSettings:
     """写入插件分配的单种限额；零额度使用底层 API 避免被解释为不限速。"""
+    return write_torrent_upload_limits(instance, downloader_type, [torrent_hash], limit_kib)
+
+
+def write_torrent_upload_limits(
+    instance: Any, downloader_type: str, torrent_hashes: Iterable[str], limit_kib: int,
+) -> TorrentUploadSettings:
+    """给一组hash写入相同额度，保持QB零额度和TR单位约定。"""
     normalized = _normalize_type(downloader_type)
-    clean_hash = str(torrent_hash or "").strip()
-    if not clean_hash:
+    hashes = list(dict.fromkeys(str(value or "").strip() for value in torrent_hashes))
+    if not hashes or any(not value for value in hashes):
         raise ValueError("torrent hash is required")
+    ids = hashes[0] if len(hashes) == 1 else hashes
     normalized_limit = max(0, int(limit_kib or 0))
     if normalized == "qbittorrent":
         client = _require_attr(instance, "qbc")
         applied_bps = normalized_limit * 1024 if normalized_limit > 0 else 1
-        client.torrents_set_upload_limit(
+        result = client.torrents_set_upload_limit(
             limit=applied_bps,
-            torrent_hashes=clean_hash,
+            torrent_hashes=ids,
         )
+        if result is False:
+            raise RuntimeError("下载器未确认批量上传限速成功")
         return TorrentUploadSettings(limit_bps=applied_bps, enabled=True)
     client = _require_attr(instance, "trc")
-    client.change_torrent(
-        ids=clean_hash,
+    result = client.change_torrent(
+        ids=ids,
         uploadLimited=True,
         uploadLimit=normalized_limit,
     )
+    if result is False:
+        raise RuntimeError("下载器未确认批量上传限速成功")
     return TorrentUploadSettings(
         limit_bps=normalized_limit * 1024,
         enabled=True,

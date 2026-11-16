@@ -18,7 +18,7 @@ from ..model.sync_delete import (
     text,
     within,
 )
-from .sync_delete import _snapshot_file, related_nodes, relation_records
+from .sync_delete_planner import _snapshot_file, related_nodes, relation_records
 
 
 def source_record_snapshot(adapter, source, source_hash, downloader="", config=None):

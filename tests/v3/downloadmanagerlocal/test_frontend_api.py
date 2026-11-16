@@ -49,6 +49,39 @@ def test_page_ignores_stale_history_and_unmounted_errors() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_overview_uses_one_request_and_rejects_stale_instance_response() -> None:
+    """总览单请求复用限速状态，切实例与销毁后仍拒绝旧响应。"""
+    script = r'''
+      import assert from 'node:assert/strict';
+      import {readFileSync} from 'node:fs';
+      const source=readFileSync('plugins.v3/downloadmanagerlocal/frontend/src/components/Page.vue','utf8')
+        .match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'');
+      const pending=[],watchers=[],cleanups=[];
+      const props={pluginId:'A',api:{}};
+      const request=(api,id,path,options)=>new Promise(resolve=>pending.push({id,path,options,resolve}));
+      const build=new Function('ref','computed','watch','onMounted','onBeforeUnmount','defineProps','defineEmits','getPluginApi','postPluginApi',
+        source+'\nreturn {loadOverview,overview};');
+      globalThis.document={removeEventListener(){}};
+      const state=build(value=>({value}),get=>({get value(){return get()}}),(_source,cb)=>watchers.push(cb),
+        ()=>{},fn=>cleanups.push(fn),()=>props,()=>()=>{},request,()=>{});
+      const first=state.loadOverview();
+      assert.equal(pending.length,1);
+      assert.equal(pending[0].path,'overview');
+      assert.equal(pending[0].options.feedback,'silent');
+      pending[0].resolve({code:0,upload_limit:{cycle:9,managed_torrents:100}});await first;
+      assert.equal(state.overview.value.upload_limit.cycle,9);
+      const stale=state.loadOverview();props.pluginId='B';watchers[0]();
+      pending[1].resolve({code:0,upload_limit:{cycle:10}});await stale;
+      assert.equal(state.overview.value.upload_limit.cycle,9);
+      const last=state.loadOverview();cleanups.forEach(fn=>fn());
+      pending[2].resolve({code:0,upload_limit:{cycle:11}});await last;
+      assert.equal(state.overview.value.upload_limit.cycle,9);
+      assert.equal(pending.length,3);
+    '''
+    result = _run_node(script)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def _run_node(script: str) -> subprocess.CompletedProcess[str]:
     """用 Node ESM 执行一段 API helper 合同断言。"""
     script = (

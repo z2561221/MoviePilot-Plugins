@@ -141,10 +141,15 @@ def normalize_torrent(torrent: Any, downloader_id: str, downloader_type: str) ->
     )
 
 
-def poll_downloader(instance: Any, downloader_id: str, downloader_type: str) -> DownloaderPollResult:
-    """读取并归一化下载器任务，保留成功空列表与错误的差异。"""
+def poll_downloader(
+    instance: Any, downloader_id: str, downloader_type: str,
+    *, ids: list[str] | None = None,
+) -> DownloaderPollResult:
+    """按需定向读取下载器任务，保留成功空列表与错误的差异。"""
+    if ids == []:
+        return poll_success([])
     try:
-        response = instance.get_torrents()
+        response = instance.get_torrents(ids=ids) if ids is not None else instance.get_torrents()
     except Exception as error:
         return poll_error(error)
 

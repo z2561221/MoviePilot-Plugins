@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from app.plugins.downloadmanagerlocal.model.sync_delete import JOBS_KEY, DeleteRejected
 from app.plugins.downloadmanagerlocal.service import sync_delete as service
+from app.plugins.downloadmanagerlocal.storage.sync_delete_jobs import DeleteJobStore, job_record_key
 
 _fixtures = runpy.run_path(str(Path(__file__).with_name("test_sync_delete_local_bridge.py")))
 Plugin, Adapter, event, queued, bridge_case = (
@@ -21,7 +22,7 @@ def capture_logs(monkeypatch, plugin):
 
     def info(message):
         if message.startswith("同步删除完成 "):
-            assert any(job["state"] == "completed" for job in plugin.get_data(JOBS_KEY).values())
+            assert any(job["state"] == "completed" for job in DeleteJobStore(plugin).all().values())
         messages.append(("info", message))
 
     logger = SimpleNamespace(info=info, warning=lambda msg: messages.append(("warning", msg)),
@@ -111,7 +112,7 @@ def test_completed_state_must_persist_before_success_log(monkeypatch):
     save = plugin.save_data
 
     def fail_completion(key, value):
-        if key == JOBS_KEY and value.get(job["id"], {}).get("state") == "completed":
+        if key == job_record_key(job["id"]) and value.get("state") == "completed":
             return
         save(key, value)
 

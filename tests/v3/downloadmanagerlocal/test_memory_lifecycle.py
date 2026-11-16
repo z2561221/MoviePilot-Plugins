@@ -76,7 +76,8 @@ def test_stopped_inflight_global_read_never_writes(monkeypatch, restart):
     )
     plugin._transfer_stop_generation = 0
     entered, release = threading.Event(), threading.Event()
-    original = limiter.read_global_upload_settings
+    scanner = importlib.import_module("downloadmanagerlocal.service.upload_limit_scan")
+    original = scanner.read_global_upload_settings
     writes, results = [], []
     monkeypatch.setattr(instance.trc, "set_session", lambda **kw: writes.append(kw))
 
@@ -86,7 +87,7 @@ def test_stopped_inflight_global_read_never_writes(monkeypatch, restart):
         assert release.wait(3)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(limiter, "read_global_upload_settings", blocked_read)
+    monkeypatch.setattr(scanner, "read_global_upload_settings", blocked_read)
     plugin._coordinate_upload_limits = lambda: results.append(limiter.run_upload_limit_cycle(plugin))
     worker.start_upload_limit_worker(plugin)
     thread = plugin._upload_limit_thread
