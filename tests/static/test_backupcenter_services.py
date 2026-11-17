@@ -2,17 +2,18 @@
 
 import copy
 import importlib.util
-import sys
-import sqlite3
+import json
 import shutil
+import sqlite3
 import subprocess
+import sys
+import weakref
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
-
 
 PLUGIN_DIR = Path(__file__).resolve().parents[2] / "plugins.v3" / "backupcenter"
 PACKAGE_NAME = "backupcenter_under_test"
@@ -163,6 +164,10 @@ operation_log_module = _load(
 
 class _SystemConfig:
     """提供备份创建所需的宿主配置快照。"""
+
+    def get(self, key):
+        """模拟宿主按枚举键读取已安装插件。"""
+        return self.all().get(key.value)
 
     def all(self):
         """返回包含已安装插件的测试配置。"""
@@ -474,6 +479,67 @@ def test_available_plugin_ids_include_virtual_instances(tmp_path, monkeypatch):
     service = backup_module.BackupService(plugin, _service_settings(tmp_path))
 
     assert service.available_plugin_ids() == ["DemoPlugin", "DemoPluginClone"]
+
+
+def test_plugin_listing_reads_only_installed_config(tmp_path, monkeypatch):
+    """仅查询插件选项时不加载完整系统配置，仍核对一次实例来源。"""
+    plugin = type("BackupCenter", (_Plugin,), {})(tmp_path)
+    reads = []
+
+    def get(key):
+        reads.append(key)
+        return ["DemoPlugin", "BackupCenter"]
+
+    def forbidden_all():
+        pytest.fail("插件清单不应读取完整系统配置")
+
+    plugin.systemconfig.get = get
+    plugin.systemconfig.all = forbidden_all
+    service = backup_module.BackupService(plugin)
+    monkeypatch.setattr(service, "_plugin_instances", lambda: {
+        "DemoClone": {"source_plugin_id": "DemoPlugin"},
+        "BackupSibling": {"source_plugin_id": "BackupCenter"},
+    })
+    assert service.available_plugin_ids() == ["DemoPlugin", "DemoClone"]
+    assert reads == [_SystemConfigKey.UserInstalledPlugins]
+
+
+def test_creation_uses_one_fresh_config_and_instance_selection(tmp_path, monkeypatch):
+    """每包仅读取一次配置与实例目录，下一包重新读取并按相同选择取名。"""
+    plugin = type("BackupCenter", (_Plugin,), {})(tmp_path)
+    service = backup_module.BackupService(plugin, _service_settings(tmp_path))
+    state = {"installed": "DemoPlugin", "all_reads": 0, "instance_reads": 0}
+    names_read = []
+
+    def config():
+        state["all_reads"] += 1
+        return {"UserInstalledPlugins": [state["installed"], "BackupCenter"],
+                "Language": "zh-CN", f"plugin.{state['installed']}": {"enabled": True}}
+
+    def instances():
+        state["instance_reads"] += 1
+        return {"BackupSibling": {"source_plugin_id": "BackupCenter"}}
+
+    def names(ids):
+        names_read.append(list(ids))
+        return {plugin_id: f"名称-{plugin_id}" for plugin_id in ids}
+
+    plugin.systemconfig.all = config
+    monkeypatch.setattr(service, "_plugin_instances", instances)
+    scope = backup_model.BackupScope(mp_settings=True, plugin_data=False, plugin_files=False)
+    first = service.create_backup(scope, backup_kind="automatic", plugin_names=names)
+    state["installed"] = "OtherPlugin"
+    second = service.create_backup(scope, backup_kind="automatic", plugin_names=names)
+
+    assert (state["all_reads"], state["instance_reads"]) == (2, 2)
+    assert names_read == [["DemoPlugin"], ["OtherPlugin"]]
+    for manifest, plugin_id in [(first, "DemoPlugin"), (second, "OtherPlugin")]:
+        assert manifest["selected_plugins"] == [{"id": plugin_id, "name": f"名称-{plugin_id}"}]
+        with zipfile.ZipFile(service.get_backup_path(manifest["backup_id"]) / "payload.zip") as payload:
+            system_config = json.loads(payload.read("payload/system_config.json"))
+            configs = json.loads(payload.read("payload/plugin_configs.json"))
+        assert system_config == {"UserInstalledPlugins": [plugin_id, "BackupCenter"], "Language": "zh-CN"}
+        assert configs == {plugin_id: {"enabled": True}}
 
 
 def test_corrupt_manifest_is_skipped_when_listing_backups(tmp_path):
@@ -897,6 +963,39 @@ def test_automatic_retention_deletes_only_old_automatic_backups(tmp_path):
     assert (service.get_backup_root() / "backup-manual").is_dir()
     assert (service.get_backup_root() / "backup-auto-mid").is_dir()
     assert not (service.get_backup_root() / "backup-auto-old").exists()
+
+
+def test_retention_skips_package_size_and_protects_other_kinds(tmp_path, monkeypatch):
+    """公开列表保留准确体积；自动保留不递归读取负载且保留手动、应急与指定包。"""
+    plugin = _Plugin(tmp_path)
+    service = backup_module.BackupService(plugin)
+    kinds = ["automatic", "manual", "emergency", "automatic", "automatic", "automatic"]
+    for index, kind in enumerate(kinds):
+        path = service.get_backup_root() / f"backup-{index}"
+        path.mkdir()
+        manifest_module.ManifestService.write_json(path / "manifest.public.json", {
+            "backup_id": path.name, "backup_kind": kind, "created_at": f"2026-08-{20-index:02d}T00:00:00+00:00"
+        })
+        nested = path / "nested"
+        nested.mkdir()
+        (nested / "payload.bin").write_bytes(b"payload")
+    corrupt = service.get_backup_root() / "backup-corrupt"
+    corrupt.mkdir()
+    (corrupt / "manifest.public.json").write_text("{broken", encoding="utf-8")
+    listed = service.list_backups()
+    assert len(listed) == 6
+    for item in listed:
+        path = service.get_backup_path(item["backup_id"])
+        assert item["package_size"] == (path / "manifest.public.json").stat().st_size + 7
+    plugin.records["backup_index"] = listed
+
+    def forbidden_rglob(*_args, **_kwargs):
+        pytest.fail("自动保留不应遍历包内负载")
+
+    monkeypatch.setattr(Path, "rglob", forbidden_rglob)
+    assert service.prune_automatic_backups(1, ["backup-5"]) == ["backup-3", "backup-4"]
+    assert [item["backup_id"] for item in plugin.records["backup_index"]] == ["backup-0", "backup-1", "backup-2", "backup-5"]
+    assert all(service.get_backup_path(f"backup-{index}").exists() for index in (0, 1, 2, 5))
 
 
 def test_plugin_data_restore_replaces_all_selected_plugins_via_public_api(tmp_path):
@@ -1495,3 +1594,196 @@ def test_unknown_instance_source_fails_closed(tmp_path, monkeypatch):
     monkeypatch.setattr(app_sdk_plugin_manager_module, "PluginManager", lambda: SimpleNamespace(get_plugin_instances=lambda: {"Unknown": object()}))
     with pytest.raises(backup_module.BackupServiceError, match="来源不明确"):
         backup_module.BackupService(plugin, _service_settings(tmp_path)).available_plugin_ids()
+
+
+def _logical_restore_fixture(tmp_path, monkeypatch, values, *, files=False):
+    """构造有完整现场状态的恢复夹具，全部 IO 限于本次临时目录。"""
+    plugin = _Plugin(tmp_path)
+    events = []
+    system_values = {"UserInstalledPlugins": ["PluginA", "PluginB"], "Language": "old"}
+    configs = {"PluginA": {"mode": "old"}, "PluginB": {"mode": "kept"}}
+    plugin.plugin_records = {"PluginA": {"old": 1}, "PluginB": {"kept": 2}}
+    plugin.systemconfig.all = lambda: copy.deepcopy(system_values)
+    plugin.systemconfig.set = lambda key, value: system_values.__setitem__(key, copy.deepcopy(value))
+    plugin.systemconfig.delete = lambda key: system_values.pop(key, None)
+    plugin.get_config = lambda plugin_id=None: copy.deepcopy(configs.get(plugin_id))
+    plugin.update_config = lambda config, plugin_id=None: configs.__setitem__(plugin_id, copy.deepcopy(config))
+    plugin.get_backup_password = lambda: ""
+    plugin.get_data_path = lambda plugin_id=None: tmp_path / "live-files" / str(plugin_id or "BackupCenter")
+    for plugin_id in ("PluginA", "PluginB"):
+        path = plugin.get_data_path(plugin_id)
+        path.mkdir(parents=True)
+        (path / "state.txt").write_text(f"old-{plugin_id}", encoding="utf-8")
+    payload = tmp_path / "payload"
+    payload.mkdir()
+    manifest = {"format_version": 3, "backup_id": "backup-plan", "source_mp_version": "v3.0.0",
+                "scope": {"mp_settings": True, "plugin_settings": True, "plugin_data": True, "plugin_files": True},
+                "selected_plugin_ids": ["PluginA", "PluginB"]}
+    manifest_module.ManifestService.write_json(payload / "manifest.json", manifest)
+    for filename, value in values.items():
+        manifest_module.ManifestService.write_json(payload / filename, value)
+    if files:
+        for plugin_id in ("PluginA", "PluginB"):
+            path = payload / "files" / "plugins" / plugin_id
+            path.mkdir(parents=True)
+            (path / "state.txt").write_text(f"new-{plugin_id}", encoding="utf-8")
+    backup_root = tmp_path / "backups"
+    backup_root.mkdir()
+    backup = SimpleNamespace(
+        backup_family_ids=lambda: {"BackupCenter"}, read_public_manifest=lambda _id: manifest,
+        get_backup_root=lambda: backup_root,
+        create_backup=lambda *_a, **_k: events.append("emergency") or {"backup_id": "backup-emergency"},
+    )
+    service = restore_module.RestoreService(plugin, backup)
+
+    @contextmanager
+    def payload_directory(*_args, **_kwargs):
+        yield payload
+
+    monkeypatch.setattr(service, "_payload_directory", payload_directory)
+    monkeypatch.setattr(service, "_create_host_database_backup", lambda: events.append("host") or "host-backup")
+    monkeypatch.setattr(service, "_stop_target_plugins", lambda ids: (events.append("stop") or object(), list(ids)))
+    monkeypatch.setattr(service, "_reload_target_plugins", lambda _m, ids: (events.append("reload") or list(ids), []))
+    return service, plugin, system_values, configs, payload, events
+
+
+def test_restore_payload_json_is_parsed_once_and_next_request_is_fresh(tmp_path, monkeypatch):
+    """不可变配置与数据每次仅解析一次，第二次恢复读取第二份负载。"""
+    values = {"system_config.json": {"Language": "first"}, "plugin_configs.json": {"PluginA": {}},
+              "plugin_data.json": {"PluginA": [{"key": "first", "value": 1}]}}
+    service, plugin, system_values, configs, payload, events = _logical_restore_fixture(tmp_path, monkeypatch, values)
+    reads = []
+    original_read = manifest_module.ManifestService.read_json
+
+    def read_json(path):
+        reads.append(path.name)
+        return original_read(path)
+
+    monkeypatch.setattr(manifest_module.ManifestService, "read_json", read_json)
+    selection = backup_model.RestoreSelection(mp_settings=True, plugin_settings=True, plugin_data=True)
+    result = service.restore_logical("backup-plan", selection, ["PluginA"])
+    assert result["restored"] == {"mp_settings": 1, "plugin_settings": 1, "plugin_data": 1, "plugin_files": []}
+    assert reads == ["manifest.json", "system_config.json", "plugin_configs.json", "plugin_data.json"]
+    assert events == ["host", "stop", "emergency", "reload"]
+    assert configs["PluginA"] == {}
+    assert configs["PluginB"] == {"mode": "kept"}
+    manifest_module.ManifestService.write_json(payload / "system_config.json", {"Language": "second"})
+    manifest_module.ManifestService.write_json(payload / "plugin_data.json", {"PluginA": []})
+    service.restore_logical("backup-plan", selection, ["PluginA"])
+    assert len(reads) == 8
+    assert system_values["Language"] == "second"
+    assert plugin.plugin_records == {"PluginA": {}, "PluginB": {"kept": 2}}
+
+
+@pytest.mark.parametrize("value, expected", [(None, {"old": 1}), ({}, {"old": 1}),
+                                               ({"PluginB": []}, {"old": 1}), ({"PluginA": []}, {})])
+def test_restore_plan_distinguishes_missing_empty_and_omitted_plugin(tmp_path, monkeypatch, value, expected):
+    """缺席/空根对象/未包含插件均跳过，只有显式空列表清空目标 PluginData。"""
+    values = {} if value is None else {"plugin_data.json": value}
+    service, plugin, _system, _configs, payload, _events = _logical_restore_fixture(tmp_path, monkeypatch, values)
+    selection = backup_model.RestoreSelection(plugin_data=True)
+    plan = restore_module.RestorePayloadReader.load(payload, selection, ["PluginA"])
+    assert plan.plugin_data_present is (value is not None)
+    service.restore_logical("backup-plan", selection, ["PluginA"])
+    assert plugin.plugin_records == {"PluginA": expected, "PluginB": {"kept": 2}}
+
+
+@pytest.mark.parametrize("invalid", [None, {}, [None], [{"key": " "}], [{"value": 1}]])
+def test_invalid_plugin_rows_block_all_restore_scopes_before_host_actions(tmp_path, monkeypatch, invalid):
+    """后一个所选插件的坏行必须在系统/配置写入、恢复点及停止之前拒绝。"""
+    values = {"system_config.json": {"Language": "new"}, "plugin_configs.json": {"PluginA": {"mode": "new"}},
+              "plugin_data.json": {"PluginA": [{"key": "valid", "value": 1}], "PluginB": invalid}}
+    service, plugin, system_values, configs, _payload, events = _logical_restore_fixture(tmp_path, monkeypatch, values)
+    selection = backup_model.RestoreSelection(mp_settings=True, plugin_settings=True, plugin_data=True)
+    with pytest.raises(restore_module.RestoreServiceError, match="插件数据"):
+        service.restore_logical("backup-plan", selection, ["PluginA", "PluginB"])
+    assert events == []
+    assert system_values["Language"] == "old"
+    assert configs["PluginA"] == {"mode": "old"}
+    assert plugin.plugin_records == {"PluginA": {"old": 1}, "PluginB": {"kept": 2}}
+
+
+def test_invalid_unselected_rows_do_not_expand_restore_scope(tmp_path, monkeypatch):
+    """仅恢复 A 时无需验证或改写未选 B 的 PluginData。"""
+    service, plugin, _system, _configs, _payload, _events = _logical_restore_fixture(tmp_path, monkeypatch, {
+        "plugin_data.json": {"PluginA": [], "PluginB": "invalid"},
+    })
+    service.restore_logical("backup-plan", backup_model.RestoreSelection(plugin_data=True), ["PluginA"])
+    assert plugin.plugin_records == {"PluginA": {}, "PluginB": {"kept": 2}}
+
+
+@pytest.mark.parametrize("value", [None, {}, {"PluginB": {}}, {"PluginA": {}}])
+def test_config_restore_plan_keeps_missing_empty_and_omitted_keys(tmp_path, monkeypatch, value):
+    """配置文件缺失或未包含 A 时保留现场；显式 A 空配置仍写入。"""
+    values = {} if value is None else {"plugin_configs.json": value, "system_config.json": {}}
+    service, _plugin, system_values, configs, payload, _events = _logical_restore_fixture(tmp_path, monkeypatch, values)
+    selection = backup_model.RestoreSelection(mp_settings=True, plugin_settings=True)
+    plan = restore_module.RestorePayloadReader.load(payload, selection, ["PluginA"])
+    assert plan.plugin_configs == value
+    assert plan.system_settings == (None if value is None else {})
+    result = service.restore_logical("backup-plan", selection, ["PluginA"])
+    assert result["restored"]["mp_settings"] == 0
+    assert result["restored"]["plugin_settings"] == int(value == {"PluginA": {}})
+    assert configs["PluginA"] == ({} if value == {"PluginA": {}} else {"mode": "old"})
+    assert configs["PluginB"] == {"mode": "kept"}
+    assert system_values["Language"] == "old"
+
+
+def test_restore_releases_raw_rows_and_consumed_config_payloads(tmp_path, monkeypatch):
+    """数据写入前不再持有原始行容器或已消费配置，补偿仍依赖实时快照。"""
+    values = {"system_config.json": {"Language": "new"}, "plugin_configs.json": {"PluginA": {}},
+              "plugin_data.json": {"PluginA": [{"key": "new", "value": {"text": "value"}}]}}
+    service, plugin, _systems, _configs, _payload, _events = _logical_restore_fixture(tmp_path, monkeypatch, values)
+    references = {}
+    original_read = manifest_module.ManifestService.read_json
+
+    class PayloadObject(dict):
+        """允许直接观察原始 JSON 容器的存活期。"""
+
+    def read_json(path):
+        value = original_read(path)
+        if path.name in values:
+            value = PayloadObject(value)
+            references[path.name] = weakref.ref(value)
+        return value
+
+    original_restore_data = service._restore_plugin_data
+
+    def restore_data(plan, ids):
+        assert references["plugin_data.json"]() is None
+        assert references["system_config.json"]() is None
+        assert references["plugin_configs.json"]() is None
+        return original_restore_data(plan, ids)
+
+    monkeypatch.setattr(manifest_module.ManifestService, "read_json", read_json)
+    monkeypatch.setattr(service, "_restore_plugin_data", restore_data)
+    selection = backup_model.RestoreSelection(mp_settings=True, plugin_settings=True, plugin_data=True)
+    result = service.restore_logical("backup-plan", selection, ["PluginA"])
+    assert result["restored"]["plugin_data"] == 1
+    assert plugin.plugin_records["PluginA"] == {"new": {"text": "value"}}
+    assert all(reference() is None for reference in references.values())
+
+
+@pytest.mark.parametrize("method", ["_restore_system_settings", "_restore_plugin_settings", "_restore_plugin_data", "_restore_plugin_files"])
+def test_planned_restore_compensates_each_modified_scope(tmp_path, monkeypatch, method):
+    """各阶段实际写入后失败仍按 modified_scopes 精确补偿，保留两层数据恢复。"""
+    values = {"system_config.json": {"Language": "new", "Added": True},
+              "plugin_configs.json": {"PluginA": {"mode": "new"}},
+              "plugin_data.json": {"PluginA": [{"key": "new", "value": 9}]}}
+    service, plugin, system_values, configs, _payload, events = _logical_restore_fixture(tmp_path, monkeypatch, values, files=True)
+    original = getattr(service, method)
+
+    def fail_after_write(*args):
+        original(*args)
+        raise restore_module.RestoreServiceError("injected after write")
+
+    monkeypatch.setattr(service, method, fail_after_write)
+    selection = backup_model.RestoreSelection(mp_settings=True, plugin_settings=True, plugin_data=True, plugin_files=True)
+    with pytest.raises(restore_module.RestoreServiceError, match="injected after write"):
+        service.restore_logical("backup-plan", selection, ["PluginA", "PluginB"])
+    assert system_values == {"UserInstalledPlugins": ["PluginA", "PluginB"], "Language": "old"}
+    assert configs == {"PluginA": {"mode": "old"}, "PluginB": {"mode": "kept"}}
+    assert plugin.plugin_records == {"PluginA": {"old": 1}, "PluginB": {"kept": 2}}
+    for plugin_id in ("PluginA", "PluginB"):
+        assert (plugin.get_data_path(plugin_id) / "state.txt").read_text(encoding="utf-8") == f"old-{plugin_id}"
+    assert events == ["host", "stop", "emergency", "reload"]

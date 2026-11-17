@@ -7,22 +7,25 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Tuple
 
 from app.schemas.types import SystemConfigKey
 from app.sdk.config import settings
 from version import APP_VERSION
 
 from ..adapter.sqlite_snapshot import create_sqlite_snapshot, is_sqlite_database
-from ..model.backup import BackupScope, ScopeError, normalize_plugin_ids
+from ..model.backup import (
+    BackupCreationContext,
+    BackupScope,
+    BackupServiceError,
+    ScopeError,
+    normalize_plugin_ids,
+)
+from .backup_catalog import BackupCatalog
 from .crypto_service import CryptoService
-from .manifest_service import ManifestError, ManifestService
+from .manifest_service import ManifestService
 from .offline_guide_service import OfflineGuideService
 from .plugin_data import normalize_plugin_data_rows
-
-
-class BackupServiceError(RuntimeError):
-    """表示备份创建或包校验失败。"""
 
 
 class BackupService:
@@ -39,20 +42,15 @@ class BackupService:
         """绑定运行中的插件与可注入的宿主配置。"""
         self.plugin = plugin
         self.settings = settings_obj or settings
+        self.catalog = BackupCatalog(plugin, self._normalize_public_manifest)
 
     def get_backup_root(self) -> Path:
         """返回备份中心自有数据目录中的备份根目录。"""
-        root = self.plugin.get_data_path() / "backups"
-        root.mkdir(parents=True, exist_ok=True)
-        return root
+        return self.catalog.root()
 
     def get_backup_path(self, backup_id: Any) -> Path:
         """返回经过安全校验的备份目录。"""
-        value = ManifestService.validate_backup_id(backup_id)
-        path = self.get_backup_root() / value
-        if not path.is_dir():
-            raise BackupServiceError("备份不存在")
-        return path
+        return self.catalog.path(backup_id)
 
     @staticmethod
     def _plugin_instances() -> dict:
@@ -121,7 +119,19 @@ class BackupService:
 
     def available_plugin_ids(self) -> List[str]:
         """返回当前允许纳入逻辑备份的已安装插件 ID。"""
-        return self._installed_plugin_ids(self.plugin.systemconfig.all())
+        installed = self.plugin.systemconfig.get(SystemConfigKey.UserInstalledPlugins)
+        return self._installed_plugin_ids({SystemConfigKey.UserInstalledPlugins.value: installed})
+
+    def _creation_context(
+        self,
+        plugin_ids: Iterable[Any] | None,
+        plugin_names: Mapping[str, str] | Callable[[list[str]], Mapping[str, str]] | None,
+    ) -> BackupCreationContext:
+        """在调用者的操作锁内读取一次新鲜现场，随后仅供本次负载使用。"""
+        config = self.plugin.systemconfig.all()
+        selected_ids = self._select_plugin_ids(self._installed_plugin_ids(config), plugin_ids)
+        names = plugin_names(selected_ids) if callable(plugin_names) else plugin_names
+        return BackupCreationContext(config, selected_ids, dict(names or {}))
 
     @staticmethod
     def _select_plugin_ids(
@@ -194,15 +204,7 @@ class BackupService:
 
     def _append_index(self, public_manifest: Dict[str, Any]) -> None:
         """将不含秘密的备份摘要保存到备份中心自身数据中。"""
-        existing = self.plugin.get_data("backup_index") or []
-        records = [item for item in existing if isinstance(item, dict)]
-        records = [
-            item
-            for item in records
-            if item.get("backup_id") != public_manifest.get("backup_id")
-        ]
-        records.insert(0, public_manifest)
-        self.plugin.save_data("backup_index", records[:200])
+        self.catalog.append_index(public_manifest)
 
     @classmethod
     def _normalize_display_name(
@@ -299,7 +301,7 @@ class BackupService:
         backup_kind: str = "manual",
         password: Any = None,
         display_name: Any = None,
-        plugin_names: Mapping[str, str] | None = None,
+        plugin_names: Mapping[str, str] | Callable[[list[str]], Mapping[str, str]] | None = None,
         manual_target: str = "plugin",
     ) -> Dict[str, Any]:
         """创建明文或加密校验备份包并返回公开 manifest。"""
@@ -309,9 +311,9 @@ class BackupService:
             raise BackupServiceError("完整数据库备份由 MoviePilot 主程序管理")
         if emergency:
             backup_kind = "emergency"
-        config = self.plugin.systemconfig.all()
-        installed_ids = self._installed_plugin_ids(config)
-        selected_ids = self._select_plugin_ids(installed_ids, plugin_ids)
+        context = self._creation_context(plugin_ids, plugin_names)
+        config, selected_ids = context.config, context.plugin_ids
+        names = context.plugin_names
         normalized_manual_target = str(manual_target or "").strip().lower()
         if normalized_manual_target not in {"moviepilot", "plugin"}:
             raise BackupServiceError("手动备份对象无效")
@@ -328,13 +330,13 @@ class BackupService:
             created_at,
             scope=scope,
             selected_plugin_ids=selected_ids,
-            plugin_names=plugin_names,
+            plugin_names=names,
             manual_target=normalized_manual_target,
         )
         selected_plugins = [
             {
                 "id": plugin_id,
-                "name": str((plugin_names or {}).get(plugin_id) or plugin_id),
+                "name": str(names.get(plugin_id) or plugin_id),
             }
             for plugin_id in selected_ids
         ]
@@ -479,76 +481,21 @@ class BackupService:
 
     def list_backups(self) -> List[Dict[str, Any]]:
         """读取本地备份目录中的公开摘要。"""
-        backups: List[Dict[str, Any]] = []
-        for child in self.get_backup_root().iterdir():
-            if not child.is_dir() or child.name.startswith("."):
-                continue
-            manifest_path = child / "manifest.public.json"
-            if not manifest_path.is_file():
-                continue
-            try:
-                manifest = self._normalize_public_manifest(
-                    ManifestService.read_json(manifest_path)
-                )
-                manifest["package_size"] = sum(
-                    item.stat().st_size for item in child.rglob("*") if item.is_file()
-                )
-                backups.append(manifest)
-            except (ManifestError, ScopeError, TypeError, ValueError, OSError):
-                continue
-        return sorted(backups, key=lambda item: str(item.get("created_at", "")), reverse=True)
+        return self.catalog.list_backups()
 
     def prune_automatic_backups(
         self, retention_count: int, preserve_backup_ids: Iterable[Any] | None = None
     ) -> List[str]:
         """按数量删除最旧的自动备份，并保留应急和手动备份。"""
-        limit = max(1, min(200, int(retention_count)))
-        preserved = {str(value) for value in preserve_backup_ids or []}
-        automatic = [
-            item for item in self.list_backups()
-            if item.get("backup_kind") == "automatic"
-        ]
-        deleted: List[str] = []
-        for item in automatic[limit:]:
-            backup_id = str(item.get("backup_id") or "")
-            if not backup_id or backup_id in preserved:
-                continue
-            path = self.get_backup_path(backup_id)
-            shutil.rmtree(path)
-            deleted.append(backup_id)
-        if deleted:
-            existing = self.plugin.get_data("backup_index") or []
-            self.plugin.save_data(
-                "backup_index",
-                [
-                    item for item in existing
-                    if isinstance(item, dict) and item.get("backup_id") not in deleted
-                ],
-            )
-        return deleted
+        return self.catalog.prune_automatic(retention_count, preserve_backup_ids)
 
     def delete_backup(self, backup_id: Any) -> Dict[str, Any]:
         """删除指定备份并从本地索引移除。"""
-        normalized = ManifestService.validate_backup_id(backup_id)
-        path = self.get_backup_path(normalized)
-        shutil.rmtree(path)
-        existing = self.plugin.get_data("backup_index") or []
-        self.plugin.save_data(
-            "backup_index",
-            [
-                item for item in existing
-                if isinstance(item, dict) and item.get("backup_id") != normalized
-            ],
-        )
-        return {"backup_id": normalized, "deleted": True}
+        return self.catalog.delete(backup_id)
 
     def read_public_manifest(self, backup_id: Any) -> Dict[str, Any]:
         """读取指定备份的公开 manifest。"""
-        return self._normalize_public_manifest(
-            ManifestService.read_json(
-                self.get_backup_path(backup_id) / "manifest.public.json"
-            )
-        )
+        return self.catalog.read_manifest(backup_id)
 
     def verify_backup(self, backup_id: Any) -> Dict[str, Any]:
         """校验备份外层文件并返回公开摘要。"""

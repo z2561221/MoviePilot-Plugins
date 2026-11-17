@@ -21,7 +21,7 @@ class BackupCenter(_PluginBase):
     plugin_desc = "「未来道具研究所」出品 · EL PSY CONGROO！"
     plugin_icon = "backup.png"
     plugin_color = "#00897B"
-    plugin_version = "3.0.9"
+    plugin_version = "3.0.10"
     plugin_label = "系统工具,数据安全"
     plugin_author = "Kurisu"
     author_url = "https://github.com/z2561221"
@@ -149,13 +149,11 @@ class BackupCenter(_PluginBase):
         from .model.backup import BackupScope
 
         with self._operation_lock:
-            plugin_ids = self._backup_service.available_plugin_ids()
             manifest = self._backup_service.create_backup(
                 BackupScope.from_payload(self._config.get("auto_backup_scope")),
-                plugin_ids=plugin_ids,
                 backup_kind="automatic",
                 password=self.get_backup_password(),
-                plugin_names=BackupCenterApiController._plugin_name_map(plugin_ids),
+                plugin_names=BackupCenterApiController._plugin_name_map,
             )
             deleted = self._backup_service.prune_automatic_backups(
                 self._config["retention_count"],
