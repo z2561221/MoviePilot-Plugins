@@ -41,6 +41,7 @@ def test_accepted_target_recovers_without_duplicate_submission(monkeypatch, fail
         get_data=lambda key=None: deepcopy(data.get(key)), save_data=save,
     )
     service = SimpleNamespace(name="QB", type="qbittorrent", instance=SimpleNamespace(
+        get_completed_torrents=lambda **kw: [{"hash": "mother", "added_on": 12, "save_path": "/fake"}],
         get_torrents=lambda **kw: ([{"hash": "child"}] if existing else [], None),
         recheck_torrents=lambda **kw: fault["value"] != "recheck",
     ))
@@ -49,6 +50,7 @@ def test_accepted_target_recovers_without_duplicate_submission(monkeypatch, fail
 
     def add(*args, **kwargs):
         """只记录提交，在接收返回边界可触发停止。"""
+        assert kwargs["submit"](lambda downloader: True)
         added.append("child")
         existing.add("child")
         if fault["value"] == "stop":

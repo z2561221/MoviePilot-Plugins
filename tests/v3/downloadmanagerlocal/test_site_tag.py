@@ -1,6 +1,7 @@
 """站点标签追加必须保留目标标签，覆盖 TR 实际替换语义及各后处理入口。"""
 
 from types import MethodType, SimpleNamespace
+from urllib.parse import urlsplit
 from unittest.mock import Mock
 
 import pytest
@@ -58,6 +59,7 @@ class MemoryDownloader:
 def tag_case(monkeypatch):
     """配置可识别站点及无后台动作的插件，保留真实标签服务。"""
     monkeypatch.setattr(site_tag, "find_site_by_domain", lambda _domain: "彩虹岛")
+    monkeypatch.setattr(site_tag, "get_url_domain", lambda url: urlsplit(url).hostname or "")
     log = Mock()
     monkeypatch.setattr(site_tag, "logger", log)
     plugin = SimpleNamespace(

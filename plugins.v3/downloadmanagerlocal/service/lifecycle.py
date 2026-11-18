@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from copy import deepcopy
 
 import pytz
 from app.sdk.config import settings
@@ -12,6 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from ..iyuu_helper import IyuuHelper
 from ..utils.config import is_speed_monitor_active, is_upload_limit_active
 from .config import initialize_runtime_config
+from .auto_delete import initialize_runtime as initialize_auto_delete, stop_runtime as stop_auto_delete
 from .events import clear_transfer_schedule, restore_transfer_schedule
 from .recheck import (
     ensure_seed_recheck_worker,
@@ -34,11 +36,21 @@ from .upload_limiter import load_upload_limit_state, restore_upload_limits
 
 def initialize_plugin(plugin, config: dict = None) -> None:
     """初始化插件运行时配置，并按当前配置登记一次性后台任务。"""
+    previous = getattr(plugin, '_auto_delete_runtime', None)
+    retained_samples = None
+    if previous is not None and getattr(plugin, '_enabled', False) and previous.settings.enabled and not previous.stop.is_set():
+        if previous.run_lock.acquire(blocking=False):
+            try:
+                previous.stop.set()
+                retained_samples = deepcopy(previous.samples)
+            finally:
+                previous.run_lock.release()
     plugin.stop_service()
     config = initialize_runtime_config(plugin, config)
     event = getattr(plugin, "_event", None)
     if event is not None:
         event.clear()
+    initialize_auto_delete(plugin, config, retained_samples=retained_samples)
 
     if is_speed_monitor_active(plugin):
         runtime = ensure_speed_monitor_runtime(plugin)
@@ -127,6 +139,7 @@ def stop_plugin_service(plugin) -> None:
     event = getattr(plugin, "_event", None)
     if event is not None:
         event.set()
+    stop_auto_delete(plugin)
     stop_sync_delete(plugin)
     clear_transfer_schedule(plugin)
     try:

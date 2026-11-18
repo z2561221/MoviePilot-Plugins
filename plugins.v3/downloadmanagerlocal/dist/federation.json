@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "revision": "976900411d14e4fde8cb09519413c6e09200d47988014c0d638fa1604e3ab018",
+  "path": "dist/assets/r976900411d14e4fde8cb09519413c6e09200d47988014c0d638fa1604e3ab018",
+  "files": {
+    "AutoDeletePane-ChEnZVhG.css": "324662c37e1edee0f4a838c3a3556b8f9dafeb5a09322ed382476ab5bde63d1b",
+    "AutoDeletePane-DQAa7UNA.js": "1f0ee9038127847da8f156cba061980a8e4acd7a339059f5f1790d02628ef1e5",
+    "__federation_expose_Config-BOwVYDMk.js": "940c9a932e26667864bf1ef51666555421ee6239bce58fe0a6b340a51d5fe88c",
+    "__federation_expose_Config-L_JcdlV5.css": "af98e4c1ff47953a53ab1b0fc6b7957f8cb5bb212b2c54fb35bb48bd474f1d3d",
+    "__federation_expose_Page-5QK9AUGp.css": "247ffb43e9760a4455e035e0f33c73198b55fd082f260c3189eb19eecdc8d695",
+    "__federation_expose_Page-BES9G2xW.js": "b69acda897c1c62863dec10936da432e4b5731f4dac06ba62731e3648b1e5d55",
+    "__federation_fn_import-JrT3xvdd.js": "4776b5a84c2055e4a6907ebf7377f6abd86f26b7d520d685a13b40d5aa8538aa",
+    "remoteEntry.js": "c54d784cbebbed222ea17d72fa3ed800b0a33fe771234b8e5abe38212171923f"
+  }
+}

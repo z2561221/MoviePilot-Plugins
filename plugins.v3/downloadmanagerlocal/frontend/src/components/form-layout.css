@@ -1,0 +1,48 @@
+.dm-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 24px;
+  align-items: start;
+  margin: 0;
+}
+.dm-form-grid--one { grid-template-columns: minmax(0, 1fr); }
+.dm-form-grid--three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dm-form-grid--four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.dm-form-grid--single-number { grid-template-columns: minmax(0, 240px); }
+.dm-form-grid + .dm-form-grid { margin-top: 20px !important; }
+.dm-form-grid > .dm-form-field {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+  flex: none;
+}
+.dm-form-grid > .dm-form-field--wide { grid-column: span 2; }
+.dm-form-grid .v-input { min-width: 0; }
+.dm-form-grid .v-input__details { padding-top: 6px; }
+.dm-form-grid .v-messages { line-height: 1.5; }
+.dm-form-grid .v-switch { min-height: 40px; }
+.dm-form-grid .dm-hint { margin-top: 6px; font-size: 12px; line-height: 1.5; color: rgba(var(--v-theme-on-surface), 0.6); overflow-wrap: anywhere; }
+.dm-config .dm-pane:not(.dm-pane--overview) { container-type: inline-size; container-name: dm-form; }
+@container dm-form (max-width: 640px) {
+  .dm-form-grid--four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container dm-form (max-width: 480px) {
+  .dm-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .dm-form-grid--three, .dm-form-grid--four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dm-form-grid--single-number { grid-template-columns: minmax(0, 240px); }
+  .dm-form-grid > .dm-form-field--wide { grid-column: auto; }
+}
+@container dm-form (max-width: 360px) {
+  .dm-form-grid--three, .dm-form-grid--four { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .dm-form-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .dm-form-grid--three, .dm-form-grid--four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dm-form-grid--single-number { grid-template-columns: minmax(0, 240px); }
+  .dm-form-grid > .dm-form-field--wide { grid-column: auto; }
+  .dm-form-grid + .dm-form-grid { margin-top: 16px !important; }
+}
+@media (max-width: 480px) {
+  .dm-form-grid--three, .dm-form-grid--four { grid-template-columns: minmax(0, 1fr); }
+}

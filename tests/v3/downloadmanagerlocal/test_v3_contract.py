@@ -6,6 +6,7 @@ import ast
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 import pytest
 from app import schemas
@@ -26,7 +27,7 @@ def test_all_plugin_routes_declare_concrete_v3_models() -> None:
 
     routes = plugin.get_api()
 
-    assert len(routes) == 25
+    assert len(routes) == 36
     assert {route["path"] for route in routes} == {
         "/permissions",
         "/downloaders",
@@ -53,6 +54,16 @@ def test_all_plugin_routes_declare_concrete_v3_models() -> None:
         "/sync_delete/preview",
         "/sync_delete/history",
         "/sync_delete/retry",
+        "/sync_delete/dismiss",
+        "/auto_delete/config",
+        "/auto_delete/preview",
+        "/auto_delete/run",
+        "/auto_delete/activate",
+        "/auto_delete/release",
+        "/auto_delete/stop",
+        "/auto_delete/status",
+        "/auto_delete/history",
+        "/auto_delete/job",
     }
     for route in routes:
         assert route["auth"] == "bear"
@@ -69,14 +80,15 @@ def test_all_plugin_routes_declare_concrete_v3_models() -> None:
         "/rename_archive",
         "/sites",
     }
-    envelope_paths = {route["path"] for route in routes} - bare_paths
+    envelope_paths = {route["path"] for route in routes if "POST" in route["methods"]} - bare_paths
     for route in routes:
         response_model = route["response_model"]
         is_envelope = isinstance(response_model, type) and issubclass(
             response_model,
             schemas.Response,
         )
-        assert is_envelope is (route["path"] in envelope_paths)
+        assert is_envelope is ("POST" in route["methods"] if route["path"].startswith("/auto_delete/")
+                               else route["path"] in envelope_paths)
 
 
 def test_json_post_routes_use_pydantic_request_models() -> None:
@@ -85,6 +97,7 @@ def test_json_post_routes_use_pydantic_request_models() -> None:
     json_paths = {
         "/sync_delete/preview",
         "/sync_delete/retry",
+        "/sync_delete/dismiss",
         "/reset_speed_monitor_baseline",
         "/upload_limit_reallocate",
         "/upload_limit_site_tags",
@@ -243,6 +256,7 @@ def test_site_adapter_merges_v3_database_record_and_indexer(monkeypatch) -> None
 
     monkeypatch.setattr(moviepilot_adapter, "SiteOper", FakeSiteOper)
     monkeypatch.setattr(moviepilot_adapter, "SitesHelper", FakeSitesHelper)
+    monkeypatch.setattr(moviepilot_adapter, "get_url_domain", lambda url: urlsplit("https://" + url if "://" not in url else url).hostname or "")
 
     result = moviepilot_adapter.get_site_indexer("tracker.example")
 

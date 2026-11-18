@@ -6,7 +6,11 @@ import html
 import time
 from typing import Any
 
-from ..utils.torrent_adapter import delete_torrent_with_files
+from contextlib import nullcontext
+
+from ..adapter.auto_delete import binding_of
+from ..utils.torrent_adapter import TORRENT_ACTIVE, delete_torrent_with_files, normalize_torrent
+from .coordination import operation_lock, task_blocked
 from .speed_notification import (
     build_speed_monitor_callback,
     original_message_kwargs,
@@ -157,6 +161,37 @@ def _mark_alert(
         alert["handled_at"] = now
 
 
+class StaleSpeedAlert(ValueError):
+    """告警对应的下载任务已无法确认。"""
+
+
+def _current_delete_target(plugin, session, alert):
+    """锁内复查原下载器、创建时间、路径、实时下载状态和其他模块的保护。"""
+    expected = alert.get("target_identity")
+    if not expected or expected != session.target_identity or not session.anomaly_active or alert.get("anomaly_epoch") != session.anomaly_epoch:
+        raise StaleSpeedAlert("这张告警缺少有效的原任务记录，已停止删除。")
+    service = plugin.service_info(session.downloader_id)
+    if not service or not service.instance:
+        raise RuntimeError("下载器连接不可用")
+    if binding_of(service) != expected[0]:
+        raise StaleSpeedAlert("下载器配置已变化，请查看当前下载任务。")
+    response = service.instance.get_torrents(ids=[session.torrent_hash])
+    rows, error = response if isinstance(response, tuple) else (response, None)
+    if error or rows is None:
+        raise RuntimeError("下载器未确认任务状态")
+    if len(rows) != 1:
+        raise StaleSpeedAlert("原下载任务已不存在或无法唯一确认。")
+    raw = rows[0]
+    current = normalize_torrent(raw, session.downloader_id, session.downloader_type)
+    active_states = {"downloading", "forceddl", "stalleddl", "metadl", "forcedmetadl", "4"}
+    current_state = current.state.lower().replace("_", "").replace(" ", "")
+    if (current_state not in active_states or current.torrent_hash != session.torrent_hash or [expected[0], current.added_at, current.save_path] != expected
+            or not current.state or current.state_category != TORRENT_ACTIVE or current.total_bytes <= 0
+            or task_blocked(plugin, session.downloader_id, raw, session.downloader_type)):
+        raise StaleSpeedAlert("任务身份、运行状态或保护已变化，旧告警已失效。")
+    return service.instance
+
+
 def process_speed_message_action(
     plugin: Any,
     event_data: dict,
@@ -214,7 +249,8 @@ def process_speed_message_action(
     title = "下载速度异常"
     text = "该速度告警已处理。"
     buttons = None
-    with runtime.session_lock(session_key):
+    guard = operation_lock(plugin) if action == "confirm" else nullcontext()
+    with guard, runtime.session_lock(session_key):
         session = runtime.sessions.get(session_key)
         if session is None or session.status != SESSION_ACTIVE:
             text = "任务已经完成、删除或不再可操作。"
@@ -263,11 +299,8 @@ def process_speed_message_action(
             if alert.get("status") != "confirming":
                 text = "删除确认已经失效或处理完成。"
             else:
-                service = plugin.service_info(session.downloader_id)
-                instance = getattr(service, "instance", None) if service else None
                 try:
-                    if instance is None:
-                        raise RuntimeError("downloader unavailable")
+                    instance = _current_delete_target(plugin, session, alert)
                     delete_torrent_with_files(
                         instance,
                         session.torrent_hash,
@@ -285,6 +318,10 @@ def process_speed_message_action(
                     alert["last_action"] = "confirm_delete"
                     title = "种子及全部数据已删除"
                     text = "下载器已执行 delete_file=True，全量删除已完成。"
+                except StaleSpeedAlert as error:
+                    _mark_alert(alert, status="expired", action="target_changed", now=observed_at)
+                    title = "删除确认已失效"
+                    text = str(error)
                 except Exception as error:
                     _mark_alert(
                         alert,

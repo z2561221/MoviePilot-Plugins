@@ -13,6 +13,7 @@ from ..utils.tag_cleanup import (
     normalize_tags,
 )
 from ..utils.torrent_adapter import get_hash, get_label
+from .activity import observed
 
 
 def _active_temporary_tags(plugin) -> set:
@@ -421,6 +422,7 @@ def find_site_by_domain(domain: str) -> Optional[str]:
     return None
 
 
+@observed("tag")
 def tag_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_tags: list, trackers: list):
     """给种子打站点标签，并返回是否完成或已满足幂等条件。"""
     try:

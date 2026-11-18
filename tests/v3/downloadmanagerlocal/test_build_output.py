@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 _NODE_CHECK = r"""
 const fs = require('node:fs');
 const path = require('node:path');
@@ -21,13 +20,22 @@ const guard = value => {
   const relative = path.relative(sandbox, path.resolve(value));
   assert(!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep));
 };
-const context = {resolve: path.resolve};
+let packaged = false;
+const context = {resolve: path.resolve, packageFederationAssets(directory, names) {
+  guard(directory);
+  assert.equal(directory, path.resolve(root, outDir));
+  assert.equal(names.length, 1);
+  assert.equal(names[0], 'assets/remoteEntry.js');
+  packaged = true;
+}};
 for (const name of ['rmSync', 'readFileSync', 'writeFileSync', 'existsSync']) {
   context[name] = (value, ...args) => { guard(value); return fs[name](value, ...args); };
 }
 const plugin = vm.runInNewContext('(' + source.slice(start, end) + ')()', context);
 plugin.configResolved({root, build: {outDir}});
+plugin.writeBundle({}, {'assets/remoteEntry.js': {}});
 plugin.closeBundle();
+assert(packaged);
 """
 
 

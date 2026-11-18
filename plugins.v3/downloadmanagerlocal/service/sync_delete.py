@@ -30,7 +30,9 @@ from ..model.sync_delete import (
     text,
     within,
 )
+from ..model.sync_delete_review import retry_rejection
 from ..storage.sync_delete_jobs import DeleteJobStore
+from .activity import observed
 from .coordination import (
     coordinated as coordinated,
 )
@@ -114,15 +116,9 @@ class DeleteRuntime:
             jobs = self.store.summaries()
             if job_id:
                 job = self.store.get(job_id)
-                if not job or job["state"] in {"queued", "running"} | TERMINAL_STATES:
-                    raise DeleteRejected("该记录不能重试")
-                if job.get("plan") and job["plan"].get("version") != PLAN_VERSION:
-                    raise DeleteRejected("旧版本删除计划需人工核验，不能直接重试")
-                if job.get("plan") and job["plan"]["config_fingerprint"] != fingerprint(config):
-                    raise DeleteRejected("配置已变化，旧任务不能直接重试")
-                if not job.get("plan") and (job["event"].get("plan_version") != PLAN_VERSION
-                        or job["event"].get("config_fingerprint") != fingerprint(config)):
-                    raise DeleteRejected("旧事件缺少当前版本或配置快照，不能直接重试")
+                reason = retry_rejection(job, config)
+                if reason:
+                    raise DeleteRejected(reason)
             else:
                 event = dict(event)
                 event.setdefault("plan_version", PLAN_VERSION)
@@ -150,6 +146,7 @@ class DeleteRuntime:
             logger.info(f"同步删除{action} {_log_target(job)}：路径 {len(job['event']['paths'])} 项，等待执行")
             return job["id"]
 
+    @observed("sync_delete", runtime=True)
     def execute(self, job, adapter=None):
         """把已受理任务交给分阶段执行器，队列层保留失败结算职责。"""
         config = config_for(self.plugin)

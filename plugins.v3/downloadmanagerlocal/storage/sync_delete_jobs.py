@@ -12,6 +12,7 @@ from ..model.sync_delete import (
     TERMINAL_STATES,
     DeleteRejected,
 )
+from ..model.sync_delete_review import dismissal_rejection, review_revision
 
 JOB_INDEX_KEY = "sync_delete_job_index"
 JOB_RECORD_PREFIX = "sync_delete_job_record_"
@@ -123,14 +124,37 @@ class DeleteJobStore:
             index = self._index()
             return self._get_many(index, index)
 
-    def page(self, page, page_size):
+    def page(self, page, page_size, *, pending_only=False):
         """先排序摘要，再读取当前页的完整清单。"""
         with self.lock:
             index = self._index()
             rows = sorted(index.values(), key=lambda row: row.get("updated_at", 0), reverse=True)
+            if pending_only:
+                rows = [row for row in rows if row["state"] not in TERMINAL_STATES | {"queued", "running"}]
             selected = rows[(page - 1) * page_size:page * page_size]
             jobs = self._get_many([row["id"] for row in selected], index)
             return len(rows), [jobs[row["id"]] for row in selected]
+
+    def dismiss(self, job_id, expected_revision, reason, actor):
+        """保留失败证据，仅忽略未开始的记录；调用方须持有操作及队列互斥锁。"""
+        with self.lock:
+            job = self.get(job_id)
+            if not job:
+                raise DeleteRejected("记录不存在，请刷新")
+            if review_revision(job) != expected_revision:
+                raise DeleteRejected("记录已变化，请刷新后重新确认")
+            blocks = self.plugin.get_data(BLOCKS_KEY)
+            rejection = dismissal_rejection(job, {} if blocks is None else blocks)
+            if rejection:
+                raise DeleteRejected(rejection)
+            note = str(reason).strip()
+            if not note:
+                raise DeleteRejected("忽略说明无效，请刷新后重试")
+            job.update(state="dismissed", updated_at=time())
+            job["resolution"] = {"action": "dismiss", "reason": note, "actor": actor,
+                                 "reviewed_revision": expected_revision, "resolved_at": job["updated_at"]}
+            self.save(job)
+            return job
 
     def _save_index(self, index):
         """独立确认摘要发布成功，失败不能放行删除队列或完成日志。"""

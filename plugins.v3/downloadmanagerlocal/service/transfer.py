@@ -11,12 +11,14 @@ from app.sdk.config import settings
 from app.sdk.logging import logger
 
 from .coordination import coordinated, task_blocked
+from .activity import observed
+from .auto_delete_relations import target_retired
 from bencode import bdecode, bencode
 
 from ..adapter.moviepilot import is_downloader_type
 from ..model.state import record_transfer_success
 from ..utils.name_cleaner import is_dirty_renamed_torrent_name
-from ..utils.torrent_adapter import get_label, get_save_path, get_tracker_urls
+from ..utils.torrent_adapter import get_label, get_save_path, get_tracker_urls, normalize_torrent
 from .rename import _get_torrent_content_name, resolve_retry_original_name
 from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
 
@@ -248,6 +250,7 @@ def _save_transfer_state(plugin, from_service, to_service, source_hash: str,
 
 
 @coordinated
+@observed("transfer")
 def transfer(plugin, trigger_source: str = "手动/定时"):
     """开始转移做种"""
     logger.info(f"开始转移做种任务，触发来源：{trigger_source} ...")
@@ -357,6 +360,11 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
         for torrent_item in trans_torrents:
             if _transfer_stopped(plugin, generation):
                 break
+            source_snapshot = normalize_torrent(torrent_item["torrent"], from_service.name, from_service.type)
+            if target_retired(plugin, to_service.name, torrent_item["hash"], torrent_item["hash"],
+                              source_snapshot.added_at or None, from_service.name):
+                skip += 1
+                continue
             torrent_file = Path(plugin._fromtorrentpath) / f"{torrent_item.get('hash')}.torrent"
             if not torrent_file.exists():
                 logger.error(f"种子文件不存在：{torrent_file}")

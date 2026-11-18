@@ -4,11 +4,11 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
 from app.plugins.downloadmanagerlocal import DownloadManagerLocal
 from app.plugins.downloadmanagerlocal.controller.security import require_admin
 from app.sdk.security import verify_token
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 
 def _app(token):
@@ -78,7 +78,7 @@ const vue = require('vue');
  for (const name of ['Config','Page']) {
   const props = vue.reactive({api:{},pluginId:'A',initialConfig:{}}), pending=[], cleanups=[];
   const source=fs.readFileSync('src/components/'+name+'.vue','utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'');
-  const context={...vue, console, defineProps:()=>props,defineEmits:()=>()=>{},onMounted:()=>{},onBeforeUnmount:fn=>cleanups.push(fn),getPluginApi:(_api,id,path)=>path==='permissions'?new Promise((resolve,reject)=>pending.push({id,resolve,reject})):Promise.resolve({}),postPluginApi:()=>{},postPluginJsonApi:()=>{},isApiRequestCancellation:e=>e?.name==='AbortError',document:{removeEventListener(){}}};
+  const context={...vue, console, AbortController, defineProps:()=>props,defineEmits:()=>()=>{},onMounted:()=>{},onBeforeUnmount:fn=>cleanups.push(fn),getManagementPermission:()=>new Promise((resolve,reject)=>pending.push({id:props.pluginId,resolve,reject})),getPluginApi:()=>Promise.resolve({}),postPluginApi:()=>{},postPluginJsonApi:()=>{},isApiRequestCancellation:e=>e?.name==='AbortError',document:{removeEventListener(){}}};
   vm.createContext(context);const scope=vue.effectScope();scope.run(()=>vm.runInContext(source+'\nglobalThis.result={canManage,permissionError}',context));
   assert.equal(context.result.canManage.value,false);props.pluginId='B';await vue.nextTick();
   pending[0].resolve({can_manage:true});await new Promise(resolve=>setImmediate(resolve));assert.equal(context.result.canManage.value,false);

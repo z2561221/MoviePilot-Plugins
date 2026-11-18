@@ -4,7 +4,10 @@ from functools import wraps
 from threading import RLock
 
 from ..model.sync_delete import BLOCKS_KEY
+from ..model.auto_delete import BLOCKS_KEY as AUTO_BLOCKS_KEY
+from ..model.auto_delete import RETIREMENTS_KEY
 from ..utils.torrent_adapter import normalize_torrent
+from .auto_delete_relations import retirement_index
 
 _INIT_LOCK = RLock()
 
@@ -38,15 +41,28 @@ def coordinated(function):
             return None
         previous = getattr(plugin, "_sync_delete_block_snapshot", None)
         previous_index = getattr(plugin, "_sync_delete_block_index", None)
+        previous_auto_index = getattr(plugin, "_auto_delete_block_index", None)
+        previous_retirement = getattr(plugin, "_auto_delete_retirement_snapshot", None)
+        previous_protection = getattr(plugin, "_auto_delete_protection_snapshot", None)
+        previous_retirement_index = getattr(plugin, "_auto_delete_retirement_index", None)
         try:
             if operation_stopped(plugin, generation):
                 return None
             plugin._sync_delete_block_snapshot = (plugin.get_data(BLOCKS_KEY) or {}) if hasattr(plugin, "get_data") else {}
             plugin._sync_delete_block_index = _block_identity_index(plugin._sync_delete_block_snapshot)
+            plugin._auto_delete_protection_snapshot = (plugin.get_data(AUTO_BLOCKS_KEY) or {}) if hasattr(plugin, "get_data") else {}
+            plugin._auto_delete_block_index = _auto_block_index(plugin._auto_delete_protection_snapshot)
+            plugin._auto_delete_retirement_snapshot = (plugin.get_data(RETIREMENTS_KEY) or {}) if hasattr(plugin, "get_data") else {}
+            plugin._auto_delete_retirement_index = retirement_index(plugin._auto_delete_retirement_snapshot,
+                                                                    plugin._auto_delete_protection_snapshot)
             return function(plugin, *args, **kwargs)
         finally:
             plugin._sync_delete_block_snapshot = previous
             plugin._sync_delete_block_index = previous_index
+            plugin._auto_delete_block_index = previous_auto_index
+            plugin._auto_delete_retirement_snapshot = previous_retirement
+            plugin._auto_delete_protection_snapshot = previous_protection
+            plugin._auto_delete_retirement_index = previous_retirement_index
             guard.release()
     return wrapper
 
@@ -69,15 +85,32 @@ def task_blocked(plugin, downloader: str, torrent, kind: str) -> bool:
     """仅阻止同一创建时间/路径的旧任务；重新下载后的新任务不被永久封锁。"""
     if not hasattr(plugin, "get_data"):
         return False
+    auto_index = getattr(plugin, "_auto_delete_block_index", None)
+    if auto_index is None:
+        auto_index = _auto_block_index(plugin.get_data(AUTO_BLOCKS_KEY) or {})
     index = getattr(plugin, "_sync_delete_block_index", None)
     if index is None:
         blocks = getattr(plugin, "_sync_delete_block_snapshot", None)
         if blocks is None:
             blocks = plugin.get_data(BLOCKS_KEY) or {}
         index = _block_identity_index(blocks)
-    if not index:
+    if not index and not auto_index:
         return False
     current = normalize_torrent(torrent, downloader, kind)
-    return (downloader, current.torrent_hash, current.added_at) in index
+    identity = (downloader, current.torrent_hash, current.added_at)
+    return identity in index or identity in auto_index
+
+
+def _auto_block_index(blocks):
+    """每个协调批次读取一次自动删除保护，不按每个种子重复查库。"""
+    if not isinstance(blocks, dict):
+        raise TypeError("自动删除保护状态损坏")
+    result = set()
+    for block in blocks.values():
+        identity = block.get("identity", [])
+        if len(identity) != 5:
+            raise ValueError("自动删除保护缺少可信任务身份")
+        result.add((identity[0], identity[2], identity[3]))
+    return frozenset(result)
 
 

@@ -28,7 +28,11 @@ def test_split_downloader_history_cleans_actual_destination(monkeypatch):
     monkeypatch.setattr(iyuu, "get_url_domain", lambda url: "example.invalid")
     monkeypatch.setattr(iyuu, "get_site_indexer", lambda domain: {"url": "https://example.invalid", "id": 1})
     monkeypatch.setattr(iyuu, "iyuu_auto_service_info", lambda p: target)
-    monkeypatch.setattr(iyuu, "iyuu_download_torrent", lambda p, **kw: (added.append(kw["service"].name) or True))
+    def submit(plugin, **kwargs):
+        added.append(kwargs["service"].name)
+        return iyuu.iyuu_save_history(plugin, kwargs["source_hash"], kwargs["service"].name, [kwargs["seed"]["info_hash"]])
+
+    monkeypatch.setattr(iyuu, "iyuu_download_torrent", submit)
     iyuu.iyuu_seed_torrents(plugin, [{"hash": "mother", "save_path": "/fake"}], source)
     nodes = sync_delete.related_nodes(state, {("QB1", "mother")})
     cleanup.cleanup_by_hash(plugin, "mother")
