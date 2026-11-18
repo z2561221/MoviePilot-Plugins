@@ -117,7 +117,7 @@ def normalize_torrent(torrent: Any, downloader_id: str, downloader_type: str) ->
         torrent, "downloaded", "downloaded_ever", "downloadedEver", default=0,
     )))
     added_at = _timestamp(_read(
-        torrent, "added_on", "added_date", "date_added", "dateAdded", default=0,
+        torrent, "added_on", "added_date", "date_added", "addedDate", "dateAdded", default=0,
     ))
     state = _read(torrent, "state", "status", default="")
     state_text = str(getattr(state, "name", None) or getattr(state, "value", None) or state or "")

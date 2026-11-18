@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 from ..model.sync_delete import DEFAULTS as SYNC_DELETE_CONFIG_DEFAULTS
+from ..model.auto_delete import Settings as AutoDeleteSettings, config_values as auto_delete_values
 
 
 SPEED_MONITOR_CONFIG_DEFAULTS = {
@@ -79,6 +80,7 @@ PLUGIN_CONFIG_DEFAULTS = {
     **SPEED_MONITOR_CONFIG_DEFAULTS,
     **UPLOAD_LIMIT_CONFIG_DEFAULTS,
     **SYNC_DELETE_CONFIG_DEFAULTS,
+    **auto_delete_values(AutoDeleteSettings()),
 }
 
 SPEED_MONITOR_DELETE_FILE = True
@@ -342,4 +344,6 @@ def is_plugin_active(plugin) -> bool:
         or is_speed_monitor_active(plugin)
         or is_upload_limit_active(plugin)
         or (getattr(plugin, "_enabled", False) and getattr(plugin, "_sync_delete_enabled", False))
+        or (getattr(plugin, "_enabled", False) and getattr(plugin, "_auto_delete_enabled", False)
+            and any(rule.enabled for rule in getattr(getattr(plugin, "_auto_delete_runtime", None), "settings", AutoDeleteSettings()).rules))
     )

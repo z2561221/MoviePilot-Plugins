@@ -19,6 +19,7 @@ from ..model.state import (
     trim_health_samples,
     trim_terminal_records,
 )
+from ..adapter.auto_delete import binding_of
 from ..utils.config import (
     is_speed_monitor_active,
     is_speed_monitor_category_excluded,
@@ -59,6 +60,7 @@ class SpeedMonitorSession:
     last_success_poll_at: float
     effective_seconds: float
     last_state: str
+    target_identity: list = field(default_factory=list)
     anomaly_epoch: int = 0
     anomaly_active: bool = False
     status: str = SESSION_ACTIVE
@@ -106,6 +108,7 @@ class SpeedMonitorSession:
             last_success_poll_at=_float(value.get("last_success_poll_at"), last_observed_at),
             effective_seconds=_float(value.get("effective_seconds")),
             last_state=last_state,
+            target_identity=list(value.get("target_identity") or []),
             anomaly_epoch=_int(value.get("anomaly_epoch")),
             anomaly_active=bool(value.get("anomaly_active", False)),
             status=str(value.get("status") or SESSION_ACTIVE),
@@ -356,6 +359,7 @@ def _update_anomaly_cycle(
             "torrent_hash": session.torrent_hash,
             "name": session.name,
             "anomaly_epoch": session.anomaly_epoch,
+            "target_identity": list(session.target_identity),
             "created_at": observed_at,
             "updated_at": observed_at,
             "handled_at": 0.0,
@@ -538,6 +542,7 @@ def _observe_snapshot(
     snapshot: Any,
     observed_at: float,
     resume_after_error: bool,
+    binding: str = "",
 ) -> tuple[bool, str]:
     """首次创建或刷新会话，并仅累计连续有效在线下载时长。"""
     if not snapshot.torrent_hash:
@@ -545,6 +550,15 @@ def _observe_snapshot(
     key = _session_key(snapshot.downloader_id, snapshot.torrent_hash)
     with runtime.session_lock(key):
         session = runtime.sessions.get(key)
+        identity = [binding, snapshot.added_at, snapshot.save_path] if binding and snapshot.added_at and snapshot.save_path else []
+        next_epoch = 0
+        if session and identity and session.target_identity and session.target_identity != identity:
+            _close_anomaly_cycle(runtime, session, "replaced", observed_at)
+            next_epoch = session.anomaly_epoch
+            runtime.sessions.pop(key, None)
+            session = None
+        if session is not None and not session.target_identity:
+            session.target_identity = identity
         if session is not None and session.status == "category_excluded":
             runtime.sessions.pop(key, None)
             session = None
@@ -589,6 +603,8 @@ def _observe_snapshot(
                 last_success_poll_at=observed_at,
                 effective_seconds=0.0,
                 last_state=snapshot.state_category,
+                target_identity=identity,
+                anomaly_epoch=next_epoch,
             )
             return True, key
         if session.status != SESSION_ACTIVE:
@@ -673,12 +689,13 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
                 continue
             resume_after_error = bool(previous_result and not previous_result.success)
             seen_keys = set()
+            binding = binding_of(service)
             for snapshot in result.items:
                 if _exclude_snapshot(plugin, runtime, snapshot, observed_at):
                     seen_keys.add(_session_key(snapshot.downloader_id, snapshot.torrent_hash))
                     continue
                 created, key = _observe_snapshot(
-                    plugin, runtime, snapshot, observed_at, resume_after_error
+                    plugin, runtime, snapshot, observed_at, resume_after_error, binding
                 )
                 if key:
                     seen_keys.add(key)
@@ -837,6 +854,7 @@ def handle_download_added_event(
                 snapshot,
                 observed_at,
                 bool(previous_result and not previous_result.success),
+                binding_of(service),
             )
             _evaluate_session(plugin, runtime, key, snapshot, observed_at)
 

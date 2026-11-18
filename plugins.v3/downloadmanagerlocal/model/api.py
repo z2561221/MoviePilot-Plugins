@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
+from app.schemas.common import JsonData
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.common import JsonData
+from .auto_delete import Status as AutoDeleteStatus
 
 
 class ApiBusinessModel(BaseModel):
@@ -26,7 +25,7 @@ class SelectionItem(ApiBusinessModel):
 
     title: str
     value: str | int
-    type: Optional[str] = None
+    type: str | None = None
 
 
 class RenameRecord(ApiBusinessModel):
@@ -64,6 +63,19 @@ class DiagnosticsResult(ApiBusinessModel):
     checks: list[dict[str, JsonData]] = Field(default_factory=list)
 
 
+class ModuleRuntime(BaseModel):
+    """每项实际能力的生效门禁、运行阶段和可解释统计。"""
+
+    key: str
+    title: str
+    enabled: bool
+    state: str
+    detail: str
+    metrics: dict[str, JsonData] = Field(default_factory=dict)
+    pending: int = 0
+    error: str = ""
+
+
 class OverviewResult(ApiBusinessModel):
     """下载中心总览数据。"""
 
@@ -76,6 +88,8 @@ class OverviewResult(ApiBusinessModel):
     speed_monitor: dict[str, JsonData] = Field(default_factory=dict)
     upload_limit: dict[str, JsonData] = Field(default_factory=dict)
     cards: dict[str, JsonData] = Field(default_factory=dict)
+    modules: list[ModuleRuntime] = Field(default_factory=list)
+    auto_delete: AutoDeleteStatus = Field(default_factory=AutoDeleteStatus)
 
 
 class ActionResult(ApiBusinessModel):

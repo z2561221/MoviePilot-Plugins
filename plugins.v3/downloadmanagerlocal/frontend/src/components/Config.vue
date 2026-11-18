@@ -1,7 +1,9 @@
 <script setup>
+import './form-layout.css'
 import { reactive, ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { getPluginApi, postPluginJsonApi, isApiRequestCancellation } from './api'
+import { getPluginApi, postPluginJsonApi, isApiRequestCancellation, getManagementPermission } from './api'
 import SyncDeletePane from './SyncDeletePane.vue'
+import AutoDeletePane from './AutoDeletePane.vue'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -12,18 +14,31 @@ const props = defineProps({
 
 const canManage = ref(false)
 const permissionError = ref('')
+const permissionStatus = ref('loading')
 
 
-const emit = defineEmits(['save', 'close', 'switch'])
+const emit = defineEmits(['close', 'switch'])
 const getApi = (path, options = {}) => getPluginApi(props.api, props.pluginId, path, options)
 const postJsonApi = (path, payload = {}, options = {}) => postPluginJsonApi(props.api, props.pluginId, path, payload, options)
 
 const form = reactive({})
+const saving = ref(false)
+const saveNotice = ref('')
+const saveProblem = ref(false)
+let savedDraft = {}
+let resourceVersion = 0
+let configMounted = false
 const activeMain = ref('overview')
 const activeSub = ref('overview')
 const downloaderItems = ref([])
+const downloaderRequest = ref(null)
 const siteItems = ref([])
 const overview = ref(null)
+const autoDeletePane = ref(null)
+const autoDeleteVisited = ref(false)
+const syncDeleteVisited = ref(false)
+const reviewDialog = ref(false)
+const reviewPane = ref(null)
 const cleanupDownloaders = ref([])
 const cleanupScan = ref(null)
 const cleanupKeep = reactive({})
@@ -59,6 +74,9 @@ function configRequestScope() {
 }
 
 function resetConfigRequests() {
+  saving.value = false
+  saveNotice.value = ''
+  reviewDialog.value = false
   uploadActionRunning.value = ''
   uploadScanningSites.value = false
   uploadMessage.value = ''
@@ -78,27 +96,28 @@ async function refreshOverview() {
   if (response?.code === 0 || response?.cards) overview.value = response
 }
 
-onMounted(async () => {
-  const owns = configRequestScope()
-  try {
-    const [dlResp, siteResp, overviewResp] = await Promise.all([
-      getApi('downloaders', { feedback: 'silent' }),
-      getApi('sites', { feedback: 'silent' }),
-      getApi('overview', { feedback: 'silent' }),
-    ])
-    if (!owns()) return
-    if (dlResp) {
-      downloaderItems.value = dlResp
-    }
-    if (siteResp) {
-      siteItems.value = siteResp
-    }
-    if (overviewResp?.code === 0 || overviewResp?.cards) overview.value = overviewResp
-  } catch (e) {
-    if (isApiRequestCancellation(e)) return
-    if (!owns()) return
-    console.error('获取列表失败:', e)
+function closeReview() {
+  reviewDialog.value = false
+  void refreshOverview().catch(() => {})
+}
+
+function loadConfigResources() {
+  const { api, pluginId } = props
+  const version = ++resourceVersion
+  const owns = () => !configDisposed && api === props.api && pluginId === props.pluginId && version === resourceVersion
+  for (const [path, target] of [['downloaders', downloaderItems], ['sites', siteItems], ['overview', overview]]) {
+    const pending = getApi(path, { feedback: 'silent' })
+    if (path === 'downloaders') downloaderRequest.value = pending
+    pending.then(value => {
+      if (owns() && value) target.value = value
+    }).catch(error => {
+      if (owns() && !isApiRequestCancellation(error)) console.error('读取配置页数据失败', path, error)
+    })
   }
+}
+onMounted(() => {
+  configMounted = true
+  loadConfigResources()
 })
 
 const defaults = {
@@ -149,38 +168,54 @@ const mainTabs = [
   { key: 'tag', title: '站点标签', icon: 'mdi-tag-multiple', desc: '转移后自动根据 tracker 域名打站点标签。' },
   { key: 'seed', title: '做种校验', icon: 'mdi-check-circle-outline', desc: '统一控制跳过校验和自动开始做种，按需触发。' },
   { key: 'sync_delete', title: '同步删除', icon: 'mdi-delete-outline', desc: '接收 Emby 删除通知，同步清理媒体、源文件和本插件关联种子。' },
+  { key: 'auto_delete', title: '自动删除', icon: 'mdi-delete-clock-outline', desc: '按规则先暂停调试，确认后自动删种；支持一个或多个下载器。' },
   { key: 'upload', title: '上传限速', icon: 'mdi-upload-network-outline', desc: '设置下载器全局上传上限，并按需限制指定站点的合计上传速度。' },
 ]
 
 const subTabs = {
-  sync_delete: [{ key: 'sync_delete_basic', title: '基础设置', icon: 'mdi-delete-outline' }],
+  auto_delete: [
+    { key: 'auto_delete_basic', title: '基础设置', icon: 'mdi-tune-variant' },
+    { key: 'auto_delete_filter', title: '条件筛选', icon: 'mdi-filter-variant' },
+    { key: 'auto_delete_advanced', title: '高级选项', icon: 'mdi-tune' },
+  ],
+  sync_delete: [
+    { key: 'sync_delete_basic', title: '基础设置', icon: 'mdi-tune-variant' },
+    { key: 'sync_delete_filter', title: '条件筛选', icon: 'mdi-filter-variant' },
+    { key: 'sync_delete_advanced', title: '高级选项', icon: 'mdi-tune' },
+  ],
   overview: [{ key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline' }],
   upload: [
     { key: 'upload_basic', title: '基础设置', icon: 'mdi-tune-variant' },
-    { key: 'upload_sites', title: '站点策略', icon: 'mdi-home-outline' },
+    { key: 'upload_filter', title: '条件筛选', icon: 'mdi-filter-variant' },
     { key: 'upload_status', title: '运行状态', icon: 'mdi-pulse' },
   ],
   monitor: [
     { key: 'monitor_basic', title: '基础设置', icon: 'mdi-tune-variant' },
-    { key: 'monitor_threshold', title: '阈值策略', icon: 'mdi-chart-bell-curve-cumulative' },
+    { key: 'monitor_filter', title: '条件筛选', icon: 'mdi-filter-variant' },
     { key: 'monitor_status', title: '运行状态', icon: 'mdi-pulse' },
   ],
   transfer: [
     { key: 'basic', title: '基础设置', icon: 'mdi-tune-variant' },
-    { key: 'filter', title: '筛选条件', icon: 'mdi-filter-variant' },
+    { key: 'filter', title: '条件筛选', icon: 'mdi-filter-variant' },
     { key: 'advanced', title: '高级选项', icon: 'mdi-tune' },
   ],
   iyuu: [
     { key: 'iyuu_basic', title: '基础设置', icon: 'mdi-tune-variant' },
-    { key: 'iyuu_filter', title: '筛选条件', icon: 'mdi-filter-variant' },
+    { key: 'iyuu_filter', title: '条件筛选', icon: 'mdi-filter-variant' },
     { key: 'iyuu_advanced', title: '高级选项', icon: 'mdi-tune' },
   ],
-  rename: [{ key: 'format', title: '命名格式', icon: 'mdi-format-text' }],
-  tag: [
-    { key: 'mapping', title: 'Tracker 映射', icon: 'mdi-link-variant' },
-    { key: 'tag_cleanup', title: '标签清理', icon: 'mdi-tag-remove-outline' },
+  rename: [
+    { key: 'rename_basic', title: '基础设置', icon: 'mdi-tune-variant' },
+    { key: 'rename_filter', title: '条件筛选', icon: 'mdi-filter-variant' },
   ],
-  seed: [{ key: 'seed_basic', title: '基础设置', icon: 'mdi-tune-variant' }],
+  tag: [
+    { key: 'tag_basic', title: '基础设置', icon: 'mdi-tune-variant' },
+    { key: 'tag_advanced', title: '高级选项', icon: 'mdi-tag-remove-outline' },
+  ],
+  seed: [
+    { key: 'seed_basic', title: '基础设置', icon: 'mdi-tune-variant' },
+    { key: 'seed_advanced', title: '高级选项', icon: 'mdi-tune' },
+  ],
 }
 
 const currentMain = computed(() => mainTabs.find(i => i.key === activeMain.value) || mainTabs[0])
@@ -351,50 +386,139 @@ const runtimeFlows = [
     label: '兜底补刀',
     steps: ['异常命名', '兜底补刀', '失败计数', '归档恢复'],
   },
+  {
+    label: '同步删除',
+    steps: ['删除事件', '关联历史', '核验范围', '按配置清理', '结果记录'],
+  },
+  {
+    label: '自动删除',
+    steps: ['周期扫描', '有效采样', '暂停调试', '人工确认', '正式删种'],
+  },
 ]
-
+const syncDeletePending = computed(() => Number(overview.value?.modules?.find(item => item.key === 'sync_delete')?.pending || 0))
 watch(() => props.initialConfig, v => {
   configDraftRevision++
   uploadSiteRulesRevision++
   resetConfigRequests()
   Object.keys(form).forEach(k => delete form[k])
-  Object.assign(form, defaults, v || {})
-  form.sync_delete_servers = [...(v?.sync_delete_servers || [])]
-  form.speed_monitor_downloaders = [...(v?.speed_monitor_downloaders || [])]
-  form.speed_monitor_manual_speed_bps = { ...(v?.speed_monitor_manual_speed_bps || {}) }
-  form.speed_monitor_floor_speed_bps = { ...(v?.speed_monitor_floor_speed_bps || {}) }
-  form.upload_limit_downloaders = [...(v?.upload_limit_downloaders || [])]
-  form.upload_limit_downloader_limits_kib = { ...(v?.upload_limit_downloader_limits_kib || {}) }
-  form.upload_limit_site_rules = Object.fromEntries(Object.entries(v?.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }]))
+  Object.assign(form, JSON.parse(JSON.stringify({ ...defaults, ...v })))
+  for (const key of ['sync_delete_servers', 'speed_monitor_downloaders', 'upload_limit_downloaders']) form[key] ??= []
+  for (const key of ['speed_monitor_manual_speed_bps', 'speed_monitor_floor_speed_bps', 'upload_limit_downloader_limits_kib', 'upload_limit_site_rules']) form[key] ??= {}
+  savedDraft = JSON.parse(JSON.stringify(form))
 }, { immediate: true, deep: true, flush: 'sync' })
 watch(() => [props.pluginId, props.api], () => {
   configDraftRevision++
   uploadSiteRulesRevision++
   resetConfigRequests()
   overview.value = null
+  downloaderItems.value = []
+  siteItems.value = []
   uploadSiteItems.value = []
+  if (configMounted) loadConfigResources()
 }, { flush: 'sync' })
 
-function saveConfig() {
+function buildConfigPayload(stored, draft) {
+  const payload = { ...stored }
+  // The host replaces the whole config. Keep live values for untouched fields,
+  // including settings already persisted by the auto-delete and site-rule editors.
+  for (const [key, value] of Object.entries(draft)) {
+    if (key.startsWith('auto_delete_') || key === 'upload_limit_site_rules') continue
+    if (JSON.stringify(value) !== JSON.stringify(savedDraft[key]) || (!(key in stored) && key in defaults)) {
+      payload[key] = value
+    }
+  }
   const mappings = value => String(value || '').split('\n').filter(line => line.split('#').some(part => part.trim())).join('\n')
-  emit('save', {
-    ...form,
+  return {
+    ...payload,
     sync_delete_force_cloud: false,
     sync_delete_library_deleted: false,
-    sync_delete_local_paths: mappings(form.sync_delete_local_paths),
-    sync_delete_cloud_paths: mappings(form.sync_delete_cloud_paths),
-    sync_delete_source_aliases: mappings(form.sync_delete_source_aliases),
-    sync_delete_servers: [...(form.sync_delete_servers || [])],
-    speed_monitor_downloaders: [...(form.speed_monitor_downloaders || [])],
-    speed_monitor_manual_speed_bps: { ...(form.speed_monitor_manual_speed_bps || {}) },
-    speed_monitor_floor_speed_bps: { ...(form.speed_monitor_floor_speed_bps || {}) },
-    upload_limit_downloaders: [...(form.upload_limit_downloaders || [])],
-    upload_limit_downloader_limits_kib: { ...(form.upload_limit_downloader_limits_kib || {}) },
-    upload_limit_site_rules: Object.fromEntries(Object.entries(form.upload_limit_site_rules || {}).map(([name, rule]) => [name, { ...rule }])),
-  })
+    sync_delete_local_paths: mappings(payload.sync_delete_local_paths),
+    sync_delete_cloud_paths: mappings(payload.sync_delete_cloud_paths),
+    sync_delete_source_aliases: mappings(payload.sync_delete_source_aliases),
+  }
 }
+
+async function readStoredConfig() {
+  const stored = await getApi('', { feedback: 'silent' })
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) throw new Error('无法读取当前配置')
+  return stored
+}
+
+async function saveConfig() {
+  if (!canManage.value || saving.value || autoDeletePane.value?.busy) return
+  const owns = configRequestScope()
+  const draft = JSON.parse(JSON.stringify(form))
+  saving.value = true
+  saveNotice.value = ''
+  saveProblem.value = false
+  let autoSaved = false
+  let written = false
+  try {
+    if (autoDeletePane.value?.dirty) {
+      if (!await autoDeletePane.value.save()) {
+        if (!owns()) return
+        if (autoDeletePane.value?.missingSourcePaths) {
+          selectMain('auto_delete')
+          activeSub.value = 'auto_delete_advanced'
+        }
+        throw new Error(autoDeletePane.value?.error || '自动删除设置未保存')
+      }
+      autoSaved = true
+    }
+    await uploadSiteScanTail
+    await flushUploadSiteRulesSave()
+    if (!owns()) return
+
+    const stored = await readStoredConfig()
+    if (!owns() || !canManage.value) return
+    const edited = Object.keys(draft).some(key => !key.startsWith('auto_delete_') && key !== 'upload_limit_site_rules'
+      && JSON.stringify(draft[key]) !== JSON.stringify(savedDraft[key]))
+    const payload = edited ? buildConfigPayload(stored, draft) : stored
+    const changed = Object.keys(payload).some(key => JSON.stringify(payload[key]) !== JSON.stringify(stored[key]))
+    if (changed) {
+      const result = await props.api.put(`plugin/${props.pluginId}`, payload, { feedback: 'silent' })
+      if (result?.success !== true) throw new Error(result?.message || '宿主未确认保存')
+    }
+    if (!owns()) return
+    written = true
+    // A confirmed one-shot must not be submitted again if readback fails.
+    for (const key of ['onlyonce', 'iyuu_onlyonce']) {
+      if (payload[key] && form[key] === draft[key]) form[key] = false
+      if (payload[key]) draft[key] = false
+    }
+    savedDraft = JSON.parse(JSON.stringify({ ...draft, ...payload, onlyonce: false, iyuu_onlyonce: false }))
+    const latest = changed ? await readStoredConfig() : stored
+    if (!owns()) return
+    const refreshed = { ...defaults, ...latest }
+    for (const key of new Set([...Object.keys(draft), ...Object.keys(refreshed)])) {
+      if (JSON.stringify(form[key]) !== JSON.stringify(draft[key]) && !key.startsWith('auto_delete_')) continue
+      if (key in refreshed) form[key] = refreshed[key]
+      else delete form[key]
+    }
+    savedDraft = JSON.parse(JSON.stringify(refreshed))
+    const pendingDraft = autoDeletePane.value?.dirty || Object.keys(form).some(key => !key.startsWith('auto_delete_')
+      && JSON.stringify(form[key]) !== JSON.stringify(savedDraft[key]))
+    saveNotice.value = pendingDraft ? '配置已保存，还有新修改待保存' : '配置已保存'
+    void refreshOverview().catch(() => {})
+  } catch (error) {
+    if (!owns()) return
+    saveProblem.value = true
+    const reason = error?.message || '保存未确认，请检查后重试。'
+    saveNotice.value = written ? '配置已保存，未能回读最新状态。'
+      : autoSaved ? `自动删除设置已保存，其他配置未确认：${reason}` : reason
+  } finally {
+    if (owns()) saving.value = false
+  }
+}
+
+watch(() => autoDeletePane.value?.error, (current, previous) => {
+  if (!current && previous && saveProblem.value && saveNotice.value === previous) saveNotice.value = ''
+})
+
 function selectMain(key) {
   if (activeMain.value === key) return
+  if (key === 'auto_delete') autoDeleteVisited.value = true
+  if (key === 'sync_delete') syncDeleteVisited.value = true
   activeMain.value = key
   activeSub.value = subTabs[key]?.[0]?.key || ''
 }
@@ -795,26 +919,43 @@ async function executeCleanupTags() {
 }
 
 let permissionsRevision = 0
-watch(() => [props.api, props.pluginId], async () => {
+let permissionController = null
+async function loadPermissions(refresh = false) {
   const revision = ++permissionsRevision
+  permissionController?.abort()
+  const controller = new AbortController()
+  permissionController = controller
   const api = props.api
   const id = props.pluginId
   const current = () => !configDisposed && revision === permissionsRevision && api === props.api && id === props.pluginId
   canManage.value = false
   permissionError.value = ''
+  permissionStatus.value = 'loading'
   try {
-    const value = await getPluginApi(api, id, 'permissions', { feedback: 'silent' })
-    if (current()) canManage.value = value?.can_manage === true
+    const value = await getManagementPermission(api, { signal: controller.signal, refresh: refresh === true })
+    if (!current()) return
+    if (typeof value?.can_manage !== 'boolean') throw new Error('权限接口未返回明确结果')
+    canManage.value = value.can_manage
+    permissionStatus.value = value.can_manage ? 'granted' : 'denied'
   } catch (reason) {
-    if (current() && !isApiRequestCancellation(reason)) permissionError.value = '权限读取失败，请重新打开页面。'
+    if (!current()) return
+    permissionStatus.value = 'error'
+    permissionError.value = reason?.name === 'PermissionTimeoutError' ? '权限核验超时，请重新检查。' : isApiRequestCancellation(reason) ? '权限核验被中断，请重新检查。' : '当前登录身份核验失败，请重新检查。'
+  } finally {
+    if (permissionController === controller) permissionController = null
   }
-}, { immediate: true, flush: 'sync' })
+}
+watch(() => [props.api, props.pluginId], loadPermissions, { immediate: true, flush: 'sync' })
+onBeforeUnmount(() => permissionController?.abort())
 </script>
 <template>
   <div class="dm-config">
     <VCard flat class="dm-card">
-    <VAlert v-if="!canManage" type="info" variant="tonal" density="compact">{{ permissionError || '当前为只读模式，管理操作需要管理员权限。' }}</VAlert>
-      <VCardItem class="dm-header">
+    <VAlert v-if="permissionStatus !== 'granted'" :type="permissionStatus === 'error' ? 'warning' : 'info'" variant="tonal" density="compact" :data-permission-status="permissionStatus">
+      {{ permissionStatus === 'loading' ? '正在核验管理权限…' : permissionStatus === 'denied' ? '当前登录身份没有管理权限，页面为只读模式。' : permissionError }}
+      <VBtn v-if="permissionStatus !== 'loading'" size="small" variant="text" class="ml-2" @click="loadPermissions(true)">重新检查</VBtn>
+    </VAlert>
+      <VCardItem class="dm-header" :inert="saving">
         <template #prepend>
           <VAvatar color="success" variant="tonal" size="44" rounded="lg">
             <VIcon icon="mdi-download" size="24" />
@@ -827,7 +968,7 @@ watch(() => [props.api, props.pluginId], async () => {
         </template>
       </VCardItem>
       <VDivider />
-      <div class="dm-body">
+      <div class="dm-body" :inert="saving">
         <nav class="dm-nav">
           <VList density="comfortable" nav class="dm-nav-list py-2">
             <VListItem v-for="item in mainTabs" :key="item.key" :active="activeMain === item.key"
@@ -846,12 +987,12 @@ watch(() => [props.api, props.pluginId], async () => {
           </div>
           <VDivider />
           <div class="dm-window" :class="{ 'dm-window--overview': activeMain === 'overview' }">
-            <div v-show="activeSub === 'overview'" class="dm-pane dm-pane--overview">
+            <div v-if="activeSub === 'overview'" class="dm-pane dm-pane--overview">
               <div class="dm-overview-section mb-3">
                 <div class="dm-section-title">运行链路</div>
                 <div class="dm-flow">
                   <div v-for="flow in runtimeFlows" :key="flow.label" class="dm-flow-block">
-                    <div class="dm-flow-label">{{ flow.label }}</div>
+                    <div class="dm-flow-label">{{ flow.label }}<button v-if="flow.label === '同步删除' && syncDeletePending" type="button" class="dm-flow-review" data-review-module="sync_delete" @click="reviewDialog = true">待处理 {{ syncDeletePending }} 项 · 查看</button></div>
                     <div class="dm-flow-row">
                       <template v-for="(step, index) in flow.steps" :key="`${flow.label}-${step}`">
                         <span class="dm-flow-step">{{ step }}</span>
@@ -861,26 +1002,24 @@ watch(() => [props.api, props.pluginId], async () => {
                   </div>
                 </div>
               </div>
-
             </div>
 
             <!-- ═══ 上传限速 · 基础设置 ═══ -->
-            <div v-show="activeSub === 'upload_basic'" class="dm-pane">
-              <div class="dm-section-title">上传限速设置</div>
-              <VRow>
-                <VCol cols="12" md="4">
-                  <VSwitch v-model="form.upload_limit_enabled" color="success" inset hide-details label="启用上传限速" />
-                </VCol>
-                <VCol cols="12" md="8">
+            <div v-if="activeSub === 'upload_basic'" class="dm-pane">
+              <div class="dm-form-section-heading">
+                <div class="dm-section-title">上传限速设置</div>
+                <VSwitch v-model="form.upload_limit_enabled" color="success" inset hide-details density="compact" label="启用上传限速" />
+              </div>
+              <VRow class="dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field">
                   <VSelect v-model="form.upload_limit_downloaders" label="限速下载器" density="compact" variant="outlined"
-                    :items="uploadDownloaderItems" multiple chips closable-chips clearable
-                    hint="只扫描和修改这里选中的 qBittorrent / Transmission 实例" persistent-hint />
+                    :items="uploadDownloaderItems" multiple chips closable-chips clearable hide-details />
+                  <div class="dm-hint">只扫描和修改这里选中的 qBittorrent / Transmission 实例</div>
                 </VCol>
-              </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12" sm="6" md="4">
+                <VCol cols="12" md="6" class="dm-form-field">
                   <VTextField v-model.number="form.upload_limit_grace_minutes" label="新种宽限（分钟）" type="number" min="0" max="1440"
-                    density="compact" variant="outlined" hint="默认 30；填 0 表示完成后立即纳入分配" persistent-hint />
+                    density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">默认 30；填 0 表示完成后立即纳入分配</div>
                 </VCol>
               </VRow>
 
@@ -917,7 +1056,7 @@ watch(() => [props.api, props.pluginId], async () => {
             </div>
 
             <!-- ═══ 上传限速 · 站点策略 ═══ -->
-            <div v-show="activeSub === 'upload_sites'" class="dm-pane">
+            <div v-if="activeSub === 'upload_filter'" class="dm-pane">
               <div class="dm-upload-toolbar">
                 <div>
                   <div class="dm-section-title mb-1">站点限速</div>
@@ -967,7 +1106,7 @@ watch(() => [props.api, props.pluginId], async () => {
             </div>
 
             <!-- ═══ 上传限速 · 运行状态 ═══ -->
-            <div v-show="activeSub === 'upload_status'" class="dm-pane">
+            <div v-if="activeSub === 'upload_status'" class="dm-pane">
               <div class="dm-upload-toolbar">
                 <div>
                   <div class="dm-section-title mb-1">运行状态</div>
@@ -1036,63 +1175,63 @@ watch(() => [props.api, props.pluginId], async () => {
             </div>
 
             <!-- ═══ 速度监控 · 基础设置 ═══ -->
-            <div v-show="activeSub === 'monitor_basic'" class="dm-pane">
-              <div class="dm-section-title">速度监控设置</div>
-              <VRow>
-                <VCol cols="12" md="4">
-                  <VSwitch v-model="form.speed_monitor_enabled" color="success" inset hide-details label="启用速度异常监控" />
-                </VCol>
-                <VCol cols="12" md="8">
+            <div v-if="activeSub === 'monitor_basic'" class="dm-pane">
+              <div class="dm-form-section-heading">
+                <div class="dm-section-title">速度监控设置</div>
+                <VSwitch v-model="form.speed_monitor_enabled" color="success" inset hide-details density="compact" label="启用监控" />
+              </div>
+              <div class="dm-monitor-basic-grid" data-monitor-basic-grid>
+                <div>
                   <VSelect v-model="form.speed_monitor_downloaders" label="监控下载器" density="compact" variant="outlined"
-                    :items="monitorDownloaderItems" multiple chips closable-chips clearable hint="支持 qBittorrent 和 Transmission" persistent-hint />
-                </VCol>
-              </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12" md="6">
+                    :items="monitorDownloaderItems" multiple chips closable-chips clearable hide-details />
+                  <div class="dm-hint">支持 qBittorrent 和 Transmission</div>
+                </div>
+                <div>
                   <VSelect v-model="form.speed_monitor_mode" label="基准模式" density="compact" variant="outlined" hide-details
                     :items="monitorModeItems" />
-                </VCol>
-                <VCol cols="12" md="6">
+                </div>
+                <div>
+                  <VTextField v-model.number="form.speed_monitor_interval_seconds" label="活跃扫描间隔（秒）" type="number" min="10" max="300"
+                    density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">范围 10–300 秒，默认 30 秒。</div>
+                </div>
+                <div>
                   <VSelect v-model="form.speed_monitor_notification_type" label="通知分类" density="compact" variant="outlined" hide-details
                     :items="notificationTypeItems" />
-                </VCol>
-              </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12" md="8">
-                  <VTextField v-model="form.speed_monitor_exclude_categories" label="排除分类关键词" density="compact" variant="outlined"
-                    hint="逗号分隔；qB 分类或 Transmission group 命中任一关键词的任务不进入速度监控" persistent-hint clearable />
-                </VCol>
-              </VRow>
+                </div>
+              </div>
+              <div class="dm-hint mt-3">判定阈值在条件筛选中调整。</div>
               <VAlert type="info" variant="tonal" density="compact" class="mt-4">
                 速度监控独立于转移做种和 IYUU；插件总开关、监控开关和至少一个下载器同时启用后才运行。
               </VAlert>
             </div>
 
             <!-- ═══ 速度监控 · 阈值策略 ═══ -->
-            <div v-show="activeSub === 'monitor_threshold'" class="dm-pane">
+            <div v-if="activeSub === 'monitor_filter'" class="dm-pane">
+              <div class="dm-section-title">任务范围</div>
+              <VRow class="mb-3 dm-form-grid dm-form-grid--one"><VCol cols="12" class="dm-form-field"><VTextField v-model="form.speed_monitor_exclude_categories" label="排除分类关键词" density="compact" variant="outlined" clearable hide-details />
+              <div class="dm-hint">逗号分隔；qB 分类或 Transmission group 命中任一关键词的任务不进入速度监控</div></VCol></VRow>
               <div class="dm-section-title">采样与判定</div>
-              <VRow>
-                <VCol cols="12" sm="6" md="3">
-                  <VTextField v-model.number="form.speed_monitor_interval_seconds" label="活跃扫描间隔（秒）" type="number" min="10" max="300"
-                    density="compact" variant="outlined" hint="范围 10–300，默认 30" persistent-hint />
-                </VCol>
-                <VCol cols="12" sm="6" md="3">
+              <VRow class="dm-form-grid dm-form-grid--four">
+                <VCol cols="12" sm="6" md="3" class="dm-form-field">
                   <VTextField v-model.number="form.speed_monitor_grace_minutes" label="启动宽限（分钟）" type="number" min="0" max="1440"
-                    density="compact" variant="outlined" hint="范围 0–1440" persistent-hint />
+                    density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">范围 0–1440</div>
                 </VCol>
-                <VCol cols="12" sm="6" md="3">
+                <VCol cols="12" sm="6" md="3" class="dm-form-field">
                   <VTextField v-model.number="form.speed_monitor_tolerance" label="允许时长倍数" type="number" min="1.01" step="0.1"
-                    density="compact" variant="outlined" hint="必须大于 1" persistent-hint />
+                    density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">必须大于 1</div>
                 </VCol>
-                <VCol cols="12" sm="6" md="3">
+                <VCol cols="12" sm="6" md="3" class="dm-form-field">
                   <VTextField v-model.number="form.speed_monitor_consecutive_abnormal_samples" label="连续异常次数" type="number" min="1" max="10"
-                    density="compact" variant="outlined" hint="范围 1–10" persistent-hint />
+                    density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">范围 1–10</div>
                 </VCol>
-              </VRow>
-              <VRow class="mt-1">
-                <VCol cols="12" sm="6" md="3">
+                <VCol cols="12" sm="6" md="3" class="dm-form-field">
                   <VTextField v-model.number="form.speed_monitor_min_samples" label="可信样本门槛" type="number" min="1" max="100"
-                    density="compact" variant="outlined" hint="范围 1–100，默认 5" persistent-hint />
+                    density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">范围 1–100，默认 5</div>
                 </VCol>
               </VRow>
 
@@ -1140,7 +1279,7 @@ watch(() => [props.api, props.pluginId], async () => {
             </div>
 
             <!-- ═══ 速度监控 · 运行状态 ═══ -->
-            <div v-show="activeSub === 'monitor_status'" class="dm-pane">
+            <div v-if="activeSub === 'monitor_status'" class="dm-pane">
               <div class="dm-section-title">运行状态</div>
               <VAlert v-if="monitorMessage" :type="monitorMessageStatus" variant="tonal" density="compact" closable class="mb-3"
                 @click:close="monitorMessage = ''">{{ monitorMessage }}</VAlert>
@@ -1173,13 +1312,7 @@ watch(() => [props.api, props.pluginId], async () => {
               </div>
               <div v-else class="dm-monitor-empty">尚无下载器基准数据</div>
 
-              <div class="dm-section-title mt-4">最近处置</div>
-              <div v-if="speedMonitor.last_disposition" class="dm-disposition">
-                <strong>{{ dispositionLabel(speedMonitor.last_disposition.action) }}</strong>
-                <span>{{ speedMonitor.last_disposition.downloader_id }} · {{ speedMonitor.last_disposition.name || speedMonitor.last_disposition.torrent_hash }}</span>
-                <span v-if="speedMonitor.last_disposition.error" class="text-error dm-break-text">{{ speedMonitor.last_disposition.error }}</span>
-              </div>
-              <div v-else class="dm-monitor-empty">暂无告警处置记录</div>
+              <div class="dm-hint mt-4">最近处置及执行记录请在详情页查看。</div>
 
               <VAlert type="error" variant="tonal" density="compact" class="mt-4">
                 Telegram 二次确认后会删除种子及全部数据，且不可恢复；关闭告警不会删除任务。
@@ -1190,16 +1323,18 @@ watch(() => [props.api, props.pluginId], async () => {
             </div>
 
             <!-- ═══ 转移做种 · 基础设置 ═══ -->
-            <div v-show="activeSub === 'basic'" class="dm-pane">
+            <div v-if="activeSub === 'basic'" class="dm-pane">
               <div class="dm-section-title">基础设置</div>
-              <VRow>
-                <VCol cols="12" md="6">
+              <VRow class="dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field">
                   <VSelect v-model="form.fromdownloader" label="源下载器" density="compact" variant="outlined" hide-details
-                    :items="downloaderItems" hint="选择源下载器" persistent-hint />
+                    :items="downloaderItems" />
+                  <div class="dm-hint">选择源下载器</div>
                 </VCol>
-                <VCol cols="12" md="6">
+                <VCol cols="12" md="6" class="dm-form-field">
                   <VSelect v-model="form.todownloader" label="目的下载器" density="compact" variant="outlined" hide-details
-                    :items="downloaderItems" hint="选择目的下载器" persistent-hint />
+                    :items="downloaderItems" />
+                  <div class="dm-hint">选择目的下载器</div>
                 </VCol>
               </VRow>
               <VAlert
@@ -1211,234 +1346,211 @@ watch(() => [props.api, props.pluginId], async () => {
               >
                 Transmission 当前不支持种子重命名，命名补刀与恢复原名不会生效；转移做种、IYUU 辅种和做种校验不受影响。
               </VAlert>
-              <VRow class="mt-2">
-                <VCol cols="12" md="6">
-                  <VTextField v-model="form.frompath" label="源数据文件根路径" density="compact" variant="outlined" hide-details
-                    hint="源下载器中数据的根路径" persistent-hint />
+              <VRow class="mt-2 dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field">
+                  <VTextField v-model="form.frompath" label="源数据文件根路径" density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">源下载器中数据的根路径</div>
                 </VCol>
-                <VCol cols="12" md="6">
-                  <VTextField v-model="form.topath" label="目的数据文件根路径" density="compact" variant="outlined" hide-details
-                    hint="目标下载器中数据的根路径" persistent-hint />
-                </VCol>
-              </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12" md="6">
-                  <VTextField v-model="form.fromtorrentpath" label="源种子文件路径" density="compact" variant="outlined" hide-details
-                    hint="如 BT_backup，留空自动获取" persistent-hint />
-                </VCol>
-                <VCol cols="12" md="6">
-                  <VTextField v-model="form.add_torrent_tags" label="添加种子标签" density="compact" variant="outlined" hide-details
-                    hint="多个以逗号分隔" persistent-hint />
+                <VCol cols="12" md="6" class="dm-form-field">
+                  <VTextField v-model="form.topath" label="目的数据文件根路径" density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">目标下载器中数据的根路径</div>
                 </VCol>
               </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12" md="3">
+              <VRow class="mt-2 dm-form-grid dm-form-grid--four">
+                <VCol cols="12" md="3" class="dm-form-field">
                   <VSwitch v-model="form.transfer_enabled" color="success" inset hide-details label="启用转移做种" />
                 </VCol>
-                <VCol cols="12" md="3">
+                <VCol cols="12" md="3" class="dm-form-field">
                   <VSwitch v-model="form.notify" color="info" inset hide-details label="发送通知" />
                 </VCol>
-                <VCol cols="12" md="3">
+                <VCol cols="12" md="3" class="dm-form-field">
                   <VSwitch v-model="form.onlyonce" color="warning" inset hide-details label="立即运行一次" />
                 </VCol>
-                <VCol cols="12" md="3">
-                  <VTextField v-model.number="form.delay_minutes" label="延迟时间（分钟）" type="number" density="compact" variant="outlined" hide-details
-                    hint="下载完成后延迟 N 分钟再转移" persistent-hint />
-                </VCol>
-              </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12" md="4">
-                  <VSwitch v-model="form.transfer_fallback_enabled" color="success" inset hide-details label="转移做种兜底服务" />
-                </VCol>
-                <VCol cols="12" md="4">
-                  <VTextField v-model.number="form.transfer_fallback_interval_minutes" label="兜底间隔（分钟）" type="number" min="1" density="compact" variant="outlined" hide-details
-                    :disabled="!form.transfer_fallback_enabled" hint="事件漏触发时按此间隔扫描，默认60分钟" persistent-hint />
+                <VCol cols="12" md="3" class="dm-form-field">
+                  <VTextField v-model.number="form.delay_minutes" label="延迟时间（分钟）" type="number" density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">下载完成后延迟 N 分钟再转移</div>
                 </VCol>
               </VRow>
             </div>
 
             <!-- ═══ 转移做种 · 筛选条件 ═══ -->
-            <div v-show="activeSub === 'filter'" class="dm-pane">
-              <div class="dm-section-title">筛选条件</div>
-              <VRow>
-                <VCol cols="12" md="6">
-                  <VTextField v-model="form.includelabels" label="转移种子标签（逗号分隔）" density="compact" variant="outlined" hide-details
-                    hint="仅转移包含这些标签的种子" persistent-hint />
+            <div v-if="activeSub === 'filter'" class="dm-pane">
+              <div class="dm-section-title">条件筛选</div>
+              <VRow class="dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field">
+                  <VTextField v-model="form.includelabels" label="转移种子标签（逗号分隔）" density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">仅转移包含这些标签的种子</div>
                 </VCol>
-                <VCol cols="12" md="6">
-                  <VTextField v-model="form.nolabels" label="不转移种子标签（逗号分隔）" density="compact" variant="outlined" hide-details
-                    hint="跳过包含这些标签的种子" persistent-hint />
+                <VCol cols="12" md="6" class="dm-form-field">
+                  <VTextField v-model="form.nolabels" label="不转移种子标签（逗号分隔）" density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">跳过包含这些标签的种子</div>
                 </VCol>
               </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12" md="6">
-                  <VTextField v-model="form.includecategory" label="转移种子分类（逗号分隔）" density="compact" variant="outlined" hide-details
-                    hint="仅转移这些分类的种子" persistent-hint />
+              <VRow class="mt-2 dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field">
+                  <VTextField v-model="form.includecategory" label="转移种子分类（逗号分隔）" density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">仅转移这些分类的种子</div>
                 </VCol>
-                <VCol cols="12" md="6">
+                <VCol cols="12" md="6" class="dm-form-field">
                   <VSwitch v-model="form.transferemptylabel" color="info" inset hide-details label="转移无标签种子" />
                 </VCol>
               </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12">
+              <VRow class="mt-2 dm-form-grid dm-form-grid--one">
+                <VCol cols="12" class="dm-form-field">
                   <VTextarea v-model="form.nopaths" label="不转移数据文件目录（每行一个）" density="compact" variant="outlined" hide-details rows="3" />
                 </VCol>
               </VRow>
             </div>
 
             <!-- ═══ 转移做种 · 高级选项 ═══ -->
-            <div v-show="activeSub === 'advanced'" class="dm-pane">
+            <div v-if="activeSub === 'advanced'" class="dm-pane">
               <div class="dm-section-title">高级选项</div>
-              <VRow>
-                <VCol cols="12" md="4">
-                  <VSwitch v-model="form.deletesource" color="warning" inset hide-details label="删除源种子" />
+              <VRow class="dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field"><VSwitch v-model="form.transfer_fallback_enabled" color="success" inset hide-details label="转移做种兜底服务" /></VCol>
+                <VCol cols="12" md="6" class="dm-form-field"><VTextField v-model.number="form.transfer_fallback_interval_minutes" label="兜底间隔（分钟）" type="number" min="1" density="compact" variant="outlined" hide-details :disabled="!form.transfer_fallback_enabled" /></VCol>
+              </VRow>
+              <div class="dm-hint mb-3">事件漏触发时按此间隔扫描，默认 60 分钟。</div>
+              <VRow class="dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field"><VTextField v-model="form.fromtorrentpath" label="源种子文件路径" density="compact" variant="outlined" hide-details /></VCol>
+                <VCol cols="12" md="6" class="dm-form-field"><VTextField v-model="form.add_torrent_tags" label="添加种子标签" density="compact" variant="outlined" hide-details /></VCol>
+              </VRow>
+              <div class="dm-hint mb-3">源种子文件路径如 BT_backup，可留空自动获取；多个标签以逗号分隔。</div>
+              <VRow class="dm-form-grid dm-form-grid--four">
+                <VCol cols="12" md="3" class="dm-form-field">
+                  <VSwitch v-model="form.deletesource" color="error" inset hide-details label="删除源种子" />
                 </VCol>
-                <VCol cols="12" md="4">
-                  <VSwitch v-model="form.deleteduplicate" color="warning" inset hide-details label="删除重复种子" />
+                <VCol cols="12" md="3" class="dm-form-field">
+                  <VSwitch v-model="form.deleteduplicate" color="error" inset hide-details label="删除重复种子" />
                 </VCol>
-                <VCol cols="12" md="4">
+                <VCol cols="12" md="3" class="dm-form-field">
                   <VSwitch v-model="form.remainoldcat" color="info" inset hide-details label="保留原分类" />
                 </VCol>
-              </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12" md="4">
+                <VCol cols="12" md="3" class="dm-form-field">
                   <VSwitch v-model="form.remainoldtag" color="info" inset hide-details label="保留原标签" />
                 </VCol>
               </VRow>
             </div>
 
             <!-- ═══ IYUU辅种 · 基础设置 ═══ -->
-            <div v-show="activeSub === 'iyuu_basic'" class="dm-pane">
+            <div v-if="activeSub === 'iyuu_basic'" class="dm-pane">
               <div class="dm-section-title">IYUU 辅种设置</div>
-              <VRow>
-                <VCol cols="12" md="4">
+              <VRow class="dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field">
                   <VSwitch v-model="form.iyuu_enabled" color="success" inset hide-details label="启用辅种" />
                 </VCol>
-                <VCol cols="12" md="4">
+                <VCol cols="12" md="6" class="dm-form-field">
                   <VSwitch v-model="form.iyuu_onlyonce" color="warning" inset hide-details label="立即运行一次" />
                 </VCol>
-                <VCol cols="12" md="4">
-                  <VSwitch v-model="form.iyuu_clearcache" color="error" inset hide-details label="清除缓存后运行" />
-                </VCol>
               </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12" md="6">
-                  <VTextField v-model="form.iyuu_token" label="IYUU Token" density="compact" variant="outlined" hide-details
-                    hint="在 https://iyuu.cn 获取" persistent-hint />
+              <div class="dm-hint mt-2">周期或手动触发；新种添加后进入公共后处理链路。</div>
+              <VRow class="mt-2 dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field">
+                  <VTextField v-model="form.iyuu_token" label="IYUU Token" density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">在 https://iyuu.cn 获取</div>
                 </VCol>
-                <VCol cols="12" md="6">
+                <VCol cols="12" md="6" class="dm-form-field">
                   <VCronField v-model="form.iyuu_cron" label="执行周期" density="compact" variant="outlined" hide-details />
-                </VCol>
-              </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12" md="6">
-                  <VSelect v-model="form.iyuu_downloaders" label="辅种下载器" density="compact" variant="outlined" hide-details
-                    :items="downloaderItems" multiple chips clearable hint="选择辅种目标下载器" persistent-hint />
-                </VCol>
-                <VCol cols="12" md="6">
-                  <VSelect v-model="form.iyuu_auto_downloader" label="主辅分离" density="compact" variant="outlined" hide-details
-                    :items="downloaderItems" clearable hint="辅种专用下载器（可选）" persistent-hint />
-                </VCol>
-              </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12">
-                  <VSelect v-model="form.iyuu_sites" label="辅种站点" density="compact" variant="outlined" hide-details
-                    :items="siteItems" multiple chips clearable hint="选择允许辅种的站点，留空表示全部站点" persistent-hint />
-                </VCol>
-              </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12" md="6">
-                  <VTextField v-model.number="form.iyuu_size" label="辅种体积大于(GB)" type="number" density="compact" variant="outlined" hide-details
-                    hint="只有大于该值的才辅种" persistent-hint />
                 </VCol>
               </VRow>
             </div>
 
             <!-- ═══ IYUU辅种 · 筛选条件 ═══ -->
-            <div v-show="activeSub === 'iyuu_filter'" class="dm-pane">
-              <div class="dm-section-title">辅种筛选</div>
-              <VRow>
-                <VCol cols="12" md="6">
-                  <VTextField v-model="form.iyuu_nolabels" label="不辅种标签（逗号分隔）" density="compact" variant="outlined" hide-details
-                    hint="跳过包含这些标签的种子" persistent-hint />
+            <div v-if="activeSub === 'iyuu_filter'" class="dm-pane">
+              <div class="dm-section-title">条件筛选</div>
+              <VRow class="mb-2 dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field"><VSelect v-model="form.iyuu_downloaders" label="辅种下载器" density="compact" variant="outlined" hide-details
+                  :items="downloaderItems" multiple chips closable-chips clearable /></VCol>
+                <VCol cols="12" md="6" class="dm-form-field"><VSelect v-model="form.iyuu_auto_downloader" label="主辅分离下载器（可选）" density="compact" variant="outlined" hide-details
+                  :items="downloaderItems" clearable /></VCol>
+              </VRow>
+              <VRow class="mb-2 dm-form-grid dm-form-grid--one">
+                <VCol cols="12" class="dm-form-field"><VSelect v-model="form.iyuu_sites" label="辅种站点" density="compact" variant="outlined" hide-details
+                  :items="siteItems" multiple chips closable-chips clearable />
+                <div class="dm-hint">留空表示全部站点</div></VCol>
+              </VRow>
+              <VRow class="dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field">
+                  <VTextField v-model="form.iyuu_nolabels" label="不辅种标签（逗号分隔）" density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">跳过包含这些标签的种子</div>
                 </VCol>
-                <VCol cols="12" md="6">
-                  <VTextField v-model="form.iyuu_labelsafterseed" label="辅种后增加标签" density="compact" variant="outlined" hide-details
-                    hint="逗号分隔，默认：已整理,辅种" persistent-hint />
+                <VCol cols="12" md="6" class="dm-form-field">
+                  <VTextField v-model.number="form.iyuu_size" label="最小辅种体积（GB）" type="number" min="0" density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">仅处理体积大于此值的种子</div>
                 </VCol>
               </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12" md="6">
-                  <VTextField v-model="form.iyuu_categoryafterseed" label="辅种后增加分类" density="compact" variant="outlined" hide-details
-                    hint="设置辅种种子的分类" persistent-hint />
-                </VCol>
-              </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12">
+              <VRow class="mt-2 dm-form-grid dm-form-grid--one">
+                <VCol cols="12" class="dm-form-field">
                   <VTextarea v-model="form.iyuu_nopaths" label="不辅种数据文件目录（每行一个）" density="compact" variant="outlined" hide-details rows="3" />
                 </VCol>
               </VRow>
             </div>
 
             <!-- ═══ IYUU辅种 · 高级选项 ═══ -->
-            <div v-show="activeSub === 'iyuu_advanced'" class="dm-pane">
-              <div class="dm-section-title">辅种高级选项</div>
-              <VRow>
-                <VCol cols="12" md="4">
+            <div v-if="activeSub === 'iyuu_advanced'" class="dm-pane">
+              <div class="dm-section-title">辅种后处理</div>
+              <VRow class="dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field"><VTextField v-model="form.iyuu_labelsafterseed" label="辅种后增加标签" density="compact" variant="outlined" hide-details />
+                <div class="dm-hint">逗号分隔，默认：已整理,辅种</div></VCol>
+                <VCol cols="12" md="6" class="dm-form-field"><VTextField v-model="form.iyuu_categoryafterseed" label="辅种后增加分类" density="compact" variant="outlined" hide-details /></VCol>
+              </VRow>
+              <VRow class="dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field">
                   <VSwitch v-model="form.iyuu_auto_category" color="info" inset hide-details label="分类复用(QB有效)" />
                 </VCol>
+                <VCol cols="12" md="6" class="dm-form-field"><VSwitch v-model="form.iyuu_clearcache" color="warning" inset hide-details label="清除缓存后运行" /></VCol>
               </VRow>
             </div>
 
             <!-- ═══ 种子重命名 · 命名格式 ═══ -->
-            <div v-show="activeSub === 'format'" class="dm-pane">
+            <div v-if="activeSub === 'rename_basic'" class="dm-pane">
               <div class="dm-section-title">重命名设置</div>
-              <VRow>
-                <VCol cols="12" md="4">
+              <VRow class="dm-form-grid dm-form-grid--one">
+                <VCol cols="12" md="4" class="dm-form-field">
                   <VSwitch v-model="form.rename_enabled" color="success" inset hide-details label="启用重命名" />
                 </VCol>
               </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12">
+              <VRow class="mt-2 dm-form-grid dm-form-grid--one">
+                <VCol cols="12" class="dm-form-field">
                   <VTextarea v-model="form.rename_movie_format" label="电影命名格式 (Jinja2)" density="compact" variant="outlined" hide-details rows="2" />
-                  <div class="dm-hint">可用变量: {{ title }}, {{ year }}, {{ original_name }}</div>
+                  <div class="dm-hint" v-pre>可用变量：{{ title }}、{{ year }}、{{ original_name }}</div>
                 </VCol>
               </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12">
+              <VRow class="mt-2 dm-form-grid dm-form-grid--one">
+                <VCol cols="12" class="dm-form-field">
                   <VTextarea v-model="form.rename_tv_format" label="电视剧命名格式 (Jinja2)" density="compact" variant="outlined" hide-details rows="2" />
-                  <div class="dm-hint">可用变量: {{ title }}, {{ year }}, {{ season_episode }}, {{ original_name }}</div>
-                </VCol>
-              </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12">
-                  <VTextarea v-model="form.rename_exclude_dirs" label="排除目录（每行一个）" density="compact" variant="outlined" hide-details rows="2" />
+                  <div class="dm-hint" v-pre>可用变量：{{ title }}、{{ year }}、{{ season_episode }}、{{ original_name }}</div>
                 </VCol>
               </VRow>
             </div>
 
+            <div v-if="activeSub === 'rename_filter'" class="dm-pane">
+              <div class="dm-section-title">条件筛选</div>
+              <VTextarea v-model="form.rename_exclude_dirs" label="排除目录（每行一个）" density="compact" variant="outlined" hide-details rows="2" />
+            </div>
+
             <!-- ═══ 站点标签 · Tracker 映射 ═══ -->
-            <div v-show="activeSub === 'mapping'" class="dm-pane">
+            <div v-if="activeSub === 'tag_basic'" class="dm-pane">
               <div class="dm-section-title">站点标签设置</div>
-              <VRow>
-                <VCol cols="12" md="4">
+              <VRow class="dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field">
                   <VSwitch v-model="form.tag_enabled" color="success" inset hide-details label="启用站点标签" />
                 </VCol>
-                <VCol cols="12" md="4">
+                <VCol cols="12" md="6" class="dm-form-field">
                   <VTextField v-model="form.tag_siteprefix" label="站点标签前缀" density="compact" variant="outlined" hide-details />
                 </VCol>
               </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12">
-                  <VTextarea v-model="form.tag_tracker_mappings_str" label="Tracker 映射（每行: 域名 -> 映射域名）" density="compact" variant="outlined" hide-details rows="4" />
-                  <div class="dm-hint">例: tracker.example.com -> example</div>
+              <VRow class="mt-2 dm-form-grid dm-form-grid--one">
+                <VCol cols="12" class="dm-form-field">
+                  <VTextarea v-model="form.tag_tracker_mappings_str" label="Tracker 映射（域名 -> 映射域名）" density="compact" variant="outlined" hide-details rows="4" />
+                  <div class="dm-hint">每行一条，例如 tracker.example.com -> example</div>
                 </VCol>
               </VRow>
             </div>
 
             <!-- ═══ 站点标签 · 标签清理 ═══ -->
-            <div v-show="activeSub === 'tag_cleanup'" class="dm-pane">
-              <div class="dm-section-title">标签清理</div>
+            <div v-if="activeSub === 'tag_advanced'" class="dm-pane">
+              <div class="dm-section-title">高级选项 · 手动清理标签</div>
+              <div class="dm-hint mb-3">扫描后核对标签与任务，预览清单确认无误后再清理。</div>
               <div class="dm-cleanup-toolbar">
                 <VSelect v-model="cleanupDownloaders" label="下载器" density="compact" variant="outlined" hide-details
                   :items="qbDownloaderItems" multiple chips closable-chips class="dm-cleanup-select" />
@@ -1509,30 +1621,44 @@ watch(() => [props.api, props.pluginId], async () => {
               </div>
             </div>
 
-            <div v-if="activeSub === 'sync_delete_basic'" class="dm-pane">
-              <SyncDeletePane :can-manage="canManage" :api="props.api" :plugin-id="props.pluginId" :form="form" mode="config" />
+            <div v-if="syncDeleteVisited" v-show="activeMain === 'sync_delete' && activeSub.startsWith('sync_delete_')" class="dm-pane">
+              <SyncDeletePane :can-manage="canManage" :api="props.api" :plugin-id="props.pluginId" :form="form" mode="config"
+                :section="activeMain === 'sync_delete' ? activeSub.slice('sync_delete_'.length) : ''" />
+            </div>
+            <div v-if="autoDeleteVisited" v-show="activeMain === 'auto_delete' && activeSub.startsWith('auto_delete_')" class="dm-pane">
+              <AutoDeletePane :downloader-request="downloaderRequest" ref="autoDeletePane" :can-manage="canManage" :api="props.api" :plugin-id="props.pluginId" mode="config"
+                :section="activeMain === 'auto_delete' ? activeSub.slice('auto_delete_'.length) : ''" :active="activeMain === 'auto_delete' && activeSub.startsWith('auto_delete_')"
+                @show-advanced="activeSub = 'auto_delete_advanced'"
+                @saved="values => { Object.assign(form, values); refreshOverview() }" />
             </div>
 
             <!-- ═══ 做种校验 v3.0.15 · 基础设置 ═══ -->
-            <div v-show="activeSub === 'seed_basic'" class="dm-pane">
+            <div v-if="activeSub === 'seed_basic'" class="dm-pane">
               <div class="dm-section-title">做种校验设置</div>
               <VAlert type="info" variant="tonal" density="compact" class="mb-4">做种校验采用按需触发：仅在转移做种、IYUU铺种或手动补刀添加种子后启动。队列为空后自动停止。</VAlert>
-              <VRow>
-                <VCol cols="12" md="4">
+              <VRow class="dm-form-grid dm-form-grid--one">
+                <VCol cols="12" md="4" class="dm-form-field">
                   <VSwitch v-model="form.seed_autostart" color="success" inset hide-details label="启用自动开始做种" />
                 </VCol>
-                <VCol cols="12" md="4">
-                  <VSwitch v-model="form.seed_skipverify" color="info" inset hide-details label="跳过校验(QB有效)" />
+              </VRow>
+            </div>
+
+            <div v-if="activeSub === 'seed_advanced'" class="dm-pane">
+              <div class="dm-section-title">高级选项</div>
+              <VRow class="dm-form-grid dm-form-grid--one">
+                <VCol cols="12" md="4" class="dm-form-field"><VSwitch v-model="form.seed_skipverify" color="warning" inset hide-details label="跳过校验（qBittorrent 有效）" /></VCol>
+              </VRow>
+              <VRow class="mt-2 dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field">
+                  <VTextField v-model.number="form.seed_check_interval" label="校验检查间隔（秒）" type="number" density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">建议 60 秒</div>
+                </VCol>
+                <VCol cols="12" md="6" class="dm-form-field">
+                  <VTextField v-model.number="form.seed_max_wait_minutes" label="最大等待时间（分钟）" type="number" density="compact" variant="outlined" hide-details />
+                  <div class="dm-hint">超时后移出队列</div>
                 </VCol>
               </VRow>
-              <VRow class="mt-2">
-                <VCol cols="12" md="6">
-                  <VTextField v-model.number="form.seed_check_interval" label="校验检查间隔（秒）" type="number" density="compact" variant="outlined" hide-details hint="建议 60 秒" persistent-hint />
-                </VCol>
-                <VCol cols="12" md="6">
-                  <VTextField v-model.number="form.seed_max_wait_minutes" label="最大等待时间（分钟）" type="number" density="compact" variant="outlined" hide-details hint="超时后移出队列" persistent-hint />
-                </VCol>
-              </VRow>
+              <div class="dm-hint">本模块按需启动，不使用定时扫描周期。执行情况在详情页查看。</div>
             </div>
 
           </div>
@@ -1540,12 +1666,20 @@ watch(() => [props.api, props.pluginId], async () => {
       </div>
       <VDivider />
       <VCardActions class="dm-actions">
+        <span v-if="saveNotice" role="status" class="text-caption" :class="saveProblem ? 'text-warning' : 'text-success'">{{ saveNotice }}</span>
         <VSpacer />
-        <VBtn variant="text" @click="emit('close')">取消</VBtn>
-        <VBtn :disabled="!canManage" color="primary" variant="flat" prepend-icon="mdi-content-save-outline" @click="saveConfig">保存配置</VBtn>
+        <VBtn variant="text" :disabled="saving" @click="emit('close')">关闭</VBtn>
+        <VBtn :loading="saving" :disabled="saving || !canManage || Boolean(autoDeletePane?.busy)" color="primary" variant="flat" prepend-icon="mdi-content-save-outline" @click="saveConfig">保存配置</VBtn>
       </VCardActions>
     </VCard>
 
+    <VDialog v-model="reviewDialog" max-width="960" :persistent="Boolean(reviewPane?.busy)" @update:model-value="!$event && closeReview()">
+      <VCard v-if="reviewDialog" class="dm-review-dialog">
+        <VCardTitle class="dm-review-title">同步删除 · 待处理详情<VBtn icon="mdi-close" variant="text" :disabled="Boolean(reviewPane?.busy)" aria-label="关闭待处理详情" @click="closeReview" /></VCardTitle>
+        <VDivider />
+        <VCardText class="dm-review-content"><SyncDeletePane ref="reviewPane" :api="props.api" :plugin-id="props.pluginId" :can-manage="canManage" :initial-pending-only="true" /></VCardText>
+      </VCard>
+    </VDialog>
     <VDialog v-model="cleanupDialog" max-width="620">
       <VCard>
         <VCardItem>
@@ -1598,6 +1732,15 @@ watch(() => [props.api, props.pluginId], async () => {
   </div>
 </template>
 <style scoped>
+.dm-review-dialog { height: min(760px, calc(100dvh - 48px)); display: flex; flex-direction: column; overflow: hidden; }
+.dm-review-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: 0 0 auto; white-space: normal; }
+.dm-review-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.dm-form-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 18px; }
+.dm-form-section-heading .dm-section-title { margin: 0; }
+.dm-form-section-heading :deep(.v-input) { flex: 0 0 auto; }
+.dm-monitor-basic-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; align-items: start; }
+.dm-monitor-basic-grid > div { min-width: 0; }
+@media (max-width: 760px) { .dm-monitor-basic-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
 .dm-config {
   width: min(1120px, calc(100vw - 48px));
   max-width: 100%;
@@ -1605,7 +1748,7 @@ watch(() => [props.api, props.pluginId], async () => {
 }
 .dm-card {
   width: 100%;
-  height: clamp(760px, calc(100dvh - 48px), 860px);
+  height: min(860px, calc(100dvh - 48px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1642,6 +1785,10 @@ watch(() => [props.api, props.pluginId], async () => {
 .dm-flow-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 12px; color: rgba(var(--v-theme-on-surface), 0.78); }
 .dm-flow-step { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 999px; padding: 5px 9px; background: rgba(var(--v-theme-on-surface), 0.02); white-space: nowrap; }
 .dm-flow-arrow { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), 0.44); }
+.dm-flow-review { margin-left: 12px; color: rgb(var(--v-theme-warning)); font-size: 11px; font-weight: 400; text-decoration: underline; text-underline-offset: 3px; }
+.dm-flow-review:focus-visible { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: 3px; }
+.dm-config :deep(.v-row) { align-items: start; }
+.dm-config :deep(.v-input) { min-width: 0; }
 .dm-break-text { overflow-wrap: anywhere; }
 .dm-monitor-speed-list, .dm-monitor-baselines { display: grid; gap: 10px; }
 .dm-threshold-suggestion { border-radius: 8px; }
@@ -1713,8 +1860,6 @@ watch(() => [props.api, props.pluginId], async () => {
   .dm-subtabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding: 6px 12px; }
   .dm-subtabs::-webkit-scrollbar { display: none; }
   .dm-subtab { flex: 0 0 auto; padding: 6px 12px; }
-  .dm-flow { grid-template-columns: 1fr; }
-  .dm-flow-block:first-child { grid-column: auto; }
   .dm-monitor-summary, .dm-upload-summary, .dm-monitor-baselines, .dm-monitor-speed-row { grid-template-columns: 1fr; }
   .dm-upload-config-row, .dm-upload-site-row, .dm-upload-status-grid, .dm-upload-site-status-row { grid-template-columns: 1fr; }
   .dm-upload-config-name, .dm-upload-site-name { padding-top: 0; }
@@ -1737,11 +1882,9 @@ watch(() => [props.api, props.pluginId], async () => {
   .dm-upload-site-row { grid-template-columns: minmax(180px, .7fr) minmax(220px, 1fr) auto; }
   .dm-upload-status-grid { grid-template-columns: 1fr; }
   .dm-upload-site-status-row { grid-template-columns: minmax(170px, 1fr) repeat(3, minmax(96px, auto)); }
-  .dm-flow { grid-template-columns: 1fr; }
-  .dm-flow-block:first-child { grid-column: auto; }
   .dm-window--overview { overflow-y: auto; }
 }
-@media (max-height: 760px) {
+@media (max-height: 808px) {
   .dm-window--overview { overflow-y: auto; }
 }
 </style>

@@ -109,6 +109,9 @@ def runtime_case(monkeypatch, kind, error=""):
     )
     service = SimpleNamespace(name="TR", type="transmission", instance=SimpleNamespace(get_torrents=lambda **_: ([], None)))
 
+    service.instance.get_completed_torrents = lambda **_: [{"hash": "mother", "addedDate": 12, "downloadDir": "/seed"}]
+    plugin.service_info = lambda name: service
+
     def content(**kwargs):
         """只记录下载请求，测试不进行真实取种。"""
         downloads.append(kwargs)
@@ -119,7 +122,7 @@ def runtime_case(monkeypatch, kind, error=""):
     monkeypatch.setattr(iyuu, "download_torrent_content", content)
     monkeypatch.setattr(iyuu, "is_torrent_content", lambda _: True)
     monkeypatch.setattr(iyuu, "request_get_res", lambda *_, **__: pytest.fail("API 站点不能回退 details.php"))
-    monkeypatch.setattr(iyuu, "iyuu_download", lambda *_, **kwargs: additions.append(kwargs) or "child")
+    monkeypatch.setattr(iyuu, "iyuu_download", lambda *_, **kwargs: kwargs["submit"](lambda dl: additions.append(kwargs) or "child"))
     monkeypatch.setattr(iyuu, "_finish_iyuu_pending", lambda *_: True)
     return plugin, service, config, downloads, additions
 
@@ -221,3 +224,34 @@ def test_host_chain_redeems_piggo_recipe_and_never_forwards_bearer_to_final_get(
     else:
         assert result[1] is None and len(calls) == 1
         assert "存取令牌" in result[4] and "test-api-key" not in result[4]
+
+
+@pytest.mark.parametrize("change", ["source_protected", "replaced", "target_present", "target_query_failed", "stop"])
+def test_late_response_rechecks_identity_and_protection(monkeypatch, change):
+    """外站返回的间隙可以保存，新保护、任务重建或停止都拦住提交。"""
+    from app.plugins.downloadmanagerlocal.model.sync_delete import BLOCKS_KEY
+    from app.plugins.downloadmanagerlocal.service.coordination import operation_lock
+
+    plugin, service, config, _, additions = runtime_case(monkeypatch, "piggo")
+    def late_response(**kwargs):
+        def save_during_lookup():
+            with operation_lock(plugin):
+                if change == "source_protected":
+                    plugin.save_data(BLOCKS_KEY, {"job": {"downloader": "TR", "identity": ["mother", 12, "/seed"]}})
+                elif change == "replaced":
+                    service.instance.get_completed_torrents = lambda **_: [{"hash": "mother", "addedDate": 13, "downloadDir": "/seed"}]
+                elif change == "target_present":
+                    service.instance.get_torrents = lambda **_: ([{"hash": "child"}], None)
+                elif change == "target_query_failed":
+                    service.instance.get_torrents = lambda **_: ([], True)
+                else:
+                    plugin._transfer_stop_generation += 1
+        worker = threading.Thread(target=save_during_lookup)
+        worker.start()
+        worker.join(2)
+        assert not worker.is_alive()
+        return None, b"torrent", "", [], None
+    monkeypatch.setattr(iyuu, "download_torrent_content", late_response)
+    assert not iyuu.iyuu_download_torrent(plugin, {"sid": 1, "torrent_id": 29664, "info_hash": "child"},
+                                          service, "/seed", "", source_hash="mother", site_info=config)
+    assert additions == []

@@ -56,6 +56,7 @@ from ..service.upload_limiter import (
     scan_upload_limit_site_tags,
 )
 from ..utils.config import is_speed_monitor_active
+from ..service.overview import build_module_overview
 
 BusinessModelT = TypeVar("BusinessModelT", bound=ApiBusinessModel)
 
@@ -237,7 +238,7 @@ def api_overview(plugin):
         transfer_stats = load_transfer_stats(plugin)
         iyuu_stats = load_iyuu_stats(plugin)
         rename_history = diagnostics.get("rename_history", {}) if isinstance(diagnostics, dict) else {}
-        return OverviewResult.model_validate({
+        payload = {
             "code": 0,
             "plugin": diagnostics.get("plugin", {}) if isinstance(diagnostics, dict) else {},
             "config": diagnostics.get("config", {}) if isinstance(diagnostics, dict) else {},
@@ -283,7 +284,11 @@ def api_overview(plugin):
                     "skipverify": bool(getattr(plugin, "_seed_skipverify", False)),
                 },
             },
-        })
+        }
+        payload["modules"], payload["auto_delete"] = build_module_overview(
+            plugin, diagnostics, payload["cards"], payload["speed_monitor"], upload_limit,
+        )
+        return OverviewResult.model_validate(payload)
     except Exception as e:
         _raise_query_error("总览信息生成失败", e)
 

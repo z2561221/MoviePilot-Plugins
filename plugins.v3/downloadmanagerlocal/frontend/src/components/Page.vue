@@ -1,7 +1,10 @@
 <script setup>
+import './history-layout.css'
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
-import { getPluginApi, postPluginApi, isApiRequestCancellation } from './api'
+import { getPluginApi, postPluginApi, isApiRequestCancellation, getManagementPermission } from './api'
+import HistoryRow from './HistoryRow.vue'
 import SyncDeletePane from './SyncDeletePane.vue'
+import AutoDeletePane from './AutoDeletePane.vue'
 
 const props = defineProps({
   api: { type: [Object, Function], default: null },
@@ -12,6 +15,7 @@ const props = defineProps({
 
 const canManage = ref(false)
 const permissionError = ref('')
+const permissionStatus = ref('loading')
 
 
 const emit = defineEmits(['close', 'switch'])
@@ -19,7 +23,9 @@ const getApi = (path, options = {}) => getPluginApi(props.api, props.pluginId, p
 const postApi = (path, payload = {}, options = {}) => postPluginApi(props.api, props.pluginId, path, payload, options)
 
 const activeTab = ref('overview')
+const syncPendingOnly = ref(false)
 const syncDeletePane = ref(null)
+const autoDeletePane = ref(null)
 const overview = ref(null)
 const diagnostics = ref(null)
 const records = ref([])
@@ -76,6 +82,7 @@ const tabs = [
   { key: 'history', title: '命名历史', icon: 'mdi-history' },
   { key: 'archive', title: '归档记录', icon: 'mdi-archive-outline' },
   { key: 'sync_delete', title: '同步删除', icon: 'mdi-delete-outline' },
+  { key: 'auto_delete', title: '自动删除', icon: 'mdi-delete-clock-outline' },
   { key: 'diagnostics', title: '运行诊断', icon: 'mdi-stethoscope' },
 ]
 
@@ -126,11 +133,13 @@ const overviewAttentionCount = computed(() => {
   const uploadErrors = Array.isArray(uploadLimit.value.errors) ? uploadLimit.value.errors.length : 0
   const downloaderErrors = uploadLimitDownloaderRows.value.filter(item => item.error).length
   const uploadStatusErrors = ['degraded', 'error'].includes(uploadLimit.value.service_status) && uploadErrors + downloaderErrors === 0 ? 1 : 0
-  return serviceErrors + uploadErrors + downloaderErrors + uploadStatusErrors
+  const additional = (overview.value?.modules || []).filter(item => ['sync_delete', 'auto_delete'].includes(item.key) && item.state === 'error').length
+  return serviceErrors + uploadErrors + downloaderErrors + uploadStatusErrors + additional
 })
 const overviewPendingCount = computed(() => {
   const archive = overview.value?.archive || {}
-  return Number(archive.active_failed || 0) + Number(archive.near_archive || 0) + Number(speedMonitor.value.pending_alerts || 0)
+  const additional = (overview.value?.modules || []).filter(item => ['sync_delete', 'auto_delete'].includes(item.key)).reduce((count, item) => count + Number(item.pending || 0), 0)
+  return Number(archive.active_failed || 0) + Number(archive.near_archive || 0) + Number(speedMonitor.value.pending_alerts || 0) + additional
 })
 const overviewAttentionItems = computed(() => {
   const archive = overview.value?.archive || {}
@@ -157,6 +166,11 @@ const overviewAttentionItems = computed(() => {
   }
   if (['degraded', 'error'].includes(uploadLimit.value.service_status) && !uploadLimit.value.errors?.length && !uploadLimitDownloaderRows.value.some(item => item.error)) {
     items.push({ icon: 'mdi-upload-network-outline', color: 'error', title: '上传限速异常', detail: '服务返回异常状态，请展开明细查看运行数据' })
+  }
+  for (const module of overview.value?.modules || []) {
+    if (['sync_delete', 'auto_delete'].includes(module.key) && (module.error || module.pending)) {
+      items.push({ icon: 'mdi-delete-alert-outline', color: module.error ? 'error' : 'warning', title: `${module.title}需要关注`, detail: module.error || `${module.pending} 项等待复核或处理`, tab: module.key })
+    }
   }
   return items
 })
@@ -185,7 +199,7 @@ const overviewCoreCards = computed(() => {
       icon: 'mdi-bell-alert-outline',
       color: overviewPendingCount.value ? 'warning' : 'success',
       value: overviewPendingCount.value,
-      desc: `命名 ${Number(archive.active_failed || 0) + Number(archive.near_archive || 0)} · 速度 ${speedMonitor.value.pending_alerts || 0}`,
+      desc: `命名 ${Number(archive.active_failed || 0) + Number(archive.near_archive || 0)} · 速度 ${speedMonitor.value.pending_alerts || 0} · 删除 ${(overview.value?.modules || []).filter(item => ['sync_delete', 'auto_delete'].includes(item.key)).reduce((count, item) => count + Number(item.pending || 0), 0)}`,
     },
     {
       title: '异常数量',
@@ -193,7 +207,7 @@ const overviewCoreCards = computed(() => {
       color: overviewAttentionCount.value ? 'error' : 'success',
       value: overviewAttentionCount.value,
       desc: overviewAttentionCount.value
-        ? `监控异常 ${speedMonitor.value.service_status === 'error' ? 1 : 0} · 限速异常 ${uploadErrors + downloaderErrors + uploadStatusErrors}`
+        ? `监控异常 ${speedMonitor.value.service_status === 'error' ? 1 : 0} · 限速异常 ${uploadErrors + downloaderErrors + uploadStatusErrors} · 删除异常 ${(overview.value?.modules || []).filter(item => ['sync_delete', 'auto_delete'].includes(item.key) && item.state === 'error').length}`
         : '当前无服务异常',
     },
   ]
@@ -201,12 +215,16 @@ const overviewCoreCards = computed(() => {
 const overviewFeatureCards = computed(() => {
   const cards = overview.value?.cards || {}
   const archive = overview.value?.archive || {}
+  const modules = overview.value?.modules || []
+  const label = key => ({ disabled: '未启用', idle: '待触发', running: '处理中', blocked: '配置未就绪', attention: '有待处理项', error: '状态异常', stopping: '停止中' })[modules.find(item => item.key === key)?.state]
+  const module = key => modules.find(item => item.key === key) || {}
+  const color = key => ({ disabled: 'default', idle: 'primary', running: 'success', blocked: 'warning', attention: 'warning', error: 'error', stopping: 'warning' })[module(key).state] || 'default'
   return [
     {
       title: '转移做种',
       icon: 'mdi-transfer',
       color: cards.transfer?.active ? 'success' : 'warning',
-      value: cards.transfer?.active ? '运行中' : '未就绪',
+      value: label('transfer') || (cards.transfer?.active ? '待触发' : '未就绪'),
       desc: `今日 ${cards.transfer?.today_success || 0} · 兜底 ${cards.transfer?.today_fallback || 0} · 累计 ${Math.max(0, (cards.transfer?.success_total || 0) - (cards.transfer?.today_success || 0))}`,
     },
     {
@@ -229,6 +247,29 @@ const overviewFeatureCards = computed(() => {
       color: cards.seed?.autostart ? 'success' : 'default',
       value: cards.seed?.autostart ? '自动开始' : '仅校验',
       desc: cards.seed?.skipverify ? '跳过校验' : '按需校验',
+    },
+    {
+      title: '站点标签',
+      icon: 'mdi-tag-multiple',
+      color: color('tag'),
+      value: label('tag') || '待获取',
+      desc: `Tracker 映射 ${module('tag').metrics?.['Tracker 映射'] || 0} · 转种、辅种后打标签`,
+    },
+    {
+      title: '同步删除',
+      icon: 'mdi-delete-outline',
+      color: color('sync_delete'),
+      value: label('sync_delete') || '待获取',
+      desc: `队列 ${module('sync_delete').metrics?.['队列中或处理未完'] || 0} · 待处理 ${module('sync_delete').pending || 0} · 完成 ${module('sync_delete').metrics?.['已完成'] || 0}`,
+      tab: 'sync_delete',
+    },
+    {
+      title: '自动删除',
+      icon: 'mdi-delete-clock-outline',
+      color: color('auto_delete'),
+      value: label('auto_delete') || '待获取',
+      desc: `调试 ${overview.value?.auto_delete?.debug_rules || 0} · 正式 ${overview.value?.auto_delete?.delete_rules || 0} · 待处理 ${module('auto_delete').pending || 0}`,
+      tab: 'auto_delete',
     },
   ]
 })
@@ -337,8 +378,19 @@ async function selectTab(key) {
   syncOverviewAutoRefresh()
 }
 
+function openSyncReview() {
+  syncPendingOnly.value = true
+  void selectTab('sync_delete')
+}
+
+function openOverviewModule(tab) {
+  if (tab === 'sync_delete') openSyncReview()
+  else if (tab === 'auto_delete') void selectTab(tab)
+}
+
 async function refreshActive() {
   if (activeTab.value === 'sync_delete') return syncDeletePane.value?.refresh()
+  if (activeTab.value === 'auto_delete') return autoDeletePane.value?.refresh()
   if (activeTab.value === 'overview') return loadOverview()
   if (activeTab.value === 'history') return loadHistory()
   if (activeTab.value === 'archive') return loadArchive()
@@ -542,25 +594,42 @@ onBeforeUnmount(() => {
 })
 
 let permissionsRevision = 0
-watch(() => [props.api, props.pluginId], async () => {
+let permissionController = null
+async function loadPermissions(refresh = false) {
   const revision = ++permissionsRevision
+  permissionController?.abort()
+  const controller = new AbortController()
+  permissionController = controller
   const api = props.api
   const id = props.pluginId
   const current = () => !pageDisposed && revision === permissionsRevision && api === props.api && id === props.pluginId
   canManage.value = false
   permissionError.value = ''
+  permissionStatus.value = 'loading'
   try {
-    const value = await getPluginApi(api, id, 'permissions', { feedback: 'silent' })
-    if (current()) canManage.value = value?.can_manage === true
+    const value = await getManagementPermission(api, { signal: controller.signal, refresh: refresh === true })
+    if (!current()) return
+    if (typeof value?.can_manage !== 'boolean') throw new Error('权限接口未返回明确结果')
+    canManage.value = value.can_manage
+    permissionStatus.value = value.can_manage ? 'granted' : 'denied'
   } catch (reason) {
-    if (current() && !isApiRequestCancellation(reason)) permissionError.value = '权限读取失败，请重新打开页面。'
+    if (!current()) return
+    permissionStatus.value = 'error'
+    permissionError.value = reason?.name === 'PermissionTimeoutError' ? '权限核验超时，请重新检查。' : isApiRequestCancellation(reason) ? '权限核验被中断，请重新检查。' : '当前登录身份核验失败，请重新检查。'
+  } finally {
+    if (permissionController === controller) permissionController = null
   }
-}, { immediate: true, flush: 'sync' })
+}
+watch(() => [props.api, props.pluginId], loadPermissions, { immediate: true, flush: 'sync' })
+onBeforeUnmount(() => permissionController?.abort())
 </script>
 
 <template>
   <div class="dm-page">
-    <VAlert v-if="!canManage" type="info" variant="tonal" density="compact">{{ permissionError || '当前为只读模式，管理操作需要管理员权限。' }}</VAlert>
+    <VAlert v-if="permissionStatus !== 'granted'" :type="permissionStatus === 'error' ? 'warning' : 'info'" variant="tonal" density="compact" :data-permission-status="permissionStatus">
+      {{ permissionStatus === 'loading' ? '正在核验管理权限…' : permissionStatus === 'denied' ? '当前登录身份没有管理权限，页面为只读模式。' : permissionError }}
+      <VBtn v-if="permissionStatus !== 'loading'" size="small" variant="text" class="ml-2" @click="loadPermissions(true)">重新检查</VBtn>
+    </VAlert>
     <VToolbar density="comfortable" class="dm-toolbar">
       <VIcon icon="mdi-download" class="ms-3 me-2" color="primary" />
       <div class="text-h6">下载中心</div>
@@ -614,6 +683,7 @@ watch(() => [props.api, props.pluginId], async () => {
                 <div class="min-w-0">
                   <strong>{{ item.title }}</strong>
                   <div class="text-caption text-medium-emphasis dm-break-text">{{ item.detail }}</div>
+                  <VBtn v-if="item.tab" size="x-small" variant="text" class="text-none" @click="openOverviewModule(item.tab)">查看</VBtn>
                 </div>
               </div>
             </div>
@@ -759,6 +829,7 @@ watch(() => [props.api, props.pluginId], async () => {
                 <div class="min-w-0">
                   <div class="dm-feature-head"><span>{{ card.title }}</span><strong>{{ card.value }}</strong></div>
                   <div class="text-caption text-medium-emphasis dm-break-text">{{ card.desc }}</div>
+                  <VBtn v-if="card.tab" size="x-small" variant="text" class="text-none" @click="openOverviewModule(card.tab)">查看</VBtn>
                 </div>
               </div>
             </div>
@@ -766,152 +837,63 @@ watch(() => [props.api, props.pluginId], async () => {
         </section>
 
         <section v-else-if="activeTab === 'sync_delete'" class="dm-pane">
-          <SyncDeletePane :can-manage="canManage" ref="syncDeletePane" :api="props.api" :plugin-id="props.pluginId" />
+          <SyncDeletePane :can-manage="canManage" ref="syncDeletePane" :api="props.api" :plugin-id="props.pluginId" :initial-pending-only="syncPendingOnly" />
         </section>
 
-        <section v-else-if="activeTab === 'history'" class="dm-pane">
-          <div class="d-flex align-center mb-3">
-            <div class="text-subtitle-2">命名历史</div>
-            <VSpacer />
+        <section v-else-if="activeTab === 'auto_delete'" class="dm-pane">
+          <AutoDeletePane ref="autoDeletePane" :can-manage="canManage" :api="props.api" :plugin-id="props.pluginId" mode="history" />
+        </section>
+        <section v-else-if="activeTab === 'history'" class="dm-pane dm-history-surface">
+          <div class="dm-history-toolbar">
+            <h3 class="dm-history-title">命名历史<span class="dm-history-count">共 {{ total }} 条</span></h3>
             <VBtn :disabled="!canManage" variant="tonal" size="small" prepend-icon="mdi-auto-fix" class="text-none" @click="doRetryRenames" :loading="retrying">补刀</VBtn>
           </div>
-          <div v-if="records.length === 0" class="dm-state text-center text-medium-emphasis">
+          <div v-if="records.length === 0" class="dm-state dm-history-empty">
             <VIcon icon="mdi-history" size="48" color="grey-lighten-1" class="mb-2" />
             <div>暂无命名记录</div>
           </div>
-          <template v-else>
-            <div class="dm-table-scroll dm-desktop-table">
-              <VTable density="compact" class="dm-table">
-              <thead>
-                <tr>
-                  <th class="text-caption">时间</th>
-                  <th class="text-caption">原始名称</th>
-                  <th class="text-caption">命名后</th>
-                  <th class="text-caption">状态</th>
-                  <th class="text-caption">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="r in records" :key="r.hash">
-                  <td class="text-caption text-no-wrap">{{ r.time }}</td>
-                  <td class="text-caption dm-ellipsis" :title="r.original_name">{{ r.original_name }}</td>
-                  <td class="text-caption dm-ellipsis" :title="r.after_name">{{ r.after_name }}</td>
-                  <td><VChip size="x-small" :color="r.success ? 'success' : 'error'" variant="tonal">{{ r.success ? '成功' : (r.reason || '失败') }}</VChip></td>
-                  <td>
-                    <div class="d-flex ga-1">
-                      <VBtn :disabled="!canManage" size="x-small" variant="tonal" color="primary" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
-                      <VBtn :disabled="!canManage" v-if="r.success" size="x-small" variant="tonal" color="warning" @click="doRecovery(r.hash)">恢复</VBtn>
-                      <VBtn :disabled="!canManage" size="x-small" variant="text" color="error" @click="doDelete(r.hash)">删除</VBtn>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-              </VTable>
-            </div>
-            <div class="dm-mobile-list dm-history-list">
-              <article v-for="r in records" :key="r.hash" class="dm-record-card dm-history-card">
-                <div class="dm-record-head">
-                  <div class="dm-record-title" :title="r.after_name || r.original_name">{{ r.after_name || r.original_name || r.hash }}</div>
-                  <VChip class="dm-record-status" size="x-small" :color="r.success ? 'success' : 'error'" variant="tonal">{{ r.success ? '成功' : (r.reason || '失败') }}</VChip>
-                </div>
-                <div class="dm-record-meta">
-                  <div class="dm-record-row">
-                    <span class="dm-record-label">时间</span>
-                    <span class="dm-record-value">{{ r.time || '-' }}</span>
-                  </div>
-                  <div class="dm-record-row">
-                    <span class="dm-record-label">原始</span>
-                    <span class="dm-record-value" :title="r.original_name">{{ r.original_name || '-' }}</span>
-                  </div>
-                  <div class="dm-record-row">
-                    <span class="dm-record-label">命名后</span>
-                    <span class="dm-record-value" :title="r.after_name">{{ r.after_name || '-' }}</span>
-                  </div>
-                </div>
-                <div class="dm-record-actions">
-                  <VBtn :disabled="!canManage" size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
-                  <VBtn :disabled="!canManage" v-if="r.success" size="x-small" variant="tonal" color="warning" prepend-icon="mdi-undo" @click="doRecovery(r.hash)">恢复</VBtn>
-                  <VBtn :disabled="!canManage" size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="doDelete(r.hash)">删除</VBtn>
-                </div>
-              </article>
-            </div>
-          </template>
-          <div v-if="total > pageSize" class="d-flex align-center justify-center pa-3">
-            <VBtn size="x-small" variant="tonal" icon="mdi-chevron-left" :disabled="page <= 1" @click="prevPage" class="mr-2" />
-            <span class="text-caption mx-1">{{ page }} / {{ totalPages }}（共 {{ total }} 条）</span>
-            <VBtn size="x-small" variant="tonal" icon="mdi-chevron-right" :disabled="page >= totalPages" @click="nextPage" class="ml-2" />
+          <div v-else>
+            <HistoryRow v-for="r in records" :key="props.pluginId + ':' + r.hash"
+              :time="r.time" :name="r.after_name || r.original_name || r.hash"
+              :status="r.success ? '成功' : '失败'" :color="r.success ? 'success' : 'error'">
+              <div>原始名称 · {{ r.original_name || '—' }}</div>
+              <div>命名后 · {{ r.after_name || '—' }}</div>
+              <div v-if="!r.success && r.reason" class="text-error">原因 · {{ r.reason }}</div>
+              <div class="dm-history-actions">
+                <VBtn :disabled="!canManage" size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash">补刀</VBtn>
+                <VBtn :disabled="!canManage" v-if="r.success" size="x-small" variant="tonal" color="warning" prepend-icon="mdi-undo" @click="doRecovery(r.hash)">恢复</VBtn>
+                <VBtn :disabled="!canManage" size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="doDelete(r.hash)">删除</VBtn>
+              </div>
+            </HistoryRow>
+          </div>
+          <div v-if="total > pageSize" class="dm-history-pagination">
+            <VPagination v-model="page" :length="totalPages" :total-visible="5" density="compact" @update:model-value="loadHistory" />
+            <span class="dm-history-count">共 {{ total }} 条</span>
           </div>
         </section>
 
-        <section v-else-if="activeTab === 'archive'" class="dm-pane">
-          <div class="text-subtitle-2 mb-3">归档记录</div>
-          <div v-if="archiveRecords.length === 0" class="dm-state text-center text-medium-emphasis">
+        <section v-else-if="activeTab === 'archive'" class="dm-pane dm-history-surface">
+          <div class="dm-history-toolbar"><h3 class="dm-history-title">归档记录<span class="dm-history-count">共 {{ archiveTotal }} 条</span></h3></div>
+          <div v-if="archiveRecords.length === 0" class="dm-state dm-history-empty">
             <VIcon icon="mdi-archive-outline" size="48" color="grey-lighten-1" class="mb-2" />
             <div>暂无归档记录</div>
           </div>
-          <template v-else>
-            <div class="dm-table-scroll dm-desktop-table">
-              <VTable density="compact" class="dm-table">
-              <thead>
-                <tr>
-                  <th class="text-caption">归档时间</th>
-                  <th class="text-caption">名称</th>
-                  <th class="text-caption">分类</th>
-                  <th class="text-caption">次数</th>
-                  <th class="text-caption">原因</th>
-                  <th class="text-caption">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="r in archiveRecords" :key="r.hash">
-                  <td class="text-caption text-no-wrap">{{ r.archived_at || r.last_failed_at }}</td>
-                  <td class="text-caption dm-ellipsis" :title="r.name">{{ r.name || r.hash }}</td>
-                  <td><VChip size="x-small" color="warning" variant="tonal">{{ r.category_label || r.category }}</VChip></td>
-                  <td class="text-caption">{{ r.fail_count }}</td>
-                  <td class="text-caption dm-ellipsis" :title="r.archive_reason || r.reason">{{ r.archive_reason || r.reason }}</td>
-                  <td>
-                    <div class="d-flex ga-1">
-                      <VBtn size="x-small" variant="tonal" color="primary" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash" :disabled="!canManage || !!retryingHash || restoringHash === r.hash || deletingHash === r.hash">补刀</VBtn>
-                      <VBtn size="x-small" variant="tonal" color="primary" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash" :disabled="!canManage || retryingHash === r.hash">恢复</VBtn>
-                      <VBtn size="x-small" variant="text" color="error" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash" :disabled="!canManage || retryingHash === r.hash">删除</VBtn>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-              </VTable>
-            </div>
-            <div class="dm-mobile-list dm-archive-list">
-              <article v-for="r in archiveRecords" :key="r.hash" class="dm-record-card dm-archive-card">
-                <div class="dm-record-head">
-                  <div class="dm-record-title" :title="r.name || r.hash">{{ r.name || r.hash }}</div>
-                  <VChip class="dm-record-status" size="x-small" color="warning" variant="tonal">{{ r.category_label || r.category }}</VChip>
-                </div>
-                <div class="dm-record-meta">
-                  <div class="dm-record-row">
-                    <span class="dm-record-label">归档</span>
-                    <span class="dm-record-value">{{ r.archived_at || r.last_failed_at || '-' }}</span>
-                  </div>
-                  <div class="dm-record-row">
-                    <span class="dm-record-label">次数</span>
-                    <span class="dm-record-value">{{ r.fail_count || 0 }}</span>
-                  </div>
-                  <div class="dm-record-row">
-                    <span class="dm-record-label">原因</span>
-                    <span class="dm-record-value" :title="r.archive_reason || r.reason">{{ r.archive_reason || r.reason || '-' }}</span>
-                  </div>
-                </div>
-                <div class="dm-record-actions">
-                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash" :disabled="!canManage || !!retryingHash || restoringHash === r.hash || deletingHash === r.hash">补刀</VBtn>
-                  <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-archive-arrow-up-outline" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash" :disabled="!canManage || retryingHash === r.hash">恢复</VBtn>
-                  <VBtn size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash" :disabled="!canManage || retryingHash === r.hash">删除</VBtn>
-                </div>
-              </article>
-            </div>
-          </template>
-          <div v-if="archiveTotal > pageSize" class="d-flex align-center justify-center pa-3">
-            <VBtn size="x-small" variant="tonal" icon="mdi-chevron-left" :disabled="archivePage <= 1" @click="prevArchivePage" class="mr-2" />
-            <span class="text-caption mx-1">{{ archivePage }} / {{ archiveTotalPages }}（共 {{ archiveTotal }} 条）</span>
-            <VBtn size="x-small" variant="tonal" icon="mdi-chevron-right" :disabled="archivePage >= archiveTotalPages" @click="nextArchivePage" class="ml-2" />
+          <div v-else>
+            <HistoryRow v-for="r in archiveRecords" :key="props.pluginId + ':' + r.hash"
+              :time="r.archived_at || r.last_failed_at" :name="r.name || r.hash"
+              :status="r.category_label || r.category" color="warning">
+              <div>失败次数 · {{ r.fail_count || 0 }}</div>
+              <div>归档原因 · {{ r.archive_reason || r.reason || '—' }}</div>
+              <div class="dm-history-actions">
+                <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-auto-fix" @click="doRetryRename(r.hash)" :loading="retryingHash === r.hash" :disabled="!canManage || !!retryingHash || restoringHash === r.hash || deletingHash === r.hash">补刀</VBtn>
+                <VBtn size="x-small" variant="tonal" color="primary" prepend-icon="mdi-archive-arrow-up-outline" @click="restoreArchive(r.hash)" :loading="restoringHash === r.hash" :disabled="!canManage || retryingHash === r.hash">恢复</VBtn>
+                <VBtn size="x-small" variant="text" color="error" prepend-icon="mdi-delete-outline" @click="deleteArchive(r.hash)" :loading="deletingHash === r.hash" :disabled="!canManage || retryingHash === r.hash">删除</VBtn>
+              </div>
+            </HistoryRow>
+          </div>
+          <div v-if="archiveTotal > pageSize" class="dm-history-pagination">
+            <VPagination v-model="archivePage" :length="archiveTotalPages" :total-visible="5" density="compact" @update:model-value="loadArchive" />
+            <span class="dm-history-count">共 {{ archiveTotal }} 条</span>
           </div>
         </section>
 
@@ -972,23 +954,11 @@ watch(() => [props.api, props.pluginId], async () => {
             <div>
               <div class="text-subtitle-2 mb-2">最近失败</div>
               <div v-if="!diagnostics?.rename_history?.recent_failures?.length" class="text-caption text-medium-emphasis py-2">暂无失败记录</div>
-              <div v-else class="dm-table-scroll">
-                <VTable density="compact" class="dm-table">
-                <thead>
-                  <tr>
-                    <th class="text-caption">时间</th>
-                    <th class="text-caption">名称</th>
-                    <th class="text-caption">原因</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="item in diagnostics.rename_history.recent_failures" :key="item.hash">
-                    <td class="text-caption text-no-wrap">{{ item.time }}</td>
-                    <td class="text-caption dm-ellipsis" :title="item.name">{{ item.name }}</td>
-                    <td class="text-caption">{{ item.reason }}</td>
-                  </tr>
-                </tbody>
-                </VTable>
+              <div v-else>
+                <HistoryRow v-for="item in diagnostics.rename_history.recent_failures" :key="props.pluginId + ':' + item.hash"
+                  :time="item.time" :name="item.name || item.hash" status="失败" color="error">
+                  <div>失败原因 · {{ item.reason || '—' }}</div>
+                </HistoryRow>
               </div>
             </div>
           </div>
@@ -1018,11 +988,6 @@ watch(() => [props.api, props.pluginId], async () => {
 .dm-pane { min-width: 0; min-height: 100%; }
 .dm-overview-pane { min-height: auto; }
 .dm-state { min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.dm-table-scroll { width: 100%; overflow-x: auto; overflow-y: hidden; }
-.dm-table { min-width: 720px; }
-.dm-table :deep(th) { font-weight: 600 !important; }
-.dm-ellipsis { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dm-mobile-list { display: none; }
 .dm-overview-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .dm-overview-stat {
   min-width: 0;
@@ -1094,73 +1059,6 @@ watch(() => [props.api, props.pluginId], async () => {
 .dm-feature-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; font-size: 12px; }
 .dm-feature-head span { min-width: 0; color: rgba(var(--v-theme-on-surface), 0.62); }
 .dm-feature-head strong { flex: 0 0 auto; color: rgba(var(--v-theme-on-surface), 0.88); }
-.dm-record-card {
-  min-width: 0;
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  border-radius: 8px;
-  padding: 10px;
-  background: rgba(var(--v-theme-on-surface), 0.02);
-}
-.dm-record-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-}
-.dm-record-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 700;
-  color: rgba(var(--v-theme-on-surface), 0.88);
-}
-.dm-record-status {
-  flex: 0 0 auto;
-  max-width: 52%;
-  height: auto;
-  min-height: 22px;
-  align-self: flex-start;
-  white-space: normal;
-}
-.dm-record-status :deep(.v-chip__content) {
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-  line-height: 1.25;
-  word-break: keep-all;
-}
-.dm-record-meta {
-  display: grid;
-  gap: 7px;
-  margin-top: 10px;
-}
-.dm-record-row {
-  display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  gap: 8px;
-  align-items: start;
-}
-.dm-record-label {
-  color: rgba(var(--v-theme-on-surface), 0.52);
-  font-size: 12px;
-  white-space: nowrap;
-}
-.dm-record-value {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  color: rgba(var(--v-theme-on-surface), 0.78);
-  font-size: 12px;
-  line-height: 1.45;
-}
-.dm-record-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
-}
 .dm-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .dm-stat { border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); border-radius: 8px; padding: 10px; min-width: 0; }
 .dm-diagnostics-panel {
@@ -1325,18 +1223,6 @@ watch(() => [props.api, props.pluginId], async () => {
   }
   .dm-side-item :deep(.v-list-item-title) { white-space: nowrap; }
   .dm-main { padding: 10px; }
-  .dm-desktop-table { display: none; }
-  .dm-mobile-list { display: grid; gap: 10px; }
-  .dm-record-title {
-    white-space: normal;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-  }
-  .dm-record-actions :deep(.v-btn) {
-    flex: 1 1 72px;
-    max-width: 128px;
-  }
   .dm-overview-stat-grid, .dm-feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dm-overview-stat { grid-template-columns: 28px minmax(0, 1fr); gap: 8px; padding: 9px; }
   .dm-overview-stat :deep(.v-avatar) { width: 28px !important; height: 28px !important; }

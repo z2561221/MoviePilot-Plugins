@@ -4,10 +4,12 @@ from typing import Any, Dict, List
 
 from apscheduler.triggers.cron import CronTrigger
 
+from .auto_delete import service_declaration
+
 
 def build_plugin_services(plugin) -> List[Dict[str, Any]]:
     """根据插件运行状态构造 MoviePilot 调度服务声明。"""
-    services = []
+    services = service_declaration(plugin)
 
     if plugin._transfer_active and plugin._transfer_fallback_enabled:
         services.append({

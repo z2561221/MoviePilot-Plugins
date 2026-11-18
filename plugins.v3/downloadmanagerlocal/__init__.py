@@ -1,9 +1,10 @@
 """
-DownloadManagerLocal v3.3.16 - MoviePilot V3 本地插件
+DownloadManagerLocal v3.3.17 - MoviePilot V3 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 from threading import Event as ThreadEvent
 import threading
+from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional
 
 from app.plugins import _PluginBase
@@ -15,6 +16,7 @@ from app.sdk.media import MetaBase
 
 from .adapter.moviepilot import get_downloader_service
 from .model.state import SEED_RECHECK_QUEUE_KEY
+from .model.frontend_assets import federation_assets_path
 from .utils.config import build_plugin_config_defaults, is_plugin_active, is_transfer_active
 from .utils.path import convert_save_path
 from .utils.torrent_adapter import get_hash, get_label, get_category, get_save_path, get_torrent_size
@@ -34,6 +36,7 @@ from .service.cleanup import handle_sync_delete_by_hash_event as _handle_sync_de
 from .service.speed_notification import handle_speed_message_action_event as _handle_speed_message_action_event_impl
 from .service.speed_monitor import scan_speed_monitor as _scan_speed_monitor_impl
 from .service.upload_limiter import run_upload_limit_cycle as _run_upload_limit_cycle_impl
+from .service.auto_delete import runtime_of as _auto_delete_runtime_of
 
 class DownloadManagerLocal(_PluginBase):
     """下载中心插件入口，负责声明 MoviePilot 契约并委托 service 层执行。"""
@@ -46,7 +49,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.3.16"
+    plugin_version = "3.3.17"
     # 插件作者
     plugin_author = "Kurisu"
     # 作者主页
@@ -217,6 +220,9 @@ class DownloadManagerLocal(_PluginBase):
         self._tracker_mappings = {}
         self.downloader_helper = None
         self.iyuu_helper = None
+        self._auto_delete_runtime = None
+        self._auto_delete_enabled = False
+        self._auto_delete_error = ""
 
     def init_plugin(self, config: dict = None):
         """根据配置初始化插件运行状态和后台服务。"""; return _initialize_plugin_impl(self, config)
@@ -267,6 +273,13 @@ class DownloadManagerLocal(_PluginBase):
 
     def get_state(self):
         """返回插件当前是否具备可运行能力。"""; return is_plugin_active(self)
+
+    def _scan_auto_delete(self, automatic: bool = True, runtime_token: str | None = None, run_id: str = ""):
+        """周期与手动扫描共享实例运行锁和已生效规则。"""
+        runtime = _auto_delete_runtime_of(self)
+        if runtime_token is not None and runtime_token != runtime.token:
+            return None
+        return runtime.run(automatic=automatic, run_id=run_id)
 
     @property
     def _transfer_active(self) -> bool:
@@ -327,8 +340,8 @@ class DownloadManagerLocal(_PluginBase):
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
-        """返回渲染模式：vue 联邦组件模式"""
-        return "vue", "dist/assets"
+        """按构建内容选择联邦入口，避免同版重构建复用旧入口缓存。"""
+        return "vue", federation_assets_path(Path(__file__).resolve().parent)
 
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
         """Vue 模式下返回前端配置组件使用的默认配置。"""

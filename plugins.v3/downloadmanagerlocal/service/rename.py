@@ -21,6 +21,7 @@ from ..utils.name_cleaner import (
     is_polluted_original_name,
 )
 from ..utils.torrent_adapter import get_hash, get_label, get_save_path, get_tracker_urls
+from .activity import observed
 
 
 def _set_meta_attr(meta: MetaBase, attr: str, value: str) -> None:
@@ -402,6 +403,7 @@ def _find_iyuu_source_hash(plugin, torrent_hash: str) -> str:
     return _find_iyuu_source_hash_from_files(plugin, hash_text)
 
 
+@observed("rename")
 def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: str, save_path: str) -> bool:
     """重命名单个种子，持久化记录并返回实际是否成功。"""
     try:

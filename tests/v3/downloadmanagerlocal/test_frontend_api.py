@@ -86,7 +86,8 @@ def _run_node(script: str) -> subprocess.CompletedProcess[str]:
     """用 Node ESM 执行一段 API helper 合同断言。"""
     script = (
         f"import {{isApiRequestCancellation as requestCancelled}} from {API_MODULE.as_uri()!r};\n"
-        "globalThis.isApiRequestCancellation = requestCancelled;\n" + script
+        "globalThis.isApiRequestCancellation = requestCancelled;\n"
+        "globalThis.getManagementPermission = async () => ({can_manage:true});\n" + script
     )
     return subprocess.run(
         ["node", "--input-type=module", "--eval", script],

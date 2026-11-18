@@ -1,6 +1,7 @@
 """下载中心 API 路由声明。"""
 
 from .sync_delete import routes as sync_delete_routes
+from .auto_delete import routes as auto_delete_routes
 
 from fastapi import Depends
 
@@ -40,7 +41,7 @@ from .handlers import (
 
 def build_api_routes(plugin) -> List[Dict[str, Any]]:
     """构造插件 API 路由声明，保持前端调用契约不变。"""
-    routes = sync_delete_routes(plugin) + [
+    routes = sync_delete_routes(plugin) + auto_delete_routes(plugin) + [
         {"path": "/permissions", "endpoint": permissions, "methods": ["GET"],
          "auth": "bear", "summary": "获取当前用户管理权限", "response_model": PermissionsResult},
         {

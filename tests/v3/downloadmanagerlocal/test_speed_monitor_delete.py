@@ -51,6 +51,11 @@ class FakeDownloader:
         self.release = release
         self.delete_calls = []
 
+    def get_torrents(self, ids):
+        """返回测试告警绑定的未完成任务。"""
+        return [{"hash": ids[0], "state": "downloading", "added_on": 12, "save_path": "/downloads",
+                 "total_size": 1000, "downloaded": 100}], None
+
     def delete_torrents(self, ids, delete_file):
         """记录删除调用并按测试设置返回或抛错。"""
         self.delete_calls.append((list(ids), delete_file))
@@ -138,6 +143,7 @@ def _runtime(status="notified", downloader_type="qbittorrent"):
         last_success_poll_at=10,
         effective_seconds=9,
         last_state="active",
+        target_identity=[monitor.binding_of(SimpleNamespace(type=downloader_type)), 12, "/downloads"],
         anomaly_epoch=1,
         anomaly_active=True,
         had_anomaly=True,
@@ -147,6 +153,7 @@ def _runtime(status="notified", downloader_type="qbittorrent"):
         "downloader_id": "qb-main",
         "torrent_hash": "abc123",
         "anomaly_epoch": 1,
+        "target_identity": list(session.target_identity),
         "token": "abc123",
         "telegram_userid": "10001",
         "expires_at": 200,
@@ -226,7 +233,7 @@ def test_close_and_cancel_never_call_downloader_delete(downloader_type):
 def test_confirm_delete_calls_qb_and_tr_with_delete_file_true(downloader_type):
     """qB/TR 确认删除都必须固定传 delete_file=True 并进入删除终态。"""
     actions = _load("service.speed_actions")
-    runtime = _runtime()
+    runtime = _runtime(downloader_type=downloader_type)
     downloader = FakeDownloader()
     plugin = FakePlugin(runtime, downloader, downloader_type)
 
@@ -341,3 +348,28 @@ def test_completion_and_delete_share_session_lock_and_only_one_terminal_wins():
     assert downloader.delete_calls == [(["abc123"], True)]
     assert runtime.sessions["qb-main:abc123"].status == "deleted"
     assert len(runtime.alerts) == 1
+
+
+@pytest.mark.parametrize("change", ["legacy", "replaced", "complete", "unknown_state", "protected"])
+def test_obsolete_target_never_reaches_delete(change):
+    """旧告警和已变更或受保护的任务均应在最终确认时失效。"""
+    actions = _load("service.speed_actions")
+    runtime = _runtime("confirming")
+    downloader = FakeDownloader()
+    plugin = FakePlugin(runtime, downloader)
+    raw = downloader.get_torrents(["abc123"])[0][0]
+    if change == "legacy":
+        runtime.alerts["qb-main:abc123:1"].pop("target_identity")
+    elif change == "replaced":
+        raw["added_on"] += 1
+    elif change == "unknown_state":
+        raw["state"] = "moving"
+    elif change == "complete":
+        raw["state"] = "uploading"
+    else:
+        from downloadmanagerlocal.model.sync_delete import BLOCKS_KEY
+        plugin.data[BLOCKS_KEY] = {"task": {"downloader": "qb-main", "identity": ["abc123", 12, "/downloads"]}}
+    downloader.get_torrents = lambda ids: ([raw], None)
+    _process(actions, plugin, "confirm")
+    assert downloader.delete_calls == []
+    assert runtime.alerts["qb-main:abc123:1"]["status"] == "expired"

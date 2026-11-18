@@ -30,7 +30,7 @@ MAX_TARGETS = 5000
 MAX_JOBS = 1000
 MAX_PENDING = 100
 PLAN_VERSION = 4
-TERMINAL_STATES = {"completed", "skipped"}
+TERMINAL_STATES = {"completed", "skipped", "dismissed"}
 MEDIA_EXTENSIONS = {
     ".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".iso",
     ".mpg", ".mpeg", ".flv", ".webm", ".m4v", ".rmvb", ".strm",

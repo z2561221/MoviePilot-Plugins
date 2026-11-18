@@ -1,5 +1,6 @@
 """下载管理插件诊断服务实现。"""
 
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
@@ -45,6 +46,9 @@ def _service_status(plugin, name: str) -> dict:
 def _rename_history_stats(plugin) -> dict:
     """统计重命名历史中的成功、失败和脏名称记录。"""
     records = plugin.get_data(RENAME_RECORDS_KEY) or {}
+    cached = getattr(plugin, "_rename_history_summary_cache", None)
+    if cached is not None and cached[0] == records:
+        return deepcopy(cached[1])
     items = list(records.values())
     success_count = sum(1 for item in items if item.get("success"))
     failed_items = [item for item in items if not item.get("success")]
@@ -59,7 +63,7 @@ def _rename_history_stats(plugin) -> dict:
         key=lambda item: item.get("time", ""),
         reverse=True,
     )[:5]
-    return {
+    summary = {
         "total": len(items),
         "success": success_count,
         "failed": len(failed_items),
@@ -74,6 +78,9 @@ def _rename_history_stats(plugin) -> dict:
             for item in recent_failures
         ],
     }
+
+    plugin._rename_history_summary_cache = (deepcopy(records), summary)
+    return deepcopy(summary)
 
 
 def _path_exists(path_text: str) -> bool:

@@ -3,13 +3,18 @@ import vue from '@vitejs/plugin-vue'
 import federation from '@originjs/vite-plugin-federation'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { packageFederationAssets } from './scripts/federationArtifacts.js'
 
 function cleanFederationArtifacts() {
   let outputDir
+  let emittedNames = []
   return {
     name: 'clean-federation-artifacts',
     configResolved(config) {
       outputDir = resolve(config.root, config.build.outDir)
+    },
+    writeBundle(_options, bundle) {
+      emittedNames = Object.keys(bundle)
     },
     closeBundle() {
       if (!outputDir) return
@@ -22,13 +27,14 @@ function cleanFederationArtifacts() {
         const remoteEntry = readFileSync(remoteEntryPath, 'utf8').replace(/[ \t]+(?=\r?$)/gm, '')
         writeFileSync(remoteEntryPath, remoteEntry, 'utf8')
       }
+      packageFederationAssets(outputDir, emittedNames)
     },
   }
 }
 
 export default defineConfig({
   plugins: [vue(), federation({
-    name: 'DownloadManagerLocalV316', filename: 'remoteEntry.js',
+    name: 'DownloadManagerLocalV317', filename: 'remoteEntry.js',
     exposes: { './Config': './src/components/Config.vue', './Page': './src/components/Page.vue' },
     shared: {
       vue: { requiredVersion: false, generate: false },
@@ -36,7 +42,7 @@ export default defineConfig({
       'vuetify/styles': { requiredVersion: false, generate: false, singleton: true },
     }, format: 'esm',
   }), cleanFederationArtifacts()],
-  build: { target: 'esnext', minify: false, cssCodeSplit: true, outDir: '../dist', emptyOutDir: true },
+  build: { target: 'esnext', minify: false, cssCodeSplit: true, outDir: '../dist', emptyOutDir: false },
   css: { postcss: { plugins: [
     { postcssPlugin: 'internal:charset-removal', AtRule: { charset: atRule => { if (atRule.name === 'charset') atRule.remove() } } },
     { postcssPlugin: 'vuetify-filter', Root(root) {
