@@ -31,7 +31,7 @@ def test_v3_index_has_dedicated_download_manager() -> None:
 
     assert metadata["version"] == plugin_metadata["version"]
     assert f"v{metadata['version']}" in metadata["history"]
-    assert metadata["system_version"] == ">=3.0.0"
+    assert metadata["system_version"] == plugin_metadata["system_version"] == ">=3.2.6"
     assert package_v2[PLUGIN_ID]["version"] == "3.2.9"
     assert package_v2[PLUGIN_ID]["v3"] is False
     assert (REPO_ROOT / "plugins.v3/downloadmanagerlocal/__init__.py").is_file()
