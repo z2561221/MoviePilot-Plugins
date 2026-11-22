@@ -27,7 +27,7 @@ def test_all_plugin_routes_declare_concrete_v3_models() -> None:
 
     routes = plugin.get_api()
 
-    assert len(routes) == 36
+    assert len(routes) == 38
     assert {route["path"] for route in routes} == {
         "/permissions",
         "/downloaders",
@@ -50,6 +50,8 @@ def test_all_plugin_routes_declare_concrete_v3_models() -> None:
         "/sites",
         "/tag_cleanup_scan",
         "/tag_cleanup_execute",
+        "/tag_completion_scan",
+        "/tag_completion_execute",
         "/sync_delete/options",
         "/sync_delete/preview",
         "/sync_delete/history",
@@ -105,6 +107,8 @@ def test_json_post_routes_use_pydantic_request_models() -> None:
         "/upload_limit_disable_restore",
         "/tag_cleanup_scan",
         "/tag_cleanup_execute",
+        "/tag_completion_scan",
+        "/tag_completion_execute",
     }
 
     routes = {route["path"]: route for route in plugin.get_api()}

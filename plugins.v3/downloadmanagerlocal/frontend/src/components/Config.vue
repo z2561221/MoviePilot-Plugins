@@ -47,6 +47,14 @@ const cleanupExecuting = ref(false)
 const cleanupDialog = ref(false)
 const cleanupMessage = ref('')
 const cleanupStatus = ref('info')
+const completionDownloaders = ref([])
+const completionScan = ref(null)
+const completionKeep = reactive({})
+const completionScanning = ref(false)
+const completionExecuting = ref(false)
+const completionDialog = ref(false)
+const completionMessage = ref('')
+const completionStatus = ref('info')
 const monitorResetting = ref('')
 const monitorMessage = ref('')
 const monitorMessageStatus = ref('info')
@@ -85,6 +93,11 @@ function resetConfigRequests() {
   cleanupDialog.value = false
   cleanupScan.value = null
   cleanupMessage.value = ''
+  completionScanning.value = false
+  completionExecuting.value = false
+  completionDialog.value = false
+  completionScan.value = null
+  completionMessage.value = ''
   monitorResetting.value = ''
   monitorMessage.value = ''
 }
@@ -210,7 +223,8 @@ const subTabs = {
   ],
   tag: [
     { key: 'tag_basic', title: '基础设置', icon: 'mdi-tune-variant' },
-    { key: 'tag_advanced', title: '高级选项', icon: 'mdi-tag-remove-outline' },
+    { key: 'tag_repair', title: '补全标签', icon: 'mdi-tag-plus-outline' },
+    { key: 'tag_advanced', title: '标签清理', icon: 'mdi-tag-remove-outline' },
   ],
   seed: [
     { key: 'seed_basic', title: '基础设置', icon: 'mdi-tune-variant' },
@@ -226,6 +240,7 @@ const selectedToDownloaderType = computed(() => {
 })
 const qbDownloaderItems = computed(() => downloaderItems.value.filter(item => item.type === 'qbittorrent'))
 const tagCleanupDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
+const tagCompletionDownloaderItems = computed(() => tagCleanupDownloaderItems.value)
 const monitorDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
 const uploadDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
 const uploadSelectedDownloaders = computed(() => {
@@ -362,6 +377,19 @@ const cleanupRemovals = computed(() => {
   return removals
 })
 const cleanupRemovalAssociations = computed(() => cleanupRemovals.value.reduce((total, item) => total + item.hashes.length, 0))
+const completionGroups = computed(() => completionScan.value?.downloaders || [])
+const completionRepairs = computed(() => {
+  const repairs = []
+  for (const group of completionGroups.value) {
+    for (const item of group.tags || []) {
+      if (completionKeep[tagCompletionSelectionKey(group.name, item.kind, item.tag)]) {
+        repairs.push({ downloader: group.name, kind: item.kind, tag: item.tag, hashes: [...(item.hashes || [])] })
+      }
+    }
+  }
+  return repairs
+})
+const completionRepairAssociations = computed(() => completionRepairs.value.reduce((total, item) => total + item.hashes.length, 0))
 const runtimeFlows = [
   {
     label: '速度监控',
@@ -917,6 +945,91 @@ async function executeCleanupTags() {
     cleanupMessage.value = error?.message || '清理失败'
   } finally {
     if (owns()) cleanupExecuting.value = false
+  }
+}
+
+function tagCompletionSelectionKey(downloader, kind, tag) {
+  return `${downloader}\u0000${kind}\u0000${tag}`
+}
+
+function resetCompletionSelection(groups) {
+  Object.keys(completionKeep).forEach(key => delete completionKeep[key])
+  for (const group of groups || []) {
+    for (const item of group.tags || []) {
+      completionKeep[tagCompletionSelectionKey(group.name, item.kind, item.tag)] = true
+    }
+  }
+}
+
+function setAllCompletionTags(selected) {
+  for (const group of completionGroups.value) {
+    for (const item of group.tags || []) {
+      completionKeep[tagCompletionSelectionKey(group.name, item.kind, item.tag)] = selected
+    }
+  }
+}
+
+function completionKindMeta(kind) {
+  return {
+    site: { label: '站点', color: 'primary' },
+    transfer: { label: '转种', color: 'success' },
+    iyuu: { label: 'IYUU铺种', color: 'info' },
+  }[kind] || { label: '其他', color: 'default' }
+}
+
+async function scanTagCompletion() {
+  const owns = configRequestScope()
+  completionMessage.value = ''
+  if (!completionDownloaders.value.length) {
+    completionStatus.value = 'warning'
+    completionMessage.value = '请先选择下载器'
+    return
+  }
+  completionScanning.value = true
+  try {
+    const response = await postJsonApi('tag_completion_scan', { downloaders: completionDownloaders.value })
+    if (!owns()) return
+    completionScan.value = response || null
+    resetCompletionSelection(response?.downloaders || [])
+    completionStatus.value = response?.code === 0 ? (response?.errors?.length ? 'warning' : 'success') : 'error'
+    completionMessage.value = response?.msg || '扫描完成'
+  } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
+    completionStatus.value = 'error'
+    completionMessage.value = error?.message || '扫描失败'
+  } finally {
+    if (owns()) completionScanning.value = false
+  }
+}
+
+function previewTagCompletion() {
+  if (!completionRepairs.value.length) {
+    completionStatus.value = 'warning'
+    completionMessage.value = '没有待补全的标签'
+    return
+  }
+  completionDialog.value = true
+}
+
+async function executeTagCompletion() {
+  const owns = configRequestScope()
+  completionExecuting.value = true
+  try {
+    const response = await postJsonApi('tag_completion_execute', { repairs: completionRepairs.value })
+    if (!owns()) return
+    completionDialog.value = false
+    await scanTagCompletion()
+    if (!owns()) return
+    completionStatus.value = response?.code === 0 ? 'success' : (response?.code === 2 ? 'warning' : 'error')
+    completionMessage.value = response?.msg || '补全完成'
+  } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
+    completionStatus.value = 'error'
+    completionMessage.value = error?.message || '补全失败'
+  } finally {
+    if (owns()) completionExecuting.value = false
   }
 }
 
@@ -1549,6 +1662,85 @@ onBeforeUnmount(() => permissionController?.abort())
               </VRow>
             </div>
 
+            <!-- ═══ 站点标签 · 补全标签 ═══ -->
+            <div v-if="activeSub === 'tag_repair'" class="dm-pane">
+              <div class="dm-section-title">补全标签</div>
+              <VAlert type="info" variant="tonal" density="compact" class="mb-3">
+                站点标签按 tracker 与站点映射恢复；转种和 IYUU 铺种标签只对有对应历史记录的任务补全。仅追加缺失标签，不改名、不转移、不删除种子。
+              </VAlert>
+              <div class="dm-cleanup-toolbar">
+                <VSelect v-model="completionDownloaders" label="下载器" density="compact" variant="outlined" hide-details
+                  :items="tagCompletionDownloaderItems" multiple chips closable-chips class="dm-cleanup-select" />
+                <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="completionScanning"
+                  :disabled="!canManage || !completionDownloaders.length" @click="scanTagCompletion">扫描待补标签</VBtn>
+              </div>
+
+              <VAlert v-if="completionMessage" :type="completionStatus" variant="tonal" density="compact" closable class="mt-3"
+                @click:close="completionMessage = ''">{{ completionMessage }}</VAlert>
+
+              <div v-if="completionScan" class="dm-cleanup-results mt-4">
+                <div class="dm-cleanup-summary">
+                  <div>
+                    <div class="text-subtitle-2">扫描结果</div>
+                    <div class="text-caption text-medium-emphasis">
+                      {{ completionGroups.length }} 个下载器 · 待补 {{ completionRepairAssociations }} 条标签关联
+                    </div>
+                  </div>
+                  <div class="d-flex ga-1 flex-wrap justify-end">
+                    <VBtn size="small" variant="text" prepend-icon="mdi-check-all" @click="setAllCompletionTags(true)">全选</VBtn>
+                    <VBtn size="small" variant="text" color="warning" prepend-icon="mdi-checkbox-blank-outline"
+                      @click="setAllCompletionTags(false)">取消全选</VBtn>
+                  </div>
+                </div>
+
+                <VAlert v-for="item in completionScan.errors || []" :key="`${item.downloader}-${item.message}`"
+                  type="warning" variant="tonal" density="compact" class="mb-2">
+                  {{ item.downloader }} · {{ item.message }}
+                </VAlert>
+
+                <div v-for="group in completionGroups" :key="group.name" class="dm-tag-group">
+                  <div class="dm-tag-group-head">
+                    <div class="d-flex align-center ga-2 min-w-0">
+                      <VIcon icon="mdi-download-network-outline" size="19" color="primary" />
+                      <strong class="text-body-2">{{ group.name }}</strong>
+                    </div>
+                    <span class="text-caption text-medium-emphasis">
+                      {{ group.task_count }} 个任务 · {{ group.missing_count }} 条待补
+                      <template v-if="group.unmatched_tracker_count"> · {{ group.unmatched_tracker_count }} 个 tracker 未识别</template>
+                    </span>
+                  </div>
+
+                  <div v-if="!group.tags.length" class="dm-cleanup-empty">
+                    <VIcon icon="mdi-tag-check-outline" size="28" color="success" />
+                    <span>没有可恢复的缺失标签</span>
+                  </div>
+                  <div v-else class="dm-tag-list">
+                    <label v-for="item in group.tags" :key="`${group.name}-${item.kind}-${item.tag}`" class="dm-tag-row">
+                      <VCheckboxBtn v-model="completionKeep[tagCompletionSelectionKey(group.name, item.kind, item.tag)]" color="success" />
+                      <div class="dm-tag-content">
+                        <div class="dm-tag-line">
+                          <span class="dm-tag-name" :title="item.tag">{{ item.tag }}</span>
+                          <VChip size="x-small" variant="tonal" :color="completionKindMeta(item.kind).color">
+                            {{ completionKindMeta(item.kind).label }}
+                          </VChip>
+                          <span class="text-caption text-medium-emphasis">{{ item.count }} 个任务</span>
+                        </div>
+                        <div class="dm-tag-samples" :title="(item.samples || []).join(' · ')">{{ (item.samples || []).join(' · ') }}</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="dm-cleanup-actions">
+                  <div class="text-caption text-medium-emphasis">
+                    已选 {{ completionRepairs.length }} 个标签组 · {{ completionRepairAssociations }} 条任务关联
+                  </div>
+                  <VBtn color="primary" variant="tonal" prepend-icon="mdi-eye-outline"
+                    :disabled="!canManage || !completionRepairs.length" @click="previewTagCompletion">预览补全</VBtn>
+                </div>
+              </div>
+            </div>
+
             <!-- ═══ 站点标签 · 标签清理 ═══ -->
             <div v-if="activeSub === 'tag_advanced'" class="dm-pane">
               <div class="dm-section-title">高级选项 · 手动清理标签</div>
@@ -1705,6 +1897,38 @@ onBeforeUnmount(() => permissionController?.abort())
           <VBtn variant="text" :disabled="cleanupExecuting" @click="cleanupDialog = false">取消</VBtn>
           <VBtn :disabled="!canManage" color="error" variant="flat" prepend-icon="mdi-tag-remove-outline" :loading="cleanupExecuting"
             @click="executeCleanupTags">确认清理</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
+
+    <VDialog v-model="completionDialog" max-width="680">
+      <VCard>
+        <VCardItem>
+          <template #prepend>
+            <VAvatar color="primary" variant="tonal" size="40" rounded="lg"><VIcon icon="mdi-tag-plus-outline" /></VAvatar>
+          </template>
+          <VCardTitle class="text-subtitle-1">确认补全标签</VCardTitle>
+          <VCardSubtitle>{{ completionRepairAssociations }} 条任务标签关联</VCardSubtitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="text-body-2">
+          只追加仍能从 tracker 或下载中心历史确认的标签。已有标签会保留；不会转移、铺种、重命名或删除种子。
+        </VCardText>
+        <VList density="compact" class="dm-cleanup-preview-list">
+          <VListItem v-for="item in completionRepairs" :key="`${item.downloader}-${item.kind}-${item.tag}`">
+            <template #prepend><VIcon icon="mdi-tag-outline" size="18" /></template>
+            <VListItemTitle>
+              {{ item.tag }} <VChip size="x-small" variant="tonal" :color="completionKindMeta(item.kind).color">{{ completionKindMeta(item.kind).label }}</VChip>
+            </VListItemTitle>
+            <VListItemSubtitle>{{ item.downloader }} · {{ item.hashes.length }} 个任务</VListItemSubtitle>
+          </VListItem>
+        </VList>
+        <VDivider />
+        <VCardActions>
+          <VSpacer />
+          <VBtn variant="text" :disabled="completionExecuting" @click="completionDialog = false">取消</VBtn>
+          <VBtn :disabled="!canManage" color="primary" variant="flat" prepend-icon="mdi-tag-plus-outline" :loading="completionExecuting"
+            @click="executeTagCompletion">确认补全</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>

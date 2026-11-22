@@ -24,6 +24,10 @@ from ..model.api import (
     TagCleanupExecuteResult,
     TagCleanupScanRequest,
     TagCleanupScanResult,
+    TagCompletionExecuteRequest,
+    TagCompletionExecuteResult,
+    TagCompletionScanRequest,
+    TagCompletionScanResult,
     UploadLimitDisableResult,
     UploadLimitReallocateResult,
     UploadLimitRulesRequest,
@@ -39,7 +43,13 @@ from ..model.state import (
     load_transfer_stats,
 )
 from ..service.archive import serialized_rename_state
-from ..service.site_tag import execute_tag_cleanup, scan_and_clean_tags
+from ..service.overview import build_module_overview
+from ..service.site_tag import (
+    execute_tag_cleanup,
+    execute_tag_completion,
+    scan_and_clean_tags,
+    scan_tag_completion,
+)
 from ..service.speed_baseline import suggest_thresholds
 from ..service.speed_decision import resolve_reference_speed
 from ..service.speed_monitor import (
@@ -56,7 +66,6 @@ from ..service.upload_limiter import (
     scan_upload_limit_site_tags,
 )
 from ..utils.config import is_speed_monitor_active
-from ..service.overview import build_module_overview
 
 BusinessModelT = TypeVar("BusinessModelT", bound=ApiBusinessModel)
 
@@ -468,6 +477,34 @@ def api_tag_cleanup_execute(plugin, payload: TagCleanupExecuteRequest):
         return _operation_response(
             {"code": 1, "msg": f"清理失败: {e}", "removed": [], "failed": []},
             TagCleanupExecuteResult,
+        )
+
+
+def api_tag_completion_scan(plugin, payload: TagCompletionScanRequest):
+    """扫描所选下载器中有来源证据的缺失标签。"""
+    try:
+        request = _request_dict(payload)
+        result = scan_tag_completion(plugin, request.get("downloaders") or [])
+        return _operation_response(result, TagCompletionScanResult)
+    except Exception as e:
+        logger.error(f"标签补全扫描失败: {e}")
+        return _operation_response(
+            {"code": 1, "msg": f"扫描失败: {e}", "downloaders": [], "errors": []},
+            TagCompletionScanResult,
+        )
+
+
+def api_tag_completion_execute(plugin, payload: TagCompletionExecuteRequest):
+    """按用户确认的扫描快照补全标签。"""
+    try:
+        request = _request_dict(payload)
+        result = execute_tag_completion(plugin, request.get("repairs") or [])
+        return _operation_response(result, TagCompletionExecuteResult)
+    except Exception as e:
+        logger.error(f"标签补全执行失败: {e}")
+        return _operation_response(
+            {"code": 1, "msg": f"补全失败: {e}", "added": [], "skipped": [], "failed": []},
+            TagCompletionExecuteResult,
         )
 
 

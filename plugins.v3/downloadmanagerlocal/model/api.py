@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from app.schemas.common import JsonData
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -175,6 +177,21 @@ class TagCleanupExecuteResult(ActionResult):
     failed: list[dict[str, JsonData]] = Field(default_factory=list)
 
 
+class TagCompletionScanResult(ActionResult):
+    """下载器标签补全扫描结果。"""
+
+    downloaders: list[dict[str, JsonData]] = Field(default_factory=list)
+    errors: list[dict[str, JsonData]] = Field(default_factory=list)
+
+
+class TagCompletionExecuteResult(ActionResult):
+    """下载器标签补全执行结果。"""
+
+    added: list[dict[str, JsonData]] = Field(default_factory=list)
+    skipped: list[dict[str, JsonData]] = Field(default_factory=list)
+    failed: list[dict[str, JsonData]] = Field(default_factory=list)
+
+
 class EmptyRequest(ApiRequestModel):
     """没有业务字段的显式 JSON 请求体。"""
 
@@ -222,3 +239,24 @@ class TagCleanupExecuteRequest(ApiRequestModel):
     """按扫描快照执行标签清理的请求。"""
 
     removals: list[TagCleanupRemoval] = Field(default_factory=list)
+
+
+class TagCompletionScanRequest(ApiRequestModel):
+    """下载器标签补全扫描请求。"""
+
+    downloaders: list[str] = Field(default_factory=list)
+
+
+class TagCompletionSelection(ApiRequestModel):
+    """用户确认的单类标签补全快照。"""
+
+    downloader: str = Field(min_length=1, max_length=128)
+    kind: Literal["site", "transfer", "iyuu"]
+    tag: str = Field(min_length=1, max_length=256)
+    hashes: list[str] = Field(min_length=1, max_length=5000)
+
+
+class TagCompletionExecuteRequest(ApiRequestModel):
+    """按扫描快照执行标签补全的请求。"""
+
+    repairs: list[TagCompletionSelection] = Field(default_factory=list, max_length=1000)

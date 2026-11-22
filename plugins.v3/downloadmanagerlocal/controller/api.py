@@ -1,15 +1,10 @@
 """下载中心 API 路由声明。"""
 
-from .sync_delete import routes as sync_delete_routes
-from .auto_delete import routes as auto_delete_routes
-
-from fastapi import Depends
-
-from .security import PermissionsResult, permissions, require_admin
 from functools import partial
 from typing import Any, Dict, List
 
 from app import schemas
+from fastapi import Depends
 
 from ..model.api import (
     DiagnosticsResult,
@@ -21,22 +16,29 @@ from ..model.api import (
     SelectionItem,
     TagCleanupExecuteResult,
     TagCleanupScanResult,
+    TagCompletionExecuteResult,
+    TagCompletionScanResult,
     UploadLimitDisableResult,
     UploadLimitReallocateResult,
     UploadLimitRulesResult,
     UploadLimitSiteTagsResult,
     UploadLimitStatusResult,
 )
+from .auto_delete import routes as auto_delete_routes
 from .handlers import (
     api_reset_speed_monitor_baseline,
     api_tag_cleanup_execute,
     api_tag_cleanup_scan,
+    api_tag_completion_execute,
+    api_tag_completion_scan,
     api_upload_limit_disable_restore,
     api_upload_limit_reallocate,
-    api_upload_limit_site_tags,
     api_upload_limit_site_rules_update,
+    api_upload_limit_site_tags,
     api_upload_limit_status,
 )
+from .security import PermissionsResult, permissions, require_admin
+from .sync_delete import routes as sync_delete_routes
 
 
 def build_api_routes(plugin) -> List[Dict[str, Any]]:
@@ -203,6 +205,22 @@ def build_api_routes(plugin) -> List[Dict[str, Any]]:
             "methods": ["POST"],
             "summary": "按扫描快照清理标签",
             "response_model": schemas.Response[TagCleanupExecuteResult],
+        },
+        {
+            "path": "/tag_completion_scan",
+            "endpoint": partial(api_tag_completion_scan, plugin),
+            "auth": "bear",
+            "methods": ["POST"],
+            "summary": "扫描可恢复的下载器标签",
+            "response_model": schemas.Response[TagCompletionScanResult],
+        },
+        {
+            "path": "/tag_completion_execute",
+            "endpoint": partial(api_tag_completion_execute, plugin),
+            "auth": "bear",
+            "methods": ["POST"],
+            "summary": "按确认快照补全下载器标签",
+            "response_model": schemas.Response[TagCompletionExecuteResult],
         },
     ]
 

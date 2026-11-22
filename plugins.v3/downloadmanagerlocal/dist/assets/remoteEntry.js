@@ -1,1 +1,1 @@
-export { get, init, dynamicLoadingCss } from './r55581196fd1853737103a52ea10aaa550a0a07a1d6083743d5aa51ebbf98a68a/remoteEntry.js';
+export { get, init, dynamicLoadingCss } from './r2f04c2bdf1fae2e1c2aa1e9281bba9acd8b7b3544abd273aac9c23888d7b8bbf/remoteEntry.js';

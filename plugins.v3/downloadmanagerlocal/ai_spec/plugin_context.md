@@ -3,14 +3,14 @@
 ## 插件定位
 
 `DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
-`3.3.17`（基于已发布的 V3.3.16）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`3.3.19`（基于实时 main 的 V3.3.18）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
 - 转移做种：从源下载器复制种子到目标下载器，支持路径映射、删除源任务、删除重复任务和转移后做种校验。
 - IYUU 辅种：按配置扫描可辅种任务，查询 IYUU，下载辅种种子，写入缓存与辅种历史。
 - 种子重命名：转移或补刀时根据 MoviePilot 识别结果与原始发布名模板重命名。
-- 站点标签：根据 tracker 域名映射站点名并写入下载器标签。
+- 站点标签：根据 tracker 域名映射站点名并写入下载器标签；支持预览补全站点、转种和 IYUU 标签。
 - 做种校验：转移或辅种后登记队列，后台线程轮询任务状态并按配置自动开始做种。
 - 速度监控：按下载器建立稳健速度基准，跟踪活跃下载会话并提供异常处置入口。
 - 上传限速：支持 qBittorrent 与 Transmission 下载器全局上传上限；用户可按需填写站点合计上限，正数站点跨下载器共享该额度，空值或 `0` 不写单种限速，并支持新种宽限和停用恢复。
@@ -36,7 +36,8 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理；同步删除实施测试只使用隔离替身，生产接管需单独回读配置与运行日志。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 为本周期开发版 `3.3.17`；V2 源码与元数据保持原样。
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 为本周期开发版 `3.3.19`；V2 源码与元数据保持原样。
+- 标签补全先扫描预览，执行时回读任务并复核来源；站点标签依 tracker/站点映射，转种标签依已完成转移记录，IYUU 标签依种子 hash 的母种与目标下载器历史。只追加缺失标签，不重命名、不转移/铺种、不清除现有标签；无法确认来源的任务不补转种或 IYUU 标签。
 - 转移批次在停止和重新初始化后失效；已创建目标而未收尾的任务以 `stopped_after_add` 记录，保留源任务，下次继续后处理并避免重复添加。
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
@@ -51,7 +52,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - `storage/auto_delete_jobs.py` 独立详情/索引和保护归属；写入未确认关闭副作用准入，旧未决任务不自动重放。
 - 协调层每批读取一次自动删除保护并生成索引，转种/辅种/校验避让，解除不覆盖同步删除保护。
 - `service/overview.py` 复用已有诊断与计数，补校验队列、删除索引及标签设置。两处总览覆盖十个模块的生效门禁、运行与待处理状态。
-- 自动删除 `config` GET/POST、preview/run/activate/release/stop POST，以及 status/history/job GET，共十条路由；全部认证，POST 管理操作受管理员保护。整体 API 总数 35。
+- 自动删除 `config` GET/POST、preview/run/activate/release/stop POST，以及 status/history/job GET，共十条路由；全部认证，POST 管理操作受管理员保护。整体 API 总数 38。
 
 临时验证与恢复材料归本任务 archive 批次；当前实施进度及验收证据以本批 `report.md` 为准，不把源码或构建通过当成真实删种验收。
 
@@ -101,7 +102,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - 同步删除受理、开始、关联与完成写 INFO 日志，均带任务 ID 和媒体名称；重复事件不重复记受理，人工重试单独标注。完成状态持久化成功后才输出结果，区分已删除、已不存在、移除种子和暂停保留；日志不依赖结果通知开关，不输出 Webhook 原文。守护：`test_sync_delete_logging.py`。
 - `deep.delete` 为默认通知；普通 `library.deleted` 默认关闭。旧 hash-only 清理入口不再整包删除，必须解析到具体媒体范围。
 - 删除通知全部路径均在已配置映射外时直接忽略，不创建任务或失败历史。按目录边界匹配，不将 `strm-9kg` 视为 `strm` 子目录；已映射路径、映射根和混合版本清单继续交给原有完整规划校验，不截断事件路径。守护：`test_sync_delete_event_scope.py`。
-- `/sync_delete/options`、`/sync_delete/history` 返回裸模型；`/sync_delete/preview`、`/sync_delete/retry` 返回标准 Response。预览和重试验证超管身份，重试只接受服务端任务 ID。
+- `/sync_delete/options`、`/sync_delete/history` 返回裸模型；`/sync_delete/preview`、`/sync_delete/retry`、`/sync_delete/dismiss` 返回标准 Response。写入操作验证管理员身份，重试只接受服务端任务 ID。
 - 配置页分本地与 STRM 两组，目录使用全宽自动增高输入框，无批量/分列模式切换。网盘处理继续由 `sync_delete_cloud` 独立开关控制，填写或改动目录不会自动启用；三段、四段路径格式及后端关联规则保持兼容。
 - 普通通知、手动预览、无记录强删入口从配置页移除；保存时将 `sync_delete_library_deleted`、`sync_delete_force_cloud` 置 false，并丢弃全空映射行。后端旧字段及诊断预览 API 继续兼容。源目录、保护目录收在默认折叠的“高级设置 · 删除范围”，折叠不清空配置或放宽边界。
 - 新增宿主兼容例外：`DownloadHistoryOper.get_files_by_hash/get_files_by_fullpath/delete_file_by_fullpath/_stage_update` 和 `TransferHistoryOper.delete`。当前部署 v3.2.4 的查询 SDK 不覆盖下载文件状态及整理记录删除，故在 adapter 内按次创建 Oper，返回普通字典并不缓存 Session；不导入宿主 ORM Model。宿主提供等价稳定 SDK 后移除这些兼容调用。源删除事件保存 DownloadFiles 主键与字段快照，使用继承的 `_stage_update` 短事务只更新旧 ID 的 state，并回读；不调用按路径批量更新入口。宿主基线 `338687bee8ed288644e775e408536a5e556a6252` 已核验该方法，SQLite 集成回归覆盖同路径新行保护。缺少记录快照的历史任务不补抓新行。相关测试验证实体成功后才更新记录。
@@ -254,10 +255,12 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 | `/sites` | GET | 获取站点列表（用于辅种站点选择） | `api_sites` |
 | `/tag_cleanup_scan` | POST | 扫描下载器标签并清理临时标签 | `api_tag_cleanup_scan` |
 | `/tag_cleanup_execute` | POST | 按扫描快照清理标签 | `api_tag_cleanup_execute` |
+| `/tag_completion_scan` | POST | 扫描可恢复的下载器标签 | `api_tag_completion_scan` |
+| `/tag_completion_execute` | POST | 按确认快照补全下载器标签 | `api_tag_completion_execute` |
 
-另有 `/sync_delete/options`、`/sync_delete/history` 两条 GET，以及
-`/sync_delete/preview`、`/sync_delete/retry` 两条 POST，详见同步删除章节。
-共 9 条 GET 查询路由返回声明的裸业务模型，其余 15 条操作路由显式返回严格
+另有 `/sync_delete/options`、`/sync_delete/history`、`/sync_delete/preview`、
+`/sync_delete/retry`、`/sync_delete/dismiss`，详见同步删除章节。各路由声明
+bear 认证与响应模型；写入接口另要求管理员权限，操作接口显式返回
 `schemas.Response[T]`。Vue helper 仅在顶层字段恰好为
 `success/message/data` 且 `success` 为布尔值时解包；裸业务模型及带额外字段的
 自定义 payload 原样返回。这样既符合当前 V3 动态路由合同，也兼容旧镜像曾经提供
@@ -325,7 +328,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - `service/rename.py`：重命名模板、原始发布名候选、下载历史候选、补刀和单 hash 补刀。
 - `service/archive.py`：失败分类、连续失败归档、恢复、删除、列表和统计。
 - `service/recheck.py`：做种校验队列、后台线程、状态判断和超时判断。
-- `service/site_tag.py`：tracker 域名解析、站点标签写入、临时标签回收和人工标签清理。
+- `service/site_tag.py`：tracker 域名解析、站点标签写入、临时标签回收，以及可预览、可复核的历史标签补全。
 - `service/upload_allocator.py`：纯逻辑额度分配、需求估算、站点共享硬上限和单种轮换探测。
 - `service/upload_limiter.py`：上传限速扫描、分配、持久化、状态摘要和 compare-and-set 恢复。
 - `service/upload_limit_worker.py`：30 秒常驻协调、事件唤醒和只停 worker 的离线保持语义。

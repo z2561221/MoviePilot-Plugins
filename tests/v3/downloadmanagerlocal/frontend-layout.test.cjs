@@ -376,7 +376,10 @@ test('configuration navigation preserves drafts and places settings in their fun
     await nav('站点标签')
     assert.equal(shownField('Tracker 映射（域名 -> 映射域名）').length, 1)
     assert.equal(view.all(node => node.type === 'VSelect' && node.props.label === '下载器' && view.visible(node)).length, 0)
-    await sub('高级选项')
+    await sub('补全标签')
+    assert.equal(view.all(node => node.type === 'VSelect' && node.props.label === '下载器' && view.visible(node)).length, 1)
+    assert.equal(view.text().includes('扫描待补标签'), true)
+    await sub('标签清理')
     assert.equal(view.all(node => node.type === 'VSelect' && node.props.label === '下载器' && view.visible(node)).length, 1)
 
     await nav('做种校验')

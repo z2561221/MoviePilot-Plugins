@@ -46,6 +46,11 @@ def _load_site_tag(host_tag: str):
     adapter.get_site_indexer = lambda *_args, **_kwargs: None
     adapter.get_url_domain = lambda value: value
     adapter.list_site_dicts = lambda: []
+    model = types.ModuleType("downloadmanagerlocal.model")
+    model.__path__ = []
+    state = types.ModuleType("downloadmanagerlocal.model.state")
+    state.iyuu_history_key = lambda source_hash: f"iyuu_{source_hash}"
+    state.iyuu_source_key = lambda seed_hash: f"iyuu_source_{seed_hash}"
     torrent_adapter = types.ModuleType("downloadmanagerlocal.utils.torrent_adapter")
 
     def get_hash(torrent, kind):
@@ -60,6 +65,9 @@ def _load_site_tag(host_tag: str):
 
     torrent_adapter.get_hash = get_hash
     torrent_adapter.get_label = get_label
+    torrent_adapter.get_tracker_urls = lambda torrent, _kind: list(
+        torrent.get("trackers", []) if isinstance(torrent, dict) else getattr(torrent, "trackers", [])
+    )
 
     stubs = {
         "app": app,
@@ -67,6 +75,8 @@ def _load_site_tag(host_tag: str):
         "app.sdk.config": app_sdk_config,
         "app.sdk.logging": app_sdk_logging,
         "downloadmanagerlocal.adapter.moviepilot": adapter,
+        "downloadmanagerlocal.model": model,
+        "downloadmanagerlocal.model.state": state,
         "downloadmanagerlocal.utils.tag_cleanup": cleanup,
         "downloadmanagerlocal.utils.torrent_adapter": torrent_adapter,
     }
@@ -113,6 +123,16 @@ class FakeQbittorrent:
     def delete_torrents_tag(self, ids, tag):
         """记录 qBittorrent 标签定义删除。"""
         self.delete_calls.append((ids, tag))
+        return True
+
+    def set_torrents_tag(self, ids, tags):
+        """向指定任务追加标签。"""
+        hash_set = set(ids if isinstance(ids, list) else [ids])
+        for torrent in self.torrents:
+            if torrent.get("hash") not in hash_set:
+                continue
+            current = [value.strip() for value in torrent.get("tags", "").split(",") if value.strip()]
+            torrent["tags"] = ", ".join(dict.fromkeys([*current, *tags]))
         return True
 
 
@@ -478,3 +498,93 @@ def test_frontend_preselects_only_legacy_candidates_for_confirmation():
 
     assert "item.kind !== 'legacy_candidate'" in source
     assert "legacy_candidate: { label: '疑似旧临时'" in source
+    assert "{ key: 'tag_repair', title: '补全标签'" in source
+    assert "tag_completion_scan" in source
+    assert "tag_completion_execute" in source
+
+
+def test_completion_scan_and_execute_restore_all_proven_tag_categories():
+    """补全按 tracker、转移状态与 IYUU 历史还原缺失标签。"""
+    service = _load_site_tag("MoviePilot")
+    service.find_site_by_domain = lambda _domain: "彩虹岛"
+    target = FakeQbittorrent([{
+        "hash": "h1",
+        "name": "Example.Release",
+        "tags": "",
+        "trackers": ["https://tracker.example/announce"],
+    }])
+    source_service = SimpleNamespace(name="QB1", type="qbittorrent", instance=object())
+    target_service = SimpleNamespace(name="QB2 display", type="qbittorrent", instance=target)
+    data = {
+        "QB1-h1": {
+            "to_download": "QB2 display",
+            "to_download_id": "h1",
+            "transfer_state": "completed",
+        },
+        "iyuu_source_h1": "mother-hash",
+        "iyuu_mother-hash": [{"downloader": "QB2 display", "torrents": ["h1"]}],
+    }
+    plugin = SimpleNamespace(
+        _fromdownloader="QB1",
+        _tracker_mappings={},
+        _tag_siteprefix="🏠",
+        _torrent_tags=["⏩转种"],
+        _iyuu_labelsafterseed="已整理,辅种",
+        service_info=lambda name: {"QB1": source_service, "QB2": target_service}.get(name),
+        get_data=lambda key: data.get(key),
+    )
+
+    scan = service.scan_tag_completion(plugin, ["QB2"])
+    groups = scan["downloaders"][0]["tags"]
+    assert {(item["kind"], item["tag"]) for item in groups} == {
+        ("site", "🏠彩虹岛"),
+        ("transfer", "⏩转种"),
+        ("iyuu", "已整理"),
+        ("iyuu", "辅种"),
+    }
+
+    repairs = [{
+        "downloader": "QB2",
+        "kind": item["kind"],
+        "tag": item["tag"],
+        "hashes": item["hashes"],
+    } for item in groups]
+    result = service.execute_tag_completion(plugin, repairs)
+    assert result["code"] == 0
+    assert set(target.torrents[0]["tags"].split(", ")) == {"🏠彩虹岛", "⏩转种", "已整理", "辅种"}
+
+    repeated = service.execute_tag_completion(plugin, repairs)
+    assert repeated["added"] == []
+    assert repeated["skipped"][0]["message"] == "标签已存在"
+
+
+def test_completion_only_restores_proven_categories_and_preserves_transmission_labels():
+    """无来源记录的任务不获转种/IYUU标签，TR 补站点标签保留已有 labels。"""
+    service = _load_site_tag("MoviePilot")
+    service.find_site_by_domain = lambda _domain: "彩虹岛"
+    target = FakeTransmission([_transmission_torrent("h2", ["用户标签"])])
+    target.torrents[0].trackers = ["https://tracker.example/announce"]
+    target_service = SimpleNamespace(name="TR1", type="transmission", instance=target)
+    source_service = SimpleNamespace(name="QB1", type="qbittorrent", instance=object())
+    plugin = SimpleNamespace(
+        _fromdownloader="QB1",
+        _tracker_mappings={},
+        _tag_siteprefix="🏠",
+        _torrent_tags=["⏩转种"],
+        _iyuu_labelsafterseed="已整理,辅种",
+        service_info=lambda name: {"QB1": source_service, "TR1": target_service}.get(name),
+        get_data=lambda key: None,
+    )
+
+    scan = service.scan_tag_completion(plugin, ["TR1"])
+    groups = scan["downloaders"][0]["tags"]
+    assert [(item["kind"], item["tag"]) for item in groups] == [("site", "🏠彩虹岛")]
+    result = service.execute_tag_completion(plugin, [{
+        "downloader": "TR1",
+        "kind": "site",
+        "tag": "🏠彩虹岛",
+        "hashes": ["h2"],
+    }])
+
+    assert result["code"] == 0
+    assert set(target.torrents[0].labels) == {"用户标签", "🏠彩虹岛"}
