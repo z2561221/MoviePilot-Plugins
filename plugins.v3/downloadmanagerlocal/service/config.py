@@ -20,6 +20,17 @@ from ..utils.config import (
 )
 from ..utils.tracker import parse_tracker_mappings
 
+DEFAULT_TRACKER_MAPPINGS = (
+    "chdbits.xyz -> ptchdbits.co\n"
+    "agsvpt.trackers.work -> agsvpt.com\n"
+    "tracker.m-team.cc -> m-team.cc\n"
+    "agsvpt.cn -> agsvpt.com\n"
+    "x-anime.cc -> u2.dmhy.org\n"
+    "anime.dmhy.org -> u2.dmhy.org\n"
+    "daydream.dmhy.best -> u2.dmhy.org\n"
+    "tracker.cinefiles.info -> audiences.me"
+)
+
 
 def initialize_runtime_config(plugin, config: dict = None) -> dict:
     """根据插件配置初始化运行时字段并返回可继续持久化的配置。"""
@@ -28,12 +39,7 @@ def initialize_runtime_config(plugin, config: dict = None) -> dict:
         setattr(plugin, "_" + key, deepcopy(config.get(key, default)))
     plugin.downloader_helper = create_downloader_helper()
 
-    default_mappings = (
-        "chdbits.xyz -> ptchdbits.co\n"
-        "agsvpt.trackers.work -> agsvpt.com\n"
-        "tracker.cinefiles.info -> audiences.me"
-    )
-    plugin._tracker_mappings = parse_tracker_mappings(default_mappings)
+    plugin._tracker_mappings = parse_tracker_mappings(DEFAULT_TRACKER_MAPPINGS)
 
     monitor_config = normalize_speed_monitor_config(config)
     for key, value in monitor_config.items():

@@ -163,6 +163,7 @@ class TagCleanupScanResult(ActionResult):
 
     downloaders: list[dict[str, JsonData]] = Field(default_factory=list)
     auto_removed: list[dict[str, JsonData]] = Field(default_factory=list)
+    skipped: list[dict[str, JsonData]] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
 
 
@@ -170,6 +171,7 @@ class TagCleanupExecuteResult(ActionResult):
     """下载器标签清理执行结果。"""
 
     removed: list[dict[str, JsonData]] = Field(default_factory=list)
+    skipped: list[dict[str, JsonData]] = Field(default_factory=list)
     failed: list[dict[str, JsonData]] = Field(default_factory=list)
 
 

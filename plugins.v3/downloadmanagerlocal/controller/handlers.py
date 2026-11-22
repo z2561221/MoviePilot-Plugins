@@ -444,7 +444,7 @@ def api_sites(plugin):
 
 
 def api_tag_cleanup_scan(plugin, payload: TagCleanupScanRequest):
-    """扫描所选 qBittorrent 下载器并自动清理明确的临时标签。"""
+    """扫描所选 QB/TR 下载器并自动清理明确的临时标签。"""
     try:
         request = _request_dict(payload)
         result = scan_and_clean_tags(plugin, request.get("downloaders") or [])

@@ -5,9 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 from app.plugins.downloadmanagerlocal.adapter.auto_delete import (
+    AutoDeleteAdapter,
     binding_of,
     normalize_native,
 )
+from app.plugins.downloadmanagerlocal.adapter import auto_delete as auto_delete_adapter
 from app.plugins.downloadmanagerlocal.model.auto_delete import (
     BLOCKS_KEY,
     CONTROL_KEY,
@@ -183,6 +185,68 @@ def test_debug_two_samples_and_pause_evidence(monkeypatch):
     assert result.items[0].state == "paused"
     assert runtime.run(now=1600).items == []
     assert adapter.actions == ["pause"]
+
+
+def test_pause_waits_for_delayed_downloader_confirmation(monkeypatch):
+    """暂停回读短暂滞后时等待同一任务的最终状态。"""
+    expected = snapshot()
+    observed = iter([
+        expected.model_copy(deep=True),
+        expected.model_copy(deep=True),
+        expected.model_copy(update={"state": "stoppedUP"}, deep=True),
+    ])
+    waits = []
+    stop_calls = []
+    service = SimpleNamespace(type="qbittorrent", instance=SimpleNamespace(
+        stop_torrents=lambda **kwargs: stop_calls.append(kwargs)))
+    plugin = SimpleNamespace(service_info=lambda _: service)
+    adapter = AutoDeleteAdapter(plugin)
+    adapter.current = lambda _: next(observed)
+    monkeypatch.setattr(auto_delete_adapter.time, "sleep", waits.append)
+
+    result = adapter.pause(expected)
+
+    assert result.paused
+    assert stop_calls == [{"ids": [expected.hash]}]
+    assert waits == [0.5]
+
+
+def test_pause_timeout_keeps_confirmation_failure(monkeypatch):
+    """超过有界确认等待仍未暂停时继续拒绝后续删除。"""
+    expected = snapshot()
+    observed = iter([expected.model_copy(deep=True)] * 7)
+    waits = []
+    service = SimpleNamespace(type="qbittorrent", instance=SimpleNamespace(stop_torrents=lambda **_: True))
+    plugin = SimpleNamespace(service_info=lambda _: service)
+    adapter = AutoDeleteAdapter(plugin)
+    adapter.current = lambda _: next(observed)
+    monkeypatch.setattr(auto_delete_adapter.time, "sleep", waits.append)
+
+    with pytest.raises(RuntimeError, match="尚未确认暂停"):
+        adapter.pause(expected)
+
+    assert waits == [0.5, 1, 2, 3, 3]
+
+
+def test_pause_confirmation_stops_if_task_identity_changes(monkeypatch):
+    """确认等待期间任务身份变化时不再轮询或继续处理。"""
+    expected = snapshot()
+    changed = expected.model_copy(update={"added_at": 2}, deep=True)
+    observed = iter([expected.model_copy(deep=True), changed])
+    waits = []
+    stop_calls = []
+    service = SimpleNamespace(type="qbittorrent", instance=SimpleNamespace(
+        stop_torrents=lambda **kwargs: stop_calls.append(kwargs)))
+    plugin = SimpleNamespace(service_info=lambda _: service)
+    adapter = AutoDeleteAdapter(plugin)
+    adapter.poll = lambda *_args, **_kwargs: [next(observed)]
+    monkeypatch.setattr(auto_delete_adapter.time, "sleep", waits.append)
+
+    with pytest.raises(ValueError, match="任务已重建"):
+        adapter.pause(expected)
+
+    assert stop_calls == [{"ids": [expected.hash]}]
+    assert waits == []
 
 
 def test_activation_does_not_delete_and_explicit_pending_uses_saved_evidence(monkeypatch):
