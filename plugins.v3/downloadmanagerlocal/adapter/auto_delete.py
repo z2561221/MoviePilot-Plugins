@@ -6,6 +6,7 @@ import math
 import os
 import re
 import stat
+import time
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
@@ -17,6 +18,7 @@ from ..model.auto_delete import Settings, Snapshot, Tracker, digest
 TR_FIELDS = ["id", "hashString", "name", "addedDate", "downloadDir", "status", "totalSize",
              "percentDone", "leftUntilDone", "uploadRatio", "secondsSeeding", "rateUpload",
              "uploadLimit", "uploadLimited", "labels", "trackers", "trackerStats"]
+PAUSE_CONFIRMATION_DELAYS = (0, 0.5, 1, 2, 3, 3)
 
 
 def value_of(item, *names, default=None):
@@ -249,10 +251,15 @@ class AutoDeleteAdapter:
         self.check()
         if self.service(expected.downloader).instance.stop_torrents(ids=[expected.hash]) is False:
             raise RuntimeError("下载器拒绝暂停")
-        current = self.current(expected)
-        if current is not None and not current.paused:
-            raise RuntimeError("下载器尚未确认暂停，保留保护待复核")
-        return current
+        for delay in PAUSE_CONFIRMATION_DELAYS:
+            if delay:
+                self.check()
+                time.sleep(delay)
+            self.check()
+            current = self.current(expected)
+            if current is None or current.paused:
+                return current
+        raise RuntimeError("下载器尚未确认暂停，保留保护待复核")
 
     def remove(self, expected: Snapshot):
         """精确移除原任务，文件由已核验的文件执行器单独处理。"""
