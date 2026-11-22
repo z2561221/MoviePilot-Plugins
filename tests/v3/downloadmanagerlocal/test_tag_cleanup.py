@@ -47,8 +47,19 @@ def _load_site_tag(host_tag: str):
     adapter.get_url_domain = lambda value: value
     adapter.list_site_dicts = lambda: []
     torrent_adapter = types.ModuleType("downloadmanagerlocal.utils.torrent_adapter")
-    torrent_adapter.get_hash = lambda torrent, _kind: torrent.get("hash")
-    torrent_adapter.get_label = lambda torrent, _kind: torrent.get("tags", "")
+
+    def get_hash(torrent, kind):
+        if isinstance(torrent, dict):
+            return torrent.get("hash", "") if kind == "qbittorrent" else torrent.get("hashString", "")
+        return getattr(torrent, "hashString", getattr(torrent, "hash_string", ""))
+
+    def get_label(torrent, kind):
+        if isinstance(torrent, dict):
+            return torrent.get("tags", "") if kind == "qbittorrent" else torrent.get("labels", [])
+        return getattr(torrent, "labels", [])
+
+    torrent_adapter.get_hash = get_hash
+    torrent_adapter.get_label = get_label
 
     stubs = {
         "app": app,
@@ -105,6 +116,32 @@ class FakeQbittorrent:
         return True
 
 
+class FakeTransmission:
+    """模拟 Transmission 对象任务、整组覆盖写入及空标签更新。"""
+
+    def __init__(self, torrents: list[SimpleNamespace]):
+        self.torrents = torrents
+        self.writes = []
+        self.definition_calls = []
+        self.trc = self
+
+    def get_torrents(self, ids=None):
+        if ids is None:
+            return list(self.torrents), None
+        hash_set = set(ids if isinstance(ids, list) else [ids])
+        return [item for item in self.torrents if item.hashString in hash_set], None
+
+    def set_torrent_tag(self, *, ids, tags):
+        return self.change_torrent(ids=ids, labels=tags)
+
+    def change_torrent(self, *, ids, labels):
+        hash_set = set(ids if isinstance(ids, list) else [ids])
+        self.writes.append((sorted(hash_set), list(labels)))
+        for torrent in self.torrents:
+            if torrent.hashString in hash_set:
+                torrent.labels = list(labels)
+        return True
+
 class EventPlugin:
     """模拟转移配置中来源与目标下载器均参与事件清理的插件。"""
 
@@ -126,6 +163,11 @@ class EventPlugin:
 def _event_torrent(hash_value: str, tags: str) -> dict:
     """构造事件清理用的 qBittorrent 任务。"""
     return {"hash": hash_value, "name": hash_value, "tags": tags}
+
+
+def _transmission_torrent(hash_value: str, labels: list[str]) -> SimpleNamespace:
+    """构造 Transmission 风格对象。"""
+    return SimpleNamespace(hashString=hash_value, name=hash_value, labels=list(labels))
 
 
 def test_managed_anchor_recognizes_single_task_legacy_temporary_tag():
@@ -302,6 +344,130 @@ def test_download_added_event_ignores_unselected_downloader():
     assert result["handled"] is False
     assert result["reason"] == "downloader_not_selected"
     assert qb3.remove_calls == []
+
+
+def test_transmission_scan_groups_labels_and_auto_removes_only_temporary(monkeypatch):
+    """TR 扫描读取 labels 字段，只自动移除明确临时标签。"""
+    service = _load_site_tag("MoviePilot")
+    transmission = FakeTransmission([
+        _transmission_torrent("tr-1", ["DML_TMP_stale", "保种", "站点/Example"]),
+        _transmission_torrent("tr-2", ["DML_TMP_active", "用户标签"]),
+    ])
+    plugin = EventPlugin({"TR": SimpleNamespace(type="transmission", instance=transmission)})
+    plugin._active_temporary_tags.add("DML_TMP_active")
+
+    result = service.scan_and_clean_tags(plugin, ["TR"])
+
+    assert result["code"] == 0 and result["errors"] == []
+    assert result["downloaders"][0]["task_count"] == 2
+    assert {item["tag"] for item in result["downloaders"][0]["tags"]} == {
+        "保种", "站点/Example", "DML_TMP_active", "用户标签",
+    }
+    assert result["auto_removed"][0]["tag"] == "DML_TMP_stale"
+    assert transmission.torrents[0].labels == ["保种", "站点/Example"]
+    assert transmission.torrents[1].labels == ["DML_TMP_active", "用户标签"]
+    assert transmission.writes == [(["tr-1"], ["保种", "站点/Example"])]
+    assert transmission.definition_calls == []
+
+
+def test_transmission_manual_cleanup_preserves_other_labels():
+    """人工确认只移除选中标签，保留任务上的其他 TR labels。"""
+    service = _load_site_tag("MoviePilot")
+    transmission = FakeTransmission([
+        _transmission_torrent("tr-1", ["保种", "错误标签", "DML_TMP_active"]),
+        _transmission_torrent("tr-2", ["保种", "其他标签"]),
+    ])
+    plugin = EventPlugin({"TR": SimpleNamespace(type="transmission", instance=transmission)})
+
+    result = service.execute_tag_cleanup(plugin, [{
+        "downloader": "TR", "tag": "错误标签", "hashes": ["tr-1"],
+    }])
+
+    assert result["code"] == 0
+    assert result["removed"][0]["hashes"] == ["tr-1"]
+    assert transmission.torrents[0].labels == ["保种", "DML_TMP_active"]
+    assert transmission.torrents[1].labels == ["保种", "其他标签"]
+    assert transmission.writes == [(["tr-1"], ["保种", "DML_TMP_active"])]
+    assert transmission.definition_calls == []
+
+
+def test_transmission_manual_cleanup_uses_only_confirmed_hashes_and_latest_labels():
+    """只清理确认过的 hash，保留扫描后新增标签及新任务。"""
+    service = _load_site_tag("MoviePilot")
+    transmission = FakeTransmission([
+        _transmission_torrent("tr-1", ["错误标签", "保种", "扫描后新增"]),
+        _transmission_torrent("tr-2", ["错误标签", "新任务标签"]),
+    ])
+    plugin = EventPlugin({"TR": SimpleNamespace(type="transmission", instance=transmission)})
+
+    result = service.execute_tag_cleanup(plugin, [{
+        "downloader": "TR", "tag": "错误标签", "hashes": ["tr-1"],
+    }])
+
+    assert result["code"] == 0
+    assert result["removed"][0]["hashes"] == ["tr-1"]
+    assert transmission.torrents[0].labels == ["保种", "扫描后新增"]
+    assert transmission.torrents[1].labels == ["错误标签", "新任务标签"]
+    assert transmission.writes == [(["tr-1"], ["保种", "扫描后新增"])]
+
+
+def test_transmission_manual_cleanup_skips_missing_confirmed_hash():
+    """确认的任务已消失时作为 no-op，不因别的任务使用同标签而扩展清理范围。"""
+    service = _load_site_tag("MoviePilot")
+    transmission = FakeTransmission([
+        _transmission_torrent("tr-new", ["错误标签", "新任务"]),
+    ])
+    plugin = EventPlugin({"TR": SimpleNamespace(type="transmission", instance=transmission)})
+
+    result = service.execute_tag_cleanup(plugin, [{
+        "downloader": "TR", "tag": "错误标签", "hashes": ["tr-gone"],
+    }])
+
+    assert result["code"] == 0
+    assert result["removed"] == [] and result["failed"] == []
+    assert result["skipped"][0]["hashes"] == ["tr-gone"]
+    assert "无需清理" in result["msg"]
+    assert transmission.torrents[0].labels == ["错误标签", "新任务"]
+    assert transmission.writes == []
+
+
+def test_transmission_scan_reports_missing_auto_cleanup_hash_as_skipped():
+    """自动清理前任务消失时不计为已移除。"""
+    service = _load_site_tag("MoviePilot")
+    transmission = FakeTransmission([
+        _transmission_torrent("tr-gone", ["DML_TMP_stale"]),
+    ])
+
+    def torrents_disappear_before_cleanup(ids=None):
+        if ids is None:
+            return [_transmission_torrent("tr-gone", ["DML_TMP_stale"])], None
+        return [], None
+
+    transmission.get_torrents = torrents_disappear_before_cleanup
+    plugin = EventPlugin({"TR": SimpleNamespace(type="transmission", instance=transmission)})
+
+    result = service.scan_and_clean_tags(plugin, ["TR"])
+
+    assert result["code"] == 0
+    assert result["auto_removed"] == []
+    assert result["skipped"][0]["hashes"] == ["tr-gone"]
+    assert transmission.writes == []
+
+
+def test_transmission_cleanup_can_remove_last_task_label():
+    """清掉 TR 任务最后一个标签时使用整体空 labels 更新，不碰全局定义。"""
+    service = _load_site_tag("MoviePilot")
+    transmission = FakeTransmission([_transmission_torrent("tr-1", ["旧标签"])])
+    plugin = EventPlugin({"TR": SimpleNamespace(type="transmission", instance=transmission)})
+
+    result = service.execute_tag_cleanup(plugin, [{
+        "downloader": "TR", "tag": "旧标签", "hashes": ["tr-1"],
+    }])
+
+    assert result["code"] == 0
+    assert transmission.torrents[0].labels == []
+    assert transmission.writes == [(["tr-1"], [])]
+    assert transmission.definition_calls == []
 
 
 def test_frontend_preselects_only_legacy_candidates_for_confirmation():

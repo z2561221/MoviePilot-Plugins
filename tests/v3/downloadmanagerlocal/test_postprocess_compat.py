@@ -52,7 +52,7 @@ def test_site_tag_writes_qb_tag_from_tracker_property(monkeypatch) -> None:
         set_torrents_tag=lambda **kwargs: writes.append(kwargs),
     )
     monkeypatch.setattr(site_tag, "find_site_by_domain", lambda domain: "ExampleSite")
-    monkeypatch.setattr(site_tag, "get_url_domain", lambda url: "tracker.example")
+    monkeypatch.setattr(site_tag, "_read_tracker_domain", lambda url: "tracker.example")
 
     site_tag.tag_torrent(
         plugin,

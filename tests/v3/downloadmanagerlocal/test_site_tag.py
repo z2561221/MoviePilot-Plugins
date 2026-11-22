@@ -1,14 +1,15 @@
 """站点标签追加必须保留目标标签，覆盖 TR 实际替换语义及各后处理入口。"""
 
 from types import MethodType, SimpleNamespace
-from urllib.parse import urlsplit
 from unittest.mock import Mock
 
 import pytest
 from app.modules.qbittorrent.qbittorrent import Qbittorrent
 from app.modules.transmission.transmission import Transmission
 from app.plugins.downloadmanagerlocal.service import iyuu, rename, site_tag, transfer
+from app.plugins.downloadmanagerlocal.service.config import DEFAULT_TRACKER_MAPPINGS
 from app.plugins.downloadmanagerlocal.utils.torrent_adapter import get_label
+from app.plugins.downloadmanagerlocal.utils.tracker import parse_tracker_mappings
 
 
 class MemoryDownloader:
@@ -59,7 +60,6 @@ class MemoryDownloader:
 def tag_case(monkeypatch):
     """配置可识别站点及无后台动作的插件，保留真实标签服务。"""
     monkeypatch.setattr(site_tag, "find_site_by_domain", lambda _domain: "彩虹岛")
-    monkeypatch.setattr(site_tag, "get_url_domain", lambda url: urlsplit(url).hostname or "")
     log = Mock()
     monkeypatch.setattr(site_tag, "logger", log)
     plugin = SimpleNamespace(
@@ -153,3 +153,66 @@ def test_site_tag_failure_does_not_report_success(tag_case, kind, failure):
                                        ["https://tracker.example/announce"]) is False
     assert downloader.labels == ["保种"]
     assert not tag_case.log.info.called
+
+
+def test_transmission_site_tag_does_not_require_org_tags(tag_case):
+    """旧式 Transmission 标签包装不接收 org_tags 时仍保留已有标签。"""
+    downloader = MemoryDownloader("transmission", ["保种", "IYUU"])
+    writes = []
+
+    def legacy_set_torrent_tag(*, ids, tags):
+        writes.append((ids, list(tags)))
+        downloader.change_torrent(ids=ids, labels=tags)
+        return True
+
+    downloader.set_torrent_tag = legacy_set_torrent_tag
+    assert tag_case.plugin._tag_torrent(
+        downloader, "transmission", "target-hash", ["保种", "IYUU"],
+        ["https://tracker.example/announce"],
+    ) is True
+    assert set(downloader.labels) == {"保种", "IYUU", "彩虹岛"}
+    assert writes == [("target-hash", ["保种", "IYUU", "彩虹岛"])]
+
+
+def test_transmission_site_tag_merges_latest_labels(tag_case):
+    """Transmission 打站点标签时以写入前最新 labels 为准。"""
+    downloader = MemoryDownloader("transmission", ["保种", "扫描后新增"])
+
+    assert tag_case.plugin._tag_torrent(
+        downloader, "transmission", "target-hash", ["保种"],
+        ["https://tracker.example/announce"],
+    ) is True
+
+    assert set(downloader.labels) == {"保种", "扫描后新增", "彩虹岛"}
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("https://TRACKER.Example:443/announce", "tracker.example"),
+    ("udp://tracker.example:6969/announce", "tracker.example"),
+    ("tracker.example:443", "tracker.example"),
+    ("tracker.example.", "tracker.example"),
+])
+def test_tracker_host_normalization(value, expected):
+    """Tracker URL、裸 host:port 和尾点归一到主机名。"""
+    assert site_tag._read_tracker_domain(value) == expected
+
+
+def test_default_tracker_aliases_cover_reported_domains():
+    """默认映射覆盖 issue 报告的别名 tracker。"""
+    mappings = parse_tracker_mappings(DEFAULT_TRACKER_MAPPINGS)
+    assert site_tag._mapped_tracker_domain("tracker.m-team.cc:443", mappings) == "m-team.cc"
+    assert site_tag._mapped_tracker_domain("agsvpt.cn", mappings) == "agsvpt.com"
+    assert site_tag._mapped_tracker_domain("x-anime.cc", mappings) == "u2.dmhy.org"
+    assert site_tag._mapped_tracker_domain("anime.dmhy.org:443", mappings) == "u2.dmhy.org"
+    assert site_tag._mapped_tracker_domain("daydream.dmhy.best", mappings) == "u2.dmhy.org"
+
+
+def test_site_lookup_uses_longest_parent_domain_and_rejects_lookalikes(monkeypatch):
+    """父域匹配取最具体站点，并以点边界拒绝相似后缀。"""
+    monkeypatch.setattr(site_tag, "list_site_dicts", lambda: [
+        {"domain": "example.com", "name": "父站"},
+        {"domain": "https://foo.example.com/", "name": "子站"},
+    ])
+    monkeypatch.setattr(site_tag, "get_site_indexer", lambda _: None)
+    assert site_tag.find_site_by_domain("tracker.foo.example.com:443") == "子站"
+    assert site_tag.find_site_by_domain("evil-example.com") is None

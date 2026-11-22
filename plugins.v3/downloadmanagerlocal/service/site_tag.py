@@ -1,11 +1,12 @@
 """站点标签写入、临时标签回收与人工清理服务。"""
 
 from typing import Dict, Iterable, List, Optional
+from urllib.parse import urlsplit
 
 from app.sdk.config import settings
 from app.sdk.logging import logger
 
-from ..adapter.moviepilot import generate_random_tag, get_site_indexer, get_url_domain, list_site_dicts
+from ..adapter.moviepilot import generate_random_tag, get_site_indexer, list_site_dicts
 from ..utils.tag_cleanup import (
     TEMP_TAG_PREFIX,
     classify_tag,
@@ -208,25 +209,86 @@ def _managed_tag_anchors(plugin) -> set:
     return managed
 
 
-def _read_qb_torrents(service) -> tuple:
-    """读取 qBittorrent 全量任务并统一错误结果。"""
-    torrents, error = service.instance.get_torrents()
-    if error:
+def _read_download_torrents(instance, ids=None) -> tuple:
+    """读取 QB/TR 任务，区分成功空结果与连接/查询失败。"""
+    try:
+        response = instance.get_torrents(ids=ids) if ids is not None else instance.get_torrents()
+    except Exception:
+        return [], "下载器任务读取失败"
+    torrents, error = response if isinstance(response, tuple) and len(response) == 2 else (response, None)
+    if error or torrents is None:
         return [], "下载器任务读取失败"
     return torrents or [], ""
 
 
-def _group_tags(torrents: Iterable[dict]) -> tuple:
+def _read_qb_torrents(service) -> tuple:
+    """兼容下载新增事件中的 qB 全量任务检查。"""
+    return _read_download_torrents(service.instance)
+
+
+def _torrent_name(torrent, fallback: str) -> str:
+    """读取 QB 字典或 Transmission 对象上的任务名称。"""
+    if isinstance(torrent, dict):
+        return str(torrent.get("name") or fallback)
+    return str(getattr(torrent, "name", "") or fallback)
+
+
+def _label_list(values) -> list[str]:
+    """按原顺序去重标签，兼容 QB 逗号字符串和 TR 标签列表。"""
+    if isinstance(values, str):
+        values = values.split(",")
+    return list(dict.fromkeys(str(value).strip() for value in values or [] if str(value).strip()))
+
+
+def _write_transmission_labels(dl, torrent_hash: str, labels: list[str]) -> bool:
+    """Transmission 整组覆盖 labels；空列表需绕过只接受非空标签的宿主包装。"""
+    if labels:
+        return dl.set_torrent_tag(ids=torrent_hash, tags=labels) is not False
+    client = getattr(dl, "trc", None)
+    if not client:
+        return False
+    try:
+        return client.change_torrent(ids=torrent_hash, labels=[]) is not False
+    except Exception:
+        return False
+
+
+def _read_tracker_domain(value: str) -> str:
+    """从完整 tracker URL、裸域名或 host:port 中提取规范主机名。"""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = urlsplit(text if "://" in text else "//" + text)
+        host = parsed.hostname or ""
+        return host.rstrip(".").encode("idna").decode("ascii").lower() if host else ""
+    except (UnicodeError, ValueError):
+        return ""
+
+
+def _mapped_tracker_domain(tracker: str, mappings: dict[str, str]) -> str:
+    """先精确命中显式映射，再允许 tracker 子域命中最长映射域。"""
+    host = _read_tracker_domain(tracker)
+    candidates = []
+    for source, target in (mappings or {}).items():
+        source_host = _read_tracker_domain(source)
+        target_host = _read_tracker_domain(target)
+        if source_host and target_host and (host == source_host or host.endswith("." + source_host)):
+            candidates.append((len(source_host), target_host))
+    return max(candidates, default=(0, host))[1]
+
+
+def _group_tags(torrents: Iterable, downloader_type: str = "qbittorrent") -> tuple:
     """按标签聚合任务 hash、计数和名称样本。"""
     grouped: Dict[str, dict] = {}
     torrent_tags_by_hash: Dict[str, set] = {}
     for torrent in torrents or []:
-        torrent_hash = get_hash(torrent, "qbittorrent")
+        torrent_hash = get_hash(torrent, downloader_type)
         if not torrent_hash:
             continue
-        tags = normalize_tags(get_label(torrent, "qbittorrent"))
+        tags = normalize_tags(get_label(torrent, downloader_type))
         torrent_tags_by_hash[torrent_hash] = tags
-        torrent_name = str(torrent.get("name", "") or torrent_hash)
+        torrent_name = _torrent_name(torrent, torrent_hash)
         for tag in tags:
             item = grouped.setdefault(tag, {"hashes": [], "samples": []})
             item["hashes"].append(torrent_hash)
@@ -246,22 +308,109 @@ def _delete_empty_tag_definition(dl, tag: str, known_hashes: List[str]) -> bool:
     return bool(dl.delete_torrents_tag(ids=known_hashes, tag=tag))
 
 
-def _remove_tag_snapshot(dl, tag: str, hashes: Iterable[str]) -> dict:
+def _remove_tag_snapshot(dl, tag: str, hashes: Iterable[str], downloader_type: str = "qbittorrent") -> dict:
     """只从扫描快照中的任务移除标签，并按需清除空标签定义。"""
     unique_hashes = sorted(normalize_tags(hashes))
     if not tag or not unique_hashes:
         return {"ok": False, "removed": 0, "definition_deleted": False}
+    if downloader_type == "transmission":
+        torrents, error = _read_download_torrents(dl, ids=unique_hashes)
+        if error:
+            return {
+                "ok": False,
+                "removed": 0,
+                "removed_hashes": [],
+                "skipped_hashes": [],
+                "failed_hashes": unique_hashes,
+                "definition_deleted": False,
+                "error": error,
+            }
+        requested = {value.lower() for value in unique_hashes}
+        requested_names = {value.lower(): value for value in unique_hashes}
+        updates = {}
+        skipped_hashes = []
+        failed = []
+        found = set()
+        for torrent in torrents:
+            torrent_hash = get_hash(torrent, downloader_type)
+            normalized_hash = torrent_hash.lower()
+            if normalized_hash not in requested:
+                continue
+            found.add(normalized_hash)
+            current = _label_list(get_label(torrent, downloader_type))
+            if tag not in current:
+                skipped_hashes.append(requested_names[normalized_hash])
+                continue
+            remaining = [value for value in current if value != tag]
+            if _write_transmission_labels(dl, torrent_hash, remaining):
+                updates[torrent_hash] = set(remaining)
+            else:
+                failed.append(torrent_hash)
+        skipped_hashes.extend(
+            requested_names[torrent_hash]
+            for torrent_hash in sorted(requested - found)
+        )
+        verified_count = 0
+        removed_hashes = []
+        if updates:
+            verified, verify_error = _read_download_torrents(dl, ids=list(updates))
+            if verify_error:
+                return {
+                    "ok": False,
+                    "removed": 0,
+                    "removed_hashes": [],
+                    "skipped_hashes": skipped_hashes,
+                    "failed_hashes": list(updates),
+                    "definition_deleted": False,
+                    "error": verify_error,
+                }
+            actual = {
+                get_hash(torrent, downloader_type).lower(): normalize_tags(get_label(torrent, downloader_type))
+                for torrent in verified
+            }
+            for torrent_hash, expected in updates.items():
+                observed = actual.get(torrent_hash.lower())
+                if observed is None:
+                    skipped_hashes.append(requested_names[torrent_hash.lower()])
+                    continue
+                if tag in observed or not expected.issubset(observed):
+                    failed.append(torrent_hash)
+                else:
+                    verified_count += 1
+                    removed_hashes.append(requested_names[torrent_hash.lower()])
+        return {
+            "ok": not failed,
+            "removed": verified_count,
+            "removed_hashes": removed_hashes,
+            "skipped_hashes": list(dict.fromkeys(skipped_hashes)),
+            "failed_hashes": list(dict.fromkeys(failed)),
+            "definition_deleted": False,
+            **({"error": "Transmission 标签写入或回读不一致"} if failed else {}),
+        }
+    if downloader_type != "qbittorrent":
+        return {"ok": False, "removed": 0, "definition_deleted": False, "error": "下载器类型不支持"}
     try:
         ok = bool(dl.remove_torrents_tag(ids=unique_hashes, tag=tag))
         definition_deleted = _delete_empty_tag_definition(dl, tag, unique_hashes) if ok else False
         return {
             "ok": ok,
             "removed": len(unique_hashes) if ok else 0,
+            "removed_hashes": unique_hashes if ok else [],
+            "skipped_hashes": [],
+            "failed_hashes": [] if ok else unique_hashes,
             "definition_deleted": definition_deleted,
         }
     except Exception as err:
         logger.warning(f"标签清理失败 tag={tag} count={len(unique_hashes)}: {err}")
-        return {"ok": False, "removed": 0, "definition_deleted": False, "error": str(err)}
+        return {
+            "ok": False,
+            "removed": 0,
+            "removed_hashes": [],
+            "skipped_hashes": [],
+            "failed_hashes": unique_hashes,
+            "definition_deleted": False,
+            "error": str(err),
+        }
 
 
 def scan_and_clean_tags(plugin, downloader_names: Iterable[str]) -> dict:
@@ -275,6 +424,7 @@ def scan_and_clean_tags(plugin, downloader_names: Iterable[str]) -> dict:
     site_prefix = str(getattr(plugin, "_tag_siteprefix", "") or "")
     downloader_results = []
     auto_removed = []
+    skipped = []
     errors = []
 
     for downloader_name in names:
@@ -282,16 +432,17 @@ def scan_and_clean_tags(plugin, downloader_names: Iterable[str]) -> dict:
         if not service:
             errors.append({"downloader": downloader_name, "message": "下载器不可用"})
             continue
-        if service.type != "qbittorrent":
-            errors.append({"downloader": downloader_name, "message": "仅支持 qBittorrent 标签清理"})
+        downloader_type = str(service.type or "").lower()
+        if downloader_type not in {"qbittorrent", "transmission"}:
+            errors.append({"downloader": downloader_name, "message": "下载器类型不支持标签清理"})
             continue
 
-        torrents, error_message = _read_qb_torrents(service)
+        torrents, error_message = _read_download_torrents(service.instance)
         if error_message:
             errors.append({"downloader": downloader_name, "message": error_message})
             continue
 
-        grouped, torrent_tags_by_hash = _group_tags(torrents)
+        grouped, torrent_tags_by_hash = _group_tags(torrents, downloader_type)
         remaining = []
         for tag in sorted(grouped, key=str.casefold):
             snapshot = grouped[tag]
@@ -311,9 +462,17 @@ def scan_and_clean_tags(plugin, downloader_names: Iterable[str]) -> dict:
                 "samples": snapshot["samples"],
             }
             if is_auto_removable(kind):
-                cleanup = _remove_tag_snapshot(service.instance, tag, item["hashes"])
+                cleanup = _remove_tag_snapshot(service.instance, tag, item["hashes"], downloader_type)
                 if cleanup["ok"]:
-                    auto_removed.append({"downloader": downloader_name, **item, **cleanup})
+                    if cleanup["removed"]:
+                        auto_removed.append({"downloader": downloader_name, **item, **cleanup})
+                    else:
+                        skipped.append({
+                            "downloader": downloader_name,
+                            **item,
+                            "hashes": cleanup.get("skipped_hashes") or item["hashes"],
+                            "message": "扫描期间任务或标签已不存在，无需清理",
+                        })
                     continue
                 item["cleanup_error"] = cleanup.get("error") or "自动清理失败"
             remaining.append(item)
@@ -337,6 +496,7 @@ def scan_and_clean_tags(plugin, downloader_names: Iterable[str]) -> dict:
         "msg": "扫描完成" if code == 0 else "未能扫描所选下载器",
         "downloaders": downloader_results,
         "auto_removed": auto_removed,
+        "skipped": skipped,
         "errors": errors,
     }
 
@@ -349,12 +509,13 @@ def execute_tag_cleanup(plugin, removals: Iterable[dict]) -> dict:
 
     active_tags = set(_active_temporary_tags(plugin))
     removed = []
+    skipped = []
     failed = []
     service_cache = {}
     for item in removal_items[:1000]:
         downloader_name = str(item.get("downloader") or "").strip()
         tag = str(item.get("tag") or "").strip()
-        requested_hashes = sorted(normalize_tags(item.get("hashes") or []))[:5000]
+        requested_hashes = sorted(normalize_tags(item.get("hashes") or []))
         if not downloader_name or not tag or not requested_hashes:
             failed.append({"downloader": downloader_name, "tag": tag, "message": "清理参数不完整"})
             continue
@@ -366,26 +527,71 @@ def execute_tag_cleanup(plugin, removals: Iterable[dict]) -> dict:
         if service is None:
             service = plugin.service_info(downloader_name)
             service_cache[downloader_name] = service
-        if not service or service.type != "qbittorrent":
+        downloader_type = str(getattr(service, "type", "") or "").lower() if service else ""
+        if downloader_type not in {"qbittorrent", "transmission"}:
             failed.append({"downloader": downloader_name, "tag": tag, "message": "下载器不可用或类型不支持"})
             continue
 
-        torrents, error = service.instance.get_torrents(ids=requested_hashes)
-        if error:
-            failed.append({"downloader": downloader_name, "tag": tag, "message": "任务快照复核失败"})
-            continue
-        current_hashes = [
-            get_hash(torrent, "qbittorrent")
-            for torrent in torrents or []
-            if tag in normalize_tags(get_label(torrent, "qbittorrent"))
-        ]
-        cleanup = _remove_tag_snapshot(service.instance, tag, current_hashes)
-        result = {"downloader": downloader_name, "tag": tag, "hashes": current_hashes, **cleanup}
-        if cleanup["ok"]:
-            removed.append(result)
+        if downloader_type == "transmission":
+            current, read_error = _read_download_torrents(service.instance, ids=requested_hashes)
+            if read_error:
+                failed.append({"downloader": downloader_name, "tag": tag, "message": "任务快照复核失败"})
+                continue
+            requested = {value.lower() for value in requested_hashes}
+            current_hashes = [
+                get_hash(torrent, downloader_type)
+                for torrent in current
+                if get_hash(torrent, downloader_type).lower() in requested
+                and tag in normalize_tags(get_label(torrent, downloader_type))
+            ]
+            if not current_hashes:
+                skipped.append({
+                    "downloader": downloader_name,
+                    "tag": tag,
+                    "hashes": requested_hashes,
+                    "message": "确认任务或目标标签已不存在，无需清理",
+                })
+                continue
         else:
-            result["message"] = cleanup.get("error") or "标签移除失败"
-            failed.append(result)
+            current_hashes = requested_hashes
+        chunks = [requested_hashes[index:index + 5000] for index in range(0, len(requested_hashes), 5000)]
+        removed_hashes = []
+        skipped_hashes = []
+        definition_deleted = False
+        for chunk in chunks:
+            if downloader_type == "transmission":
+                chunk = [value for value in chunk if value.lower() in {item.lower() for item in current_hashes}]
+                if not chunk:
+                    continue
+            cleanup = _remove_tag_snapshot(service.instance, tag, chunk, downloader_type)
+            removed_hashes.extend(cleanup.get("removed_hashes", []))
+            skipped_hashes.extend(cleanup.get("skipped_hashes", []))
+            definition_deleted = definition_deleted or cleanup.get("definition_deleted", False)
+            if not cleanup["ok"]:
+                failed.append({
+                    "downloader": downloader_name,
+                    "tag": tag,
+                    "hashes": cleanup.get("failed_hashes") or chunk,
+                    "message": cleanup.get("error") or "部分标签未能清理",
+                })
+        removed_hashes = list(dict.fromkeys(removed_hashes))
+        skipped_hashes = list(dict.fromkeys(skipped_hashes))
+        if removed_hashes:
+            removed.append({
+                "downloader": downloader_name,
+                "tag": tag,
+                "hashes": removed_hashes,
+                "ok": True,
+                "removed": len(removed_hashes),
+                "definition_deleted": definition_deleted,
+            })
+        if skipped_hashes:
+            skipped.append({
+                "downloader": downloader_name,
+                "tag": tag,
+                "hashes": skipped_hashes,
+                "message": "确认任务或目标标签已不存在，无需清理",
+            })
 
     logger.info(
         "标签清理执行：成功标签 %s 个，任务关联 %s 条，失败 %s 个",
@@ -393,27 +599,52 @@ def execute_tag_cleanup(plugin, removals: Iterable[dict]) -> dict:
         sum(item["removed"] for item in removed),
         len(failed),
     )
+    code = 0 if not failed else (2 if removed or skipped else 1)
+    if failed:
+        message = f"已清理 {len(removed)} 个标签，失败 {len(failed)} 项，跳过 {len(skipped)} 项"
+    elif removed:
+        message = f"已清理 {len(removed)} 个标签，另有 {len(skipped)} 项无需处理"
+    elif skipped:
+        message = f"所选任务或标签已不存在，无需清理 {len(skipped)} 项"
+    else:
+        message = "没有需要清理的标签"
     return {
-        "code": 0 if removed and not failed else (2 if removed else 1),
-        "msg": f"已清理 {len(removed)} 个标签，失败 {len(failed)} 个",
+        "code": code,
+        "msg": message,
         "removed": removed,
+        "skipped": skipped,
         "failed": failed,
     }
 
 
 def find_site_by_domain(domain: str) -> Optional[str]:
-    """通过域名从 V3 站点数据库查找名称，索引模板作为回退。"""
+    """通过精确域名或边界安全的父域匹配站点名称。"""
+    host = _read_tracker_domain(domain)
+    if not host:
+        return None
     try:
-        for site_info in list_site_dicts():
+        sites = list_site_dicts()
+        exact = []
+        parent = []
+        for site_info in sites:
             site_domain = site_info.get("domain") or site_info.get("url") or ""
-            site_domain_clean = get_url_domain(site_domain)
-            if site_domain_clean and site_domain_clean == get_url_domain(domain):
-                return site_info.get("name")
+            site_host = _read_tracker_domain(site_domain)
+            if not site_host:
+                continue
+            if host == site_host:
+                exact.append((site_host, site_info.get("name")))
+            elif host.endswith("." + site_host):
+                parent.append((site_host, site_info.get("name")))
+        matched = exact or parent
+        if matched:
+            longest = max(len(site_host) for site_host, _ in matched)
+            names = {name for site_host, name in matched if len(site_host) == longest and name}
+            return next(iter(names)) if len(names) == 1 else None
     except Exception:
         pass
 
     try:
-        site_info = get_site_indexer(domain)
+        site_info = get_site_indexer(host)
         if site_info:
             return site_info.get("name")
     except Exception:
@@ -429,13 +660,7 @@ def tag_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_tags: list,
         # 通过 tracker 解析站点
         site_name = None
         for tracker in trackers:
-            domain = None
-            for key, mapped in plugin._tracker_mappings.items():
-                if key in tracker:
-                    domain = mapped
-                    break
-            if not domain:
-                domain = get_url_domain(tracker)
+            domain = _mapped_tracker_domain(tracker, plugin._tracker_mappings)
             if not domain:
                 continue
             # 从系统配置中查找匹配的站点
@@ -449,15 +674,41 @@ def tag_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_tags: list,
 
         # 构造标签
         site_tag = (plugin._tag_siteprefix + site_name) if plugin._tag_siteprefix else site_name
-        if site_tag in torrent_tags:
+        existing_tags = _label_list(torrent_tags)
+        if site_tag in existing_tags:
             logger.info(f"转移后标签：标签已存在 hash={torrent_hash}")
             return True
 
         # 设置标签
         if dl_type == "qbittorrent":
             success = dl.set_torrents_tag(ids=torrent_hash, tags=[site_tag])
+        elif dl_type == "transmission":
+            current_torrents, read_error = _read_download_torrents(dl, ids=[torrent_hash])
+            if read_error:
+                return False
+            current = next((
+                torrent for torrent in current_torrents
+                if get_hash(torrent, dl_type).lower() == str(torrent_hash).lower()
+            ), None)
+            if current is None:
+                return False
+            current_tags = _label_list(get_label(current, dl_type))
+            merged_tags = _label_list([*current_tags, site_tag])
+            success = dl.set_torrent_tag(ids=torrent_hash, tags=merged_tags)
+            if success is not False:
+                torrents, error = _read_download_torrents(dl, ids=[torrent_hash])
+                if error:
+                    success = False
+                else:
+                    current = next((
+                        torrent for torrent in torrents
+                        if get_hash(torrent, dl_type).lower() == str(torrent_hash).lower()
+                    ), None)
+                    observed_tags = set(get_label(current, dl_type)) if current else set()
+                    success = set(merged_tags).issubset(observed_tags)
         else:
-            success = dl.set_torrent_tag(ids=torrent_hash, tags=[site_tag], org_tags=torrent_tags)
+            logger.warning(f"转移后标签失败: 不支持下载器类型={dl_type}")
+            return False
         # 旧宿主的 qB 接口成功时返回 None，仅明确 False 表示写入失败。
         if success is False:
             logger.warning(f"转移后标签失败: hash={torrent_hash} tag={site_tag}")

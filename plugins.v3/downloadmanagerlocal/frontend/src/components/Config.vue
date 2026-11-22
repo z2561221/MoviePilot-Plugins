@@ -225,6 +225,7 @@ const selectedToDownloaderType = computed(() => {
   return selected?.type || ''
 })
 const qbDownloaderItems = computed(() => downloaderItems.value.filter(item => item.type === 'qbittorrent'))
+const tagCleanupDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
 const monitorDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
 const uploadDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
 const uploadSelectedDownloaders = computed(() => {
@@ -874,9 +875,10 @@ async function scanCleanupTags() {
     cleanupScan.value = response || null
     resetCleanupKeep(response?.downloaders || [])
     const errorCount = response?.errors?.length || 0
+    const skippedCount = response?.skipped?.length || 0
     cleanupStatus.value = response?.code === 0 ? (errorCount ? 'warning' : 'success') : 'error'
     cleanupMessage.value = response?.code === 0
-      ? `扫描完成 · 自动清理 ${response?.auto_removed?.length || 0} 个临时标签`
+      ? `扫描完成 · 自动清理 ${response?.auto_removed?.length || 0} 个临时标签 · ${skippedCount} 项无需处理`
       : (response?.msg || '扫描失败')
   } catch (error) {
     if (isApiRequestCancellation(error)) return
@@ -1553,7 +1555,7 @@ onBeforeUnmount(() => permissionController?.abort())
               <div class="dm-hint mb-3">扫描后核对标签与任务，预览清单确认无误后再清理。</div>
               <div class="dm-cleanup-toolbar">
                 <VSelect v-model="cleanupDownloaders" label="下载器" density="compact" variant="outlined" hide-details
-                  :items="qbDownloaderItems" multiple chips closable-chips class="dm-cleanup-select" />
+                  :items="tagCleanupDownloaderItems" multiple chips closable-chips class="dm-cleanup-select" />
                 <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="cleanupScanning"
                   :disabled="!canManage || !cleanupDownloaders.length" @click="scanCleanupTags">扫描标签</VBtn>
               </div>
