@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ from app.plugins.downloadmanagerlocal.controller import handlers
 from app.plugins.downloadmanagerlocal.model import state
 from app.plugins.downloadmanagerlocal.model.state import load_transfer_stats
 from app.plugins.downloadmanagerlocal.service import transfer as transfer_service
+from bencode import bencode
 
 
 class FakePlugin:
@@ -91,8 +93,9 @@ def test_overview_uses_persisted_transfer_and_iyuu_totals(monkeypatch) -> None:
 
 def test_transfer_successes_persist_total_and_fallback_subset(monkeypatch, tmp_path: Path) -> None:
     """成功转种必须累计总数，并只把兜底扫描计入兜底子集。"""
-    source_hash = "source-hash"
-    (tmp_path / f"{source_hash}.torrent").write_bytes(b"torrent")
+    info = {"name": "Example", "length": 1, "piece length": 16, "pieces": b"a" * 20}
+    source_hash = hashlib.sha1(bencode(info)).hexdigest()
+    (tmp_path / f"{source_hash}.torrent").write_bytes(bencode({"info": info}))
 
     class SourceDownloader:
         """返回一个已完成任务的源下载器替身。"""
@@ -138,7 +141,7 @@ def test_transfer_successes_persist_total_and_fallback_subset(monkeypatch, tmp_p
     plugin._retry_failed_renames = lambda _service: None
 
     monkeypatch.setattr(transfer_service, "validate_config", lambda _plugin: True)
-    monkeypatch.setattr(transfer_service, "download_torrent", lambda *_args, **_kwargs: "target-hash")
+    monkeypatch.setattr(transfer_service, "download_torrent", lambda *_args, **_kwargs: source_hash)
     monkeypatch.setattr(transfer_service, "post_transfer_process", lambda *_args: True)
     monkeypatch.setattr(transfer_service, "is_downloader_type", lambda *_args, **_kwargs: False)
 

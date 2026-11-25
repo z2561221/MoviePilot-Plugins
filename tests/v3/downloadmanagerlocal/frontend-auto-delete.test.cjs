@@ -3,6 +3,7 @@ const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
 const { createRequire } = require('node:module')
+const { webcrypto } = require('node:crypto')
 const vm = require('node:vm')
 
 const frontend = resolve(__dirname, '../../../plugins.v3/downloadmanagerlocal/frontend')
@@ -16,7 +17,7 @@ const defaults = () => ({ enabled: false, schedule_type: 'interval', interval_mi
   max_tasks: 20, source_paths: [], exclude_paths: [], notify: false, history_days: 30, rules: [] })
 const settle = async () => { await vue.nextTick(); await new Promise(resolve => setImmediate(resolve)) }
 
-function fixture({ get, post } = {}) {
+function fixture({ get, post, crypto = webcrypto } = {}) {
   const props = vue.reactive({ api: {}, pluginId: 'ScopedInstance', canManage: true, mode: 'config', section: 'basic', active: true })
   const bodies = [], events = [], cleanups = [], reads = [], timers = []
   const getApi = get || ((_api, _id, path) => Promise.resolve(path === 'auto_delete/config'
@@ -25,7 +26,7 @@ function fixture({ get, post } = {}) {
       : path.startsWith('auto_delete/history') ? { items: [], total: 0 } : { active: false, state: 'disabled' }))
   const script = parsed.descriptor.scriptSetup.content.replace(/^import .*$/gm, '')
   const context = { ...vue, URLSearchParams, JSON, Number, Set, Date, console,
-    crypto: { randomUUID: () => '11111111-1111-1111-1111-111111111111' },
+    crypto,
     defineProps: () => props, defineEmits: () => (name, data) => events.push({ name, data }), defineExpose: () => {},
     onBeforeUnmount: callback => cleanups.push(callback), setInterval: callback => (timers.push(callback), timers.length), clearInterval: () => {},
     document: { visibilityState: 'visible' }, isApiRequestCancellation: reason => reason?.name === 'AbortError',
@@ -36,7 +37,7 @@ function fixture({ get, post } = {}) {
   }
   vm.createContext(context)
   const scope = vue.effectScope()
-  scope.run(() => vm.runInContext(script + '\nglobalThis.view = {settings, revision, saved, dirty, historyLoading, previewResult, busy, error, message, confirmRule, confirmJobs, selectedJobs, confirmEvidence, acceptHistory, newRule, numberValue, save, preview, activate, run, stop, load}', context))
+  scope.run(() => vm.runInContext(script + '\nglobalThis.view = {settings, revision, saved, dirty, historyLoading, previewResult, busy, error, message, confirmRule, confirmJobs, selectedJobs, confirmEvidence, acceptHistory, addRule, duplicate, numberValue, save, preview, activate, run, stop, load}', context))
   return { props, bodies, events, reads, timers, view: context.view, close: () => { cleanups.forEach(callback => callback()); scope.stop() } }
 }
 
@@ -53,7 +54,8 @@ test('numeric zero remains an explicit threshold and blank becomes null', async 
   const instance = fixture()
   try {
     await settle()
-    const rule = instance.view.newRule()
+    instance.view.addRule()
+    const [rule] = instance.view.settings.value.rules
     assert.equal(rule.mode, 'debug')
     assert.equal(rule.enabled, false)
     instance.view.numberValue(rule, 'upload_kib_max', 0)
@@ -61,6 +63,97 @@ test('numeric zero remains an explicit threshold and blank becomes null', async 
     instance.view.numberValue(rule, 'upload_kib_max', '')
     assert.equal(rule.conditions.upload_kib_max, null)
   } finally { instance.close() }
+})
+
+test('seed time supports half an hour without converting the stored unit', async () => {
+  const instance = fixture()
+  try {
+    await settle()
+    const rule = { conditions: { seed_hours_min: 168 } }
+    assert(source.includes("['seed_hours_min', '最少做种小时']"))
+    assert.equal(rule.conditions.seed_hours_min, 168)
+    instance.view.numberValue(rule, 'seed_hours_min', 0.5)
+    assert.equal(rule.conditions.seed_hours_min, 0.5)
+  } finally { instance.close() }
+})
+
+test('with only getRandomValues, new and copied rules stay disabled drafts until saved', async () => {
+  const original = { id: 'existing-rule', name: '现有规则', revision: 4, enabled: true, mode: 'delete', action: 'torrent', conditions: {} }
+  let stored = { settings: { ...defaults(), rules: [original] }, revision: 1 }
+  const get = async (_api, _id, path) => path === 'auto_delete/config' ? stored : path === 'downloaders' ? [] : {}
+  const crypto = { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) }
+  const instance = fixture({ crypto, get, post: (_id, _path, body) => (stored = { settings: clone(body.settings), revision: 2 }) })
+  try {
+    await settle()
+    instance.view.addRule()
+    instance.view.addRule()
+    instance.view.duplicate(instance.view.settings.value.rules[0])
+    const [existing, ...created] = instance.view.settings.value.rules
+    assert.deepEqual(clone(existing), original)
+    assert.equal(created.length, 3)
+    assert.equal(created[2].name, '现有规则 副本')
+    const ids = Array.from(created, rule => rule.id)
+    assert.equal(new Set(ids).size, 3)
+    for (const rule of created) {
+      assert.match(rule.id, /^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$/)
+      assert.equal(rule.revision, 1)
+      assert.equal(rule.mode, 'debug')
+      assert.equal(rule.enabled, false)
+    }
+    assert.equal(instance.bodies.length, 0)
+    assert.equal(await instance.view.save(), true)
+    assert.equal(instance.bodies.length, 1)
+    assert.equal(instance.bodies[0].path, 'auto_delete/config')
+    assert.deepEqual(instance.bodies[0].body.settings.rules.map(rule => rule.id), [original.id, ...ids])
+
+    const reloaded = fixture({ crypto, get })
+    try {
+      await settle()
+      assert.deepEqual(Array.from(reloaded.view.settings.value.rules, rule => rule.id), [original.id, ...ids])
+    } finally { reloaded.close() }
+  } finally { instance.close() }
+})
+
+test('collision retries check both saved rules and unsaved drafts', async () => {
+  const originalId = '00000000000040008000000000000000'
+  const draws = [0, 1, 0, 1, 2]
+  const instance = fixture({ crypto: { getRandomValues: bytes => bytes.fill(draws.shift()) },
+    get: async (_api, _id, path) => path === 'auto_delete/config'
+      ? { settings: { ...defaults(), rules: [{ id: originalId }] }, revision: 1 } : path === 'downloaders' ? [] : {} })
+  try {
+    await settle()
+    instance.view.addRule()
+    instance.view.duplicate(instance.view.settings.value.rules[1])
+    assert.deepEqual(draws, [])
+    assert.deepEqual(Array.from(instance.view.settings.value.rules, rule => rule.id), [
+      originalId, '01010101010141018101010101010101', '02020202020242028202020202020202',
+    ])
+    assert.equal(instance.view.error.value, '')
+    assert.equal(instance.bodies.length, 0)
+  } finally { instance.close() }
+})
+
+test('unavailable randomness or repeated collisions show an error without adding a rule', async () => {
+  const failure = '无法生成规则编号，未添加规则'
+  const original = { id: '00000000000040008000000000000000', name: '现有规则' }
+  let attempts = 0
+  for (const crypto of [null, {}, { getRandomValues: () => { throw new Error('randomness unavailable') } },
+    { getRandomValues: bytes => { assert(++attempts <= 5); return bytes.fill(0) } }]) {
+    const instance = fixture({ crypto, get: async (_api, _id, path) => path === 'auto_delete/config'
+      ? { settings: { ...defaults(), rules: [original] }, revision: 1 } : path === 'downloaders' ? [] : {} })
+    try {
+      await settle()
+      instance.view.addRule()
+      assert.equal(instance.view.error.value, failure)
+      attempts = 0
+      instance.view.duplicate(instance.view.settings.value.rules[0])
+      assert.equal(instance.view.error.value, failure)
+      assert.deepEqual(clone(instance.view.settings.value.rules), [original])
+      assert.equal(instance.view.dirty.value, false)
+      assert.equal(instance.bodies.length, 0)
+    } finally { instance.close() }
+  }
+  assert.equal(attempts, 5)
 })
 
 test('configuration loads status and rules without querying execution history', async () => {

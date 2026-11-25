@@ -89,8 +89,23 @@ def register_seed_recheck(plugin, downloader, hashes, source):
                 "max_wait_minutes": plugin._seed_max_wait_minutes,
             }
         plugin.save_data(SEED_RECHECK_QUEUE_KEY, queue)
+        if source == "pieces":
+            for hash_text in hashes:
+                record_verification(plugin, downloader, hash_text, "checking", "已添加，等待校验完成")
     logger.info(f"做种校验：注册 {len(hashes)} 个待校验任务，来源={source}，下载器={downloader}")
     ensure_seed_recheck_worker(plugin)
+
+
+def record_verification(plugin, downloader, torrent_hash, state, message):
+    """保存 Pieces 校验回执供任务页读取，不再次访问下载器。"""
+    with _queue_lock(plugin):
+        records = plugin.get_data("reseed_verification") or {}
+        if not isinstance(records, dict):
+            raise ValueError("辅种校验回执格式错误")
+        key = _queue_key(downloader, torrent_hash)
+        records.pop(key, None)
+        records[key] = {"state": state, "message": message, "updated_at": time.time()}
+        plugin.save_data("reseed_verification", dict(list(records.items())[-2000:]))
 
 
 def ensure_seed_recheck_worker(plugin):
@@ -252,13 +267,23 @@ def process_seed_recheck_once(plugin, queue, stop_event=None):
             state = task.get("state") if downloader_type == "qbittorrent" else task.status
             if seed_is_timeout(item, plugin._seed_max_wait_minutes):
                 queue.pop(queue_key, None)
+                if item.get("source") == "pieces":
+                    record_verification(plugin, downloader_name, hash_text, "verification_failed", "校验等待超时，任务保持暂停")
                 changed = True
                 logger.info(f"做种校验：{hash_text} 等待超时（{plugin._seed_max_wait_minutes}分钟），已移出队列")
                 continue
             if seed_is_checking(state, downloader_type):
                 continue
             if seed_is_ready(state, downloader_type, task):
+                if item.get("source") == "pieces":
+                    progress = task.get("progress", 0) if downloader_type == "qbittorrent" else getattr(task, "percent_done", 0)
+                    if float(progress or 0) < 1:
+                        continue
+                    record_verification(plugin, downloader_name, hash_text, "verified", "校验已达 100%")
                 if not getattr(plugin, "_seed_autostart", True):
+                    if item.get("source") == "pieces":
+                        queue.pop(queue_key, None)
+                        changed = True
                     continue
                 try:
                     if operation_stopped(plugin, generation) or (stop_event is not None and stop_event.is_set()):
@@ -266,12 +291,16 @@ def process_seed_recheck_once(plugin, queue, stop_event=None):
                     if downloader.start_torrents(ids=[hash_text]) is False:
                         raise RuntimeError("下载器未确认开始做种成功")
                     logger.info(f"做种校验：{hash_text} 校验完成，已自动开始做种，来源={item.get('source')}")
+                    if item.get("source") == "pieces":
+                        record_verification(plugin, downloader_name, hash_text, "seeding", "校验已达 100%，已开始做种")
                     queue.pop(queue_key, None)
                     changed = True
                 except Exception as exc:
                     logger.error(f"做种校验：{hash_text} 开始做种失败: {exc}")
                 continue
             if seed_is_error(state, downloader_type):
+                if item.get("source") == "pieces":
+                    record_verification(plugin, downloader_name, hash_text, "verification_failed", "校验失败，请检查数据路径，任务保持暂停")
                 item["attempts"] = item.get("attempts", 0) + 1
                 item["last_check"] = time.time()
                 item["updated_at"] = time.time()

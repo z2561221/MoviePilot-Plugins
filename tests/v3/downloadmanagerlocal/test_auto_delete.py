@@ -4,12 +4,12 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
+from app.plugins.downloadmanagerlocal.adapter import auto_delete as auto_delete_adapter
 from app.plugins.downloadmanagerlocal.adapter.auto_delete import (
     AutoDeleteAdapter,
     binding_of,
     normalize_native,
 )
-from app.plugins.downloadmanagerlocal.adapter import auto_delete as auto_delete_adapter
 from app.plugins.downloadmanagerlocal.model.auto_delete import (
     BLOCKS_KEY,
     CONTROL_KEY,
@@ -140,6 +140,17 @@ def test_matcher_boundaries(conditions, expected):
     """截图字段按实际原值判断并包含数值边界。"""
     rule = Rule(downloaders=["QB"], conditions=Conditions(**conditions))
     assert match_rule(rule, snapshot(), 1000).status == expected
+
+
+@pytest.mark.parametrize(("seed_seconds", "expected"), [(1799, "no_match"), (1800, "match"), (1801, "match")])
+def test_seed_time_accepts_half_hour_boundary(seed_seconds, expected):
+    """半小时保持原小时字段，门槛前后一秒均按实际时长判断。"""
+    rule = Rule(downloaders=["QB"], conditions=Conditions(seed_hours_min=0.5))
+    torrent = snapshot()
+    torrent.seed_seconds = seed_seconds
+    result = match_rule(rule, torrent, 1000)
+    assert result.status == expected
+    assert any("累计做种小时" in reason for reason in result.reasons)
 
 
 def test_missing_values_are_unknown_and_tracker_pairing():

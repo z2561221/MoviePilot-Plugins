@@ -3,14 +3,14 @@
 ## 插件定位
 
 `DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
-`3.3.17`（基于已发布的 V3.3.16）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`3.3.19`（基于实时 main 的 V3.3.18）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
 - 转移做种：从源下载器复制种子到目标下载器，支持路径映射、删除源任务、删除重复任务和转移后做种校验。
 - IYUU 辅种：按配置扫描可辅种任务，查询 IYUU，下载辅种种子，写入缓存与辅种历史。
 - 种子重命名：转移或补刀时根据 MoviePilot 识别结果与原始发布名模板重命名。
-- 站点标签：根据 tracker 域名映射站点名并写入下载器标签。
+- 站点标签：根据 tracker 域名映射站点名并写入下载器标签；支持预览补全站点、转种和 IYUU 标签。
 - 做种校验：转移或辅种后登记队列，后台线程轮询任务状态并按配置自动开始做种。
 - 速度监控：按下载器建立稳健速度基准，跟踪活跃下载会话并提供异常处置入口。
 - 上传限速：支持 qBittorrent 与 Transmission 下载器全局上传上限；用户可按需填写站点合计上限，正数站点跨下载器共享该额度，空值或 `0` 不写单种限速，并支持新种宽限和停用恢复。
@@ -36,10 +36,19 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理；同步删除实施测试只使用隔离替身，生产接管需单独回读配置与运行日志。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 为本周期开发版 `3.3.17`；V2 源码与元数据保持原样。
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 为本周期开发版 `3.3.19`；V2 源码与元数据保持原样。
+- 标签补全先扫描预览，执行时回读任务并复核来源；站点标签依 tracker/站点映射，转种标签依已完成转移记录，IYUU 标签依种子 hash 的母种与目标下载器历史。只追加缺失标签，不重命名、不转移/铺种、不清除现有标签；无法确认来源的任务不补转种或 IYUU 标签。
 - 转移批次在停止和重新初始化后失效；已创建目标而未收尾的任务以 `stopped_after_add` 记录，保留源任务，下次继续后处理并避免重复添加。
 - 不 push、merge 或发布。
 - 普通 `stop_service()` 只停止协调 worker，下载器保留最后写入值；只有明确停用上传限速时才按 compare-and-set 恢复。
+
+## 2026-11-24 辅助铺种
+
+- 用户确认 IYUU 为主、Pieces 为辅。`service/reseed.py` 负责 SDK 一次性任务、完整来源扫描、分站冷却、分批查询和分页回执；Pieces 只在 IYUU 成功查询后补查缺口，参与站点由 Passkey 行决定，旧 reseed_mode 不再生效。
+- `service/pieces.py` 解析精确站名凭据配置、原始 info 编码 hash、v1 分片与完整文件布局。通用站点需同时符合 `/api/pieces-hash` JSON 查询和 Nexus `download.php` 下载约定。
+- `iyuu.submit_verified_torrent` 为公共添加入口，记录 provider 并沿用既有 pending/history。Pieces 目标强制校验，`recheck.py` 保存校验回执，100% 后遵守自动开始开关。
+- 保留受管理员权限保护的 `reseed/status|results|stop`，移除独立 start 路由。模块名称为 IYUU铺种，沿用原开关、Token、下载器、周期和“立即运行一次”；设置页不挂载运行记录组件，也不轮询结果。每轮默认最多新增 20 个任务；后台服务/API仍保留任务进度和分页结果用于非页面调用。
+- 验证与部署进度保存在本批 archive 报告，当前 API 总数为 44。真实校验结果与源码测试分别记录。
 
 ## 2026-11-17 自动删除与总览
 
@@ -51,7 +60,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - `storage/auto_delete_jobs.py` 独立详情/索引和保护归属；写入未确认关闭副作用准入，旧未决任务不自动重放。
 - 协调层每批读取一次自动删除保护并生成索引，转种/辅种/校验避让，解除不覆盖同步删除保护。
 - `service/overview.py` 复用已有诊断与计数，补校验队列、删除索引及标签设置。两处总览覆盖十个模块的生效门禁、运行与待处理状态。
-- 自动删除 `config` GET/POST、preview/run/activate/release/stop POST，以及 status/history/job GET，共十条路由；全部认证，POST 管理操作受管理员保护。整体 API 总数 35。
+- 自动删除 `config` GET/POST、preview/run/activate/release/stop POST，以及 status/history/job GET，共十条路由；全部认证，POST 管理操作受管理员保护。整体 API 总数 38。
 
 临时验证与恢复材料归本任务 archive 批次；当前实施进度及验收证据以本批 `report.md` 为准，不把源码或构建通过当成真实删种验收。
 
@@ -101,7 +110,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - 同步删除受理、开始、关联与完成写 INFO 日志，均带任务 ID 和媒体名称；重复事件不重复记受理，人工重试单独标注。完成状态持久化成功后才输出结果，区分已删除、已不存在、移除种子和暂停保留；日志不依赖结果通知开关，不输出 Webhook 原文。守护：`test_sync_delete_logging.py`。
 - `deep.delete` 为默认通知；普通 `library.deleted` 默认关闭。旧 hash-only 清理入口不再整包删除，必须解析到具体媒体范围。
 - 删除通知全部路径均在已配置映射外时直接忽略，不创建任务或失败历史。按目录边界匹配，不将 `strm-9kg` 视为 `strm` 子目录；已映射路径、映射根和混合版本清单继续交给原有完整规划校验，不截断事件路径。守护：`test_sync_delete_event_scope.py`。
-- `/sync_delete/options`、`/sync_delete/history` 返回裸模型；`/sync_delete/preview`、`/sync_delete/retry` 返回标准 Response。预览和重试验证超管身份，重试只接受服务端任务 ID。
+- `/sync_delete/options`、`/sync_delete/history` 返回裸模型；`/sync_delete/preview`、`/sync_delete/retry`、`/sync_delete/dismiss` 返回标准 Response。写入操作验证管理员身份，重试只接受服务端任务 ID。
 - 配置页分本地与 STRM 两组，目录使用全宽自动增高输入框，无批量/分列模式切换。网盘处理继续由 `sync_delete_cloud` 独立开关控制，填写或改动目录不会自动启用；三段、四段路径格式及后端关联规则保持兼容。
 - 普通通知、手动预览、无记录强删入口从配置页移除；保存时将 `sync_delete_library_deleted`、`sync_delete_force_cloud` 置 false，并丢弃全空映射行。后端旧字段及诊断预览 API 继续兼容。源目录、保护目录收在默认折叠的“高级设置 · 删除范围”，折叠不清空配置或放宽边界。
 - 新增宿主兼容例外：`DownloadHistoryOper.get_files_by_hash/get_files_by_fullpath/delete_file_by_fullpath/_stage_update` 和 `TransferHistoryOper.delete`。当前部署 v3.2.4 的查询 SDK 不覆盖下载文件状态及整理记录删除，故在 adapter 内按次创建 Oper，返回普通字典并不缓存 Session；不导入宿主 ORM Model。宿主提供等价稳定 SDK 后移除这些兼容调用。源删除事件保存 DownloadFiles 主键与字段快照，使用继承的 `_stage_update` 短事务只更新旧 ID 的 state，并回读；不调用按路径批量更新入口。宿主基线 `338687bee8ed288644e775e408536a5e556a6252` 已核验该方法，SQLite 集成回归覆盖同路径新行保护。缺少记录快照的历史任务不补抓新行。相关测试验证实体成功后才更新记录。
@@ -254,10 +263,15 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 | `/sites` | GET | 获取站点列表（用于辅种站点选择） | `api_sites` |
 | `/tag_cleanup_scan` | POST | 扫描下载器标签并清理临时标签 | `api_tag_cleanup_scan` |
 | `/tag_cleanup_execute` | POST | 按扫描快照清理标签 | `api_tag_cleanup_execute` |
+| `/tag_completion_scan` | POST | 提交可恢复下载器标签的扫描任务 | `api_tag_completion_scan` |
+| `/tag_completion_execute` | POST | 提交按扫描快照执行的标签补全任务 | `api_tag_completion_execute` |
+| `/tag_completion_task` | GET | 查询补全任务状态与进度 | `api_tag_completion_task` |
+| `/tag_completion_result` | GET | 获取补全扫描或执行结果 | `api_tag_completion_result` |
+| `/tag_completion_cancel` | POST | 请求停止补全任务 | `api_tag_completion_cancel` |
 
-另有 `/sync_delete/options`、`/sync_delete/history` 两条 GET，以及
-`/sync_delete/preview`、`/sync_delete/retry` 两条 POST，详见同步删除章节。
-共 9 条 GET 查询路由返回声明的裸业务模型，其余 15 条操作路由显式返回严格
+另有 `/sync_delete/options`、`/sync_delete/history`、`/sync_delete/preview`、
+`/sync_delete/retry`、`/sync_delete/dismiss`，详见同步删除章节。各路由声明
+bear 认证与响应模型；写入接口另要求管理员权限，操作接口显式返回
 `schemas.Response[T]`。Vue helper 仅在顶层字段恰好为
 `success/message/data` 且 `success` 为布尔值时解包；裸业务模型及带额外字段的
 自定义 payload 原样返回。这样既符合当前 V3 动态路由合同，也兼容旧镜像曾经提供
@@ -325,7 +339,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - `service/rename.py`：重命名模板、原始发布名候选、下载历史候选、补刀和单 hash 补刀。
 - `service/archive.py`：失败分类、连续失败归档、恢复、删除、列表和统计。
 - `service/recheck.py`：做种校验队列、后台线程、状态判断和超时判断。
-- `service/site_tag.py`：tracker 域名解析、站点标签写入、临时标签回收和人工标签清理。
+- `service/site_tag.py`：tracker 域名解析、站点标签写入、临时标签回收，以及可预览、可复核的历史标签补全。
 - `service/upload_allocator.py`：纯逻辑额度分配、需求估算、站点共享硬上限和单种轮换探测。
 - `service/upload_limiter.py`：上传限速扫描、分配、持久化、状态摘要和 compare-and-set 恢复。
 - `service/upload_limit_worker.py`：30 秒常驻协调、事件唤醒和只停 worker 的离线保持语义。
@@ -542,3 +556,14 @@ $env:Path = "$nodeDir;$env:Path"
 - 好学复用 FluxTorrentSpider：v3.2.6 使用 `_build_download_url`，后续公共 `get_download_url` 存在时优先使用。兼容依据为官方 v3.2.6 `44606a00448361e20f4131323b7c97d27a258b43`，SDK 提供按站内 ID 生成下载入口后移除直接 Spider 兼容调用。仅加载已识别站点的对应模块；旧宿主缺少模块时保持可重试失败，不转到错误网页协议。
 - 下载配方的 Base64 前缀与 apikey 查询值均隐藏；换票失败、存取令牌失效、必读公告与限流进入可重试缓存。针对回归见 `tests/v3/downloadmanagerlocal/test_iyuu_native_download.py`，使用 v3.2.6 宿主及 HTTP 替身，不连接真实站点。
 - `DownloadChain._get_torrent_content` 为已核验 v3.2.6 的内容阶段兼容调用，返回内容、目录、文件列表及错误；公共 `download_torrent` 会额外发送宿主失败通知，故不使用它。缺少内容阶段时返回可重试错误，不向二进制 helper 传编码配方。宿主提供稳定 SDK 的无通知内容接口后移除此兼容调用，对应真实宿主下载链回归验证 401 时没有额外通知。
+
+## 停止、任务与转种身份维护
+
+- 每个在途入口在查询前固定 `_transfer_stop_generation`，查询/识别返回后及调用后续子操作前复验；一次性回调携带登记代次。不能仅依赖新初始化会清除的 `_event`。
+- 初始化失败统一停止已经创建的新资源；单项清理失败仍尝试其他组件；私有调度器退出不等待阻塞中的 RPC。真实在途请求不能强行撤销，已发出的请求仍需回读，不承诺瞬时消失或自动重放。
+- 名称/标签使用 `coordinated(read_protection=False)` 共享互斥，不为每个非破坏性操作读取删除保护表。转种、铺种、校验和删除保留默认保护快照；不得为它们关闭保护读取。
+- 标签清理重新检查活动标签和管理锚点；TR 单批最多 100 个目标，并在每个写入前响应停止。确认关联集合一次建立，不在每个目标上重复创建全量集合。
+- 转种按原始 `info` 字节计算 v1/v2 身份，补 Tracker 不重编码 `info`、不写共享 hash 临时文件；异常内容或不匹配的添加回执不能进入后处理及删源。
+- 补标签请求历史保留内容摘要，但不保证历史大结果都保留；只有当前任务和最近有效扫描显示结果可用。损坏的任务/请求数据拒绝覆盖，旧任务不得发布新任务的结果文件。
+- 每轮显式 `CONFIG_DIR` 使用新的任务归档子目录。引导尊重该目录，重复使用会保留旧夹具行；不靠改业务或删真实库修测试。
+- 回归入口为 `tests/v3/downloadmanagerlocal/test_runtime_audit.py`；运行态、真实 PT/删种、浏览器及纯分页基准分层记录，不用模拟成功替代现场成功。

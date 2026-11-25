@@ -1,11 +1,13 @@
 """验证转移取消、停止代次和已创建目标的续办边界。"""
 
+import hashlib
 import threading
 from types import SimpleNamespace
 
 import pytest
 from app.plugins.downloadmanagerlocal.model.state import load_transfer_stats
 from app.plugins.downloadmanagerlocal.service import lifecycle, transfer
+from bencode import bencode
 
 
 @pytest.fixture
@@ -15,13 +17,17 @@ def transfer_case(monkeypatch, tmp_path):
     existing = set()
     event = threading.Event()
     hooks = {"add": None, "probe": None}
+    metadata = {name: {"announce": "https://tracker.invalid/announce", "info": {
+        "name": name + ".mkv", "length": 1, "piece length": 16, "pieces": b"a" * 20,
+    }} for name in ("a", "b")}
+    hashes = {name: hashlib.sha1(bencode(value["info"])).hexdigest() for name, value in metadata.items()}
 
     class Source:
         """提供两个已完成的源任务。"""
 
         def get_completed_torrents(self):
             """返回固定源任务。"""
-            return [{"hash": "a"}, {"hash": "b"}]
+            return [{"hash": hashes["a"]}, {"hash": hashes["b"]}]
 
         def delete_torrents(self, **kwargs):
             """只记录删除请求，绝不访问下载器。"""
@@ -57,7 +63,7 @@ def transfer_case(monkeypatch, tmp_path):
     for name in ("stop_upload_limit_worker", "stop_speed_monitor_worker", "stop_speed_monitor_runtime"):
         monkeypatch.setattr(lifecycle, name, lambda *args, **kwargs: None)
     for name in ("a", "b"):
-        (tmp_path / f"{name}.torrent").write_bytes(b"fixture")
+        (tmp_path / f"{hashes[name]}.torrent").write_bytes(bencode(metadata[name]))
 
     def add_target(plugin, service, content, save_path, torrent, stop_generation=None):
         """模拟目标任务接收成功后才到达的取消请求。"""
@@ -74,6 +80,7 @@ def transfer_case(monkeypatch, tmp_path):
     return SimpleNamespace(
         plugin=plugin, hooks=hooks, added=added, deleted=deleted, processed=processed,
         registered=registered, data=data, target=target,
+        hashes=hashes, torrent_path=tmp_path,
         stop=lambda: lifecycle.stop_plugin_service(plugin),
     )
 
@@ -83,18 +90,18 @@ def test_stop_after_add_preserves_source_and_resumes_without_duplicate_add(trans
     case = transfer_case
     case.hooks["add"] = case.stop
     transfer.transfer(case.plugin)
-    assert case.added == ["a"]
+    assert case.added == [case.hashes["a"]]
     assert case.deleted == case.processed == case.registered == []
-    assert case.data["source-a"]["transfer_state"] == "stopped_after_add"
-    assert case.data["source-a"]["delete_source"] is False
+    assert case.data[f'source-{case.hashes["a"]}']["transfer_state"] == "stopped_after_add"
+    assert case.data[f'source-{case.hashes["a"]}']["delete_source"] is False
     assert load_transfer_stats(case.plugin)["success_total"] == 0
 
     case.hooks["add"] = None
     case.plugin._event.clear()
     transfer.transfer(case.plugin)
-    assert case.added == ["a", "b"]
-    assert case.processed == case.registered == case.deleted == ["a", "b"]
-    assert case.data["source-a"]["transfer_state"] == "completed"
+    assert case.added == [case.hashes["a"], case.hashes["b"]]
+    assert case.processed == case.registered == case.deleted == [case.hashes["a"], case.hashes["b"]]
+    assert case.data[f'source-{case.hashes["a"]}']["transfer_state"] == "completed"
     assert load_transfer_stats(case.plugin)["success_total"] == 2
 
 
@@ -169,10 +176,10 @@ def test_postprocess_exception_keeps_target_identity_and_resumes(monkeypatch, tr
 
     monkeypatch.setattr(transfer, "_complete_transfer", fail)
     transfer.transfer(case.plugin)
-    assert case.added == ["a"]
+    assert case.added == [case.hashes["a"]]
     assert case.deleted == []
-    assert case.data["source-a"]["transfer_state"] == "stopped_after_add"
+    assert case.data[f'source-{case.hashes["a"]}']["transfer_state"] == "stopped_after_add"
     monkeypatch.setattr(transfer, "_complete_transfer", original)
     transfer.transfer(case.plugin)
-    assert case.added == ["a", "b"]
-    assert case.processed == case.registered == case.deleted == ["a", "b"]
+    assert case.added == [case.hashes["a"], case.hashes["b"]]
+    assert case.processed == case.registered == case.deleted == [case.hashes["a"], case.hashes["b"]]

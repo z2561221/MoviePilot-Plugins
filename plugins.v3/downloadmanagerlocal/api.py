@@ -14,6 +14,8 @@ from .controller.handlers import (
     api_retry_rename,
     api_retry_renames,
     api_sites,
+    api_tag_completion_execute,
+    api_tag_completion_scan,
     api_tag_cleanup_execute,
     api_tag_cleanup_scan,
 )
@@ -32,6 +34,8 @@ __all__ = (
     "api_retry_rename",
     "api_retry_renames",
     "api_sites",
+    "api_tag_completion_execute",
+    "api_tag_completion_scan",
     "api_tag_cleanup_execute",
     "api_tag_cleanup_scan",
 )

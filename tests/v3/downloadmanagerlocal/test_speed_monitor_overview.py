@@ -43,6 +43,8 @@ def _prepare_imports() -> None:
     site_tag = types.ModuleType("downloadmanagerlocal.service.site_tag")
     site_tag.execute_tag_cleanup = lambda *_args, **_kwargs: None
     site_tag.scan_and_clean_tags = lambda *_args, **_kwargs: None
+    site_tag.execute_tag_completion = lambda *_args, **_kwargs: None
+    site_tag.scan_tag_completion = lambda *_args, **_kwargs: None
     sys.modules[site_tag.__name__] = site_tag
 
 

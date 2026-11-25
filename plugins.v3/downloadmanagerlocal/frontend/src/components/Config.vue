@@ -47,6 +47,15 @@ const cleanupExecuting = ref(false)
 const cleanupDialog = ref(false)
 const cleanupMessage = ref('')
 const cleanupStatus = ref('info')
+const completionDownloaders = ref([])
+const completionScan = ref(null)
+const completionKeep = reactive({})
+const completionScanning = ref(false)
+const completionExecuting = ref(false)
+const completionTask = ref(null)
+const completionDialog = ref(false)
+const completionMessage = ref('')
+const completionStatus = ref('info')
 const monitorResetting = ref('')
 const monitorMessage = ref('')
 const monitorMessageStatus = ref('info')
@@ -85,6 +94,12 @@ function resetConfigRequests() {
   cleanupDialog.value = false
   cleanupScan.value = null
   cleanupMessage.value = ''
+  completionScanning.value = false
+  completionExecuting.value = false
+  completionTask.value = null
+  completionDialog.value = false
+  completionScan.value = null
+  completionMessage.value = ''
   monitorResetting.value = ''
   monitorMessage.value = ''
 }
@@ -141,6 +156,8 @@ const defaults = {
   tag_enabled: true, tag_siteprefix: '🏠', tag_tracker_mappings_str: '',
   iyuu_enabled: false, iyuu_cron: '', iyuu_onlyonce: false,
   iyuu_token: '', iyuu_downloaders: [], iyuu_auto_downloader: '',
+  pieces_site_keys: '',
+  pieces_torrent_paths: '', reseed_max_additions: 20,
   iyuu_sites: [], iyuu_nolabels: '', iyuu_nopaths: '',
   iyuu_size: 0, iyuu_auto_category: false,
   iyuu_labelsafterseed: '已整理,辅种', iyuu_categoryafterseed: '',
@@ -163,7 +180,7 @@ const mainTabs = [
   { key: 'overview', title: '运行总览', icon: 'mdi-view-dashboard-outline', desc: '查看下载中心各模块的完整运行链路。' },
   { key: 'monitor', title: '速度监控', icon: 'mdi-speedometer', desc: '按下载器建立稳健基准，识别未在预计时间内完成的下载任务。' },
   { key: 'transfer', title: '转移做种', icon: 'mdi-transfer', desc: '监听下载完成事件，延迟后自动转移做种到目标下载器。' },
-  { key: 'iyuu', title: 'IYUU辅种', icon: 'mdi-seed-plus', desc: '基于 IYUU API 自动辅种，铺种后自动打站点标签。' },
+  { key: 'iyuu', title: 'IYUU铺种', icon: 'mdi-seed-plus', desc: '优先通过 IYUU 匹配，Pieces 按已配置站点补查缺口。' },
   { key: 'rename', title: '命名补刀', icon: 'mdi-rename-box', desc: '转移后自动根据 TMDB 信息命名种子，并支持失败补刀。' },
   { key: 'tag', title: '站点标签', icon: 'mdi-tag-multiple', desc: '转移后自动根据 tracker 域名打站点标签。' },
   { key: 'seed', title: '做种校验', icon: 'mdi-check-circle-outline', desc: '统一控制跳过校验和自动开始做种，按需触发。' },
@@ -210,7 +227,8 @@ const subTabs = {
   ],
   tag: [
     { key: 'tag_basic', title: '基础设置', icon: 'mdi-tune-variant' },
-    { key: 'tag_advanced', title: '高级选项', icon: 'mdi-tag-remove-outline' },
+    { key: 'tag_repair', title: '补全标签', icon: 'mdi-tag-plus-outline' },
+    { key: 'tag_advanced', title: '标签清理', icon: 'mdi-tag-remove-outline' },
   ],
   seed: [
     { key: 'seed_basic', title: '基础设置', icon: 'mdi-tune-variant' },
@@ -226,6 +244,7 @@ const selectedToDownloaderType = computed(() => {
 })
 const qbDownloaderItems = computed(() => downloaderItems.value.filter(item => item.type === 'qbittorrent'))
 const tagCleanupDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
+const tagCompletionDownloaderItems = computed(() => tagCleanupDownloaderItems.value)
 const monitorDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
 const uploadDownloaderItems = computed(() => downloaderItems.value.filter(item => ['qbittorrent', 'transmission'].includes(item.type)))
 const uploadSelectedDownloaders = computed(() => {
@@ -362,6 +381,20 @@ const cleanupRemovals = computed(() => {
   return removals
 })
 const cleanupRemovalAssociations = computed(() => cleanupRemovals.value.reduce((total, item) => total + item.hashes.length, 0))
+const completionGroups = computed(() => completionScan.value?.downloaders || [])
+const completionRepairs = computed(() => {
+  const repairs = []
+  for (const group of completionGroups.value) {
+    for (const item of group.tags || []) {
+      if (completionKeep[tagCompletionSelectionKey(group.name, item.kind, item.tag)]) {
+        repairs.push({ downloader: group.name, kind: item.kind, tag: item.tag, hashes: [...(item.hashes || [])] })
+      }
+    }
+  }
+  return repairs
+})
+const completionSelections = computed(() => completionRepairs.value.map(({ downloader, kind, tag }) => ({ downloader, kind, tag })))
+const completionRepairAssociations = computed(() => completionRepairs.value.reduce((total, item) => total + item.hashes.length, 0))
 const runtimeFlows = [
   {
     label: '速度监控',
@@ -403,8 +436,12 @@ watch(() => props.initialConfig, v => {
   resetConfigRequests()
   Object.keys(form).forEach(k => delete form[k])
   Object.assign(form, JSON.parse(JSON.stringify({ ...defaults, ...v })))
+  delete form.pieces_sites
+  delete form.pieces_enabled
+  delete form.reseed_mode
   for (const key of ['sync_delete_servers', 'speed_monitor_downloaders', 'upload_limit_downloaders']) form[key] ??= []
   for (const key of ['speed_monitor_manual_speed_bps', 'speed_monitor_floor_speed_bps', 'upload_limit_downloader_limits_kib', 'upload_limit_site_rules']) form[key] ??= {}
+  form.pieces_site_keys ??= ''
   savedDraft = JSON.parse(JSON.stringify(form))
 }, { immediate: true, deep: true, flush: 'sync' })
 watch(() => [props.pluginId, props.api], () => {
@@ -428,6 +465,9 @@ function buildConfigPayload(stored, draft) {
       payload[key] = value
     }
   }
+  delete payload.pieces_sites
+  delete payload.pieces_enabled
+  delete payload.reseed_mode
   const mappings = value => String(value || '').split('\n').filter(line => line.split('#').some(part => part.trim())).join('\n')
   return {
     ...payload,
@@ -472,8 +512,8 @@ async function saveConfig() {
 
     const stored = await readStoredConfig()
     if (!owns() || !canManage.value) return
-    const edited = Object.keys(draft).some(key => !key.startsWith('auto_delete_') && key !== 'upload_limit_site_rules'
-      && JSON.stringify(draft[key]) !== JSON.stringify(savedDraft[key]))
+    const edited = 'pieces_sites' in stored || 'pieces_enabled' in stored || Object.keys(draft).some(key => !key.startsWith('auto_delete_')
+      && key !== 'upload_limit_site_rules' && JSON.stringify(draft[key]) !== JSON.stringify(savedDraft[key]))
     const payload = edited ? buildConfigPayload(stored, draft) : stored
     const changed = Object.keys(payload).some(key => JSON.stringify(payload[key]) !== JSON.stringify(stored[key]))
     if (changed) {
@@ -919,6 +959,325 @@ async function executeCleanupTags() {
     if (owns()) cleanupExecuting.value = false
   }
 }
+
+function tagCompletionSelectionKey(downloader, kind, tag) {
+  return `${downloader}\u0000${kind}\u0000${tag}`
+}
+
+function resetCompletionSelection(groups) {
+  Object.keys(completionKeep).forEach(key => delete completionKeep[key])
+  for (const group of groups || []) {
+    for (const item of group.tags || []) {
+      completionKeep[tagCompletionSelectionKey(group.name, item.kind, item.tag)] = true
+    }
+  }
+}
+
+function setAllCompletionTags(selected) {
+  for (const group of completionGroups.value) {
+    for (const item of group.tags || []) {
+      completionKeep[tagCompletionSelectionKey(group.name, item.kind, item.tag)] = selected
+    }
+  }
+}
+
+function completionKindMeta(kind) {
+  return {
+    site: { label: '站点', color: 'primary' },
+    transfer: { label: '转种', color: 'success' },
+    iyuu: { label: 'IYUU铺种', color: 'info' },
+  }[kind] || { label: '其他', color: 'default' }
+}
+
+function completionRequestId() {
+  return globalThis.crypto?.randomUUID?.()
+    || `tag-completion-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function completionTaskIsActive(task) {
+  return ['queued', 'running', 'cancelling'].includes(task?.status)
+}
+
+function completionTaskText(task) {
+  const progress = task?.total ? ` ${task.current}/${task.total}` : ''
+  return `${task?.phase || '后台任务运行中'}${progress}`
+}
+
+function waitForCompletionDelay() {
+  return new Promise(resolve => setTimeout(resolve, 800))
+}
+
+async function pollTagCompletionTask(task, owns) {
+  let current = task
+  let statusFailures = 0
+  while (completionTaskIsActive(current)) {
+    if (!owns()) return null
+    completionTask.value = current
+    completionMessage.value = completionTaskText(current)
+    try {
+      current = await getApi('tag_completion_task', {
+        params: { task_id: current.task_id },
+        feedback: 'silent',
+      })
+      statusFailures = 0
+    } catch (error) {
+      if (isApiRequestCancellation(error)) return null
+      statusFailures += 1
+      if (statusFailures >= 5) {
+        const unavailable = new Error('任务仍在后台运行，但状态接口暂时不可用；刷新页面可继续查询，请勿重复提交。')
+        unavailable.tagCompletionUnknown = true
+        throw unavailable
+      }
+    }
+    if (!owns()) return null
+    if (!current?.found) throw new Error('任务状态已失效；请先重新扫描核对，不要直接重复确认。')
+    completionTask.value = current
+    if (completionTaskIsActive(current)) {
+      completionMessage.value = completionTaskText(current)
+      await waitForCompletionDelay()
+    }
+  }
+  return current
+}
+
+async function submitAndWaitTagCompletionTask(path, payload, requestId, owns, onAccepted = null) {
+  let accepted
+  try {
+    accepted = await postJsonApi(path, payload, { feedback: 'silent' })
+  } catch (error) {
+    if (isApiRequestCancellation(error)) throw error
+    if (Number(error?.response?.status || error?.status) !== 504) throw error
+    try {
+      accepted = await getApi('tag_completion_task', {
+        params: { request_id: requestId },
+        feedback: 'silent',
+      })
+    } catch (statusError) {
+      if (isApiRequestCancellation(statusError)) throw statusError
+      accepted = null
+    }
+    if (!accepted?.found) accepted = await postJsonApi(path, payload, { feedback: 'silent' })
+  }
+  if (!owns()) return null
+  if (accepted?.code !== 0 || !accepted?.task_id) {
+    throw new Error(accepted?.msg || '后台任务未能提交')
+  }
+  onAccepted?.()
+  return pollTagCompletionTask(accepted, owns)
+}
+
+async function readTagCompletionResult(taskId, owns) {
+  let offset = 0
+  let merged = null
+  while (true) {
+    const response = await getApi('tag_completion_result', {
+      params: { task_id: taskId, offset, limit: 200 },
+      feedback: 'silent',
+    })
+    if (!owns()) return null
+    if (response?.code !== 0 || !response?.result) {
+      throw new Error(response?.msg || '任务已结束，但结果暂不可读取')
+    }
+    const page = response.result
+    if (!merged) {
+      merged = page
+    } else if (Array.isArray(page.downloaders)) {
+      const downloaders = new Map((merged.downloaders || []).map(item => [item.name, item]))
+      for (const downloader of page.downloaders) {
+        let target = downloaders.get(downloader.name)
+        if (!target) {
+          target = { ...downloader, tags: [] }
+          downloaders.set(downloader.name, target)
+          merged.downloaders.push(target)
+        }
+        const tags = new Map((target.tags || []).map(item => [`${item.kind}\u0000${item.tag}`, item]))
+        for (const tag of downloader.tags || []) {
+          const key = `${tag.kind}\u0000${tag.tag}`
+          let targetTag = tags.get(key)
+          if (!targetTag) {
+            targetTag = { ...tag, hashes: [] }
+            tags.set(key, targetTag)
+            target.tags.push(targetTag)
+          }
+          targetTag.hashes.push(...(tag.hashes || []))
+        }
+      }
+    } else {
+      for (const key of ['added', 'skipped', 'failed']) {
+        if (Array.isArray(page[key])) merged[key] = [...(merged[key] || []), ...page[key]]
+      }
+    }
+    if (response.complete !== false) return merged
+    const nextOffset = Number(response.next_offset)
+    if (!Number.isFinite(nextOffset) || nextOffset <= offset) {
+      throw new Error('任务结果分页游标无效，请重新扫描')
+    }
+    offset = nextOffset
+  }
+}
+
+async function applyTagCompletionTaskResult(task, owns) {
+  if (!task || !owns()) return
+  if (task.operation === 'scan' && ['completed', 'partial'].includes(task.status)) {
+    const result = await readTagCompletionResult(task.task_id, owns)
+    if (!owns()) return
+    completionScan.value = { ...result, task_id: task.task_id }
+    resetCompletionSelection(result?.downloaders || [])
+    completionStatus.value = result?.code === 0 ? (result?.errors?.length ? 'warning' : 'success') : 'error'
+    completionMessage.value = result?.msg || '扫描完成'
+    return
+  }
+  if (task.operation === 'execute' && ['completed', 'partial'].includes(task.status)) {
+    const result = await readTagCompletionResult(task.task_id, owns)
+    if (!owns()) return
+    completionDialog.value = false
+    completionScan.value = null
+    resetCompletionSelection([])
+    completionStatus.value = task.status === 'completed' ? 'success' : 'warning'
+    completionMessage.value = `${result?.msg || task.message || '补全完成'}。请重新扫描核对剩余标签。`
+    return
+  }
+  if (['cancelled', 'interrupted'].includes(task.status)) {
+    completionScan.value = null
+    resetCompletionSelection([])
+    completionStatus.value = 'warning'
+    completionMessage.value = `${task.message || '任务已停止'}；请重新扫描核对，不要直接重放旧任务。`
+    return
+  }
+  if (task.status === 'failed') {
+    completionScan.value = null
+    completionStatus.value = 'error'
+    completionMessage.value = task.message || '标签补全任务失败'
+  }
+}
+
+async function restoreTagCompletionTask() {
+  const owns = configRequestScope()
+  try {
+    const task = await getApi('tag_completion_task', { feedback: 'silent' })
+    if (!owns() || !task?.found) return
+    completionTask.value = task
+    if (completionTaskIsActive(task)) {
+      completionScanning.value = task.operation === 'scan'
+      completionExecuting.value = task.operation === 'execute'
+      const completed = await pollTagCompletionTask(task, owns)
+      if (completed) await applyTagCompletionTaskResult(completed, owns)
+    } else {
+      await applyTagCompletionTaskResult(task, owns)
+    }
+  } catch (error) {
+    if (isApiRequestCancellation(error) || !owns()) return
+    completionStatus.value = 'warning'
+    completionMessage.value = error?.message || '无法恢复标签补全任务状态'
+  } finally {
+    if (owns()) {
+      completionScanning.value = false
+      completionExecuting.value = false
+    }
+  }
+}
+
+async function scanTagCompletion() {
+  const owns = configRequestScope()
+  completionMessage.value = ''
+  if (!completionDownloaders.value.length) {
+    completionStatus.value = 'warning'
+    completionMessage.value = '请先选择下载器'
+    return
+  }
+  completionDialog.value = false
+  completionScan.value = null
+  resetCompletionSelection([])
+  completionTask.value = null
+  completionScanning.value = true
+  const requestId = completionRequestId()
+  try {
+    const task = await submitAndWaitTagCompletionTask(
+      'tag_completion_scan',
+      { request_id: requestId, downloaders: completionDownloaders.value },
+      requestId,
+      owns,
+    )
+    if (!owns()) return
+    await applyTagCompletionTaskResult(task, owns)
+  } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
+    if (error?.tagCompletionUnknown || Number(error?.response?.status || error?.status) === 504) {
+      completionTask.value = { status: 'unknown' }
+      completionStatus.value = 'warning'
+      completionMessage.value = '扫描任务状态暂不可确定；刷新页面可恢复查询。扫描只读，不会写入标签。'
+    } else {
+      completionStatus.value = 'error'
+      completionMessage.value = error?.message || '扫描失败'
+    }
+  } finally {
+    if (owns()) completionScanning.value = false
+  }
+}
+
+function previewTagCompletion() {
+  if (!completionRepairs.value.length) {
+    completionStatus.value = 'warning'
+    completionMessage.value = '没有待补全的标签'
+    return
+  }
+  completionDialog.value = true
+}
+
+async function executeTagCompletion() {
+  const owns = configRequestScope()
+  const requestId = completionRequestId()
+  completionTask.value = null
+  completionExecuting.value = true
+  try {
+    const task = await submitAndWaitTagCompletionTask(
+      'tag_completion_execute',
+      {
+        request_id: requestId,
+        scan_task_id: completionScan.value?.task_id || '',
+        repairs: completionSelections.value,
+      },
+      requestId,
+      owns,
+      () => { completionDialog.value = false },
+    )
+    if (!owns()) return
+    await applyTagCompletionTaskResult(task, owns)
+  } catch (error) {
+    if (isApiRequestCancellation(error)) return
+    if (!owns()) return
+    if (error?.tagCompletionUnknown || Number(error?.response?.status || error?.status) === 504) {
+      completionDialog.value = false
+      completionTask.value = { status: 'unknown' }
+      completionStatus.value = 'warning'
+      completionMessage.value = '补全任务状态暂不可读取；刷新页面可继续查询。请勿重复提交，先核对任务结果。'
+    } else {
+      completionStatus.value = 'error'
+      completionMessage.value = error?.message || '补全失败'
+    }
+  } finally {
+    if (owns()) completionExecuting.value = false
+  }
+}
+
+async function cancelTagCompletionTask() {
+  const taskId = completionTask.value?.task_id
+  const owns = configRequestScope()
+  if (!taskId) return
+  try {
+    const response = await postJsonApi('tag_completion_cancel', { task_id: taskId }, { feedback: 'silent' })
+    if (!owns() || response?.code !== 0) return
+    completionTask.value = response
+    completionMessage.value = response.msg || '正在停止标签补全任务'
+  } catch (error) {
+    if (isApiRequestCancellation(error) || !owns()) return
+    completionStatus.value = 'warning'
+    completionMessage.value = error?.message || '停止任务失败；请刷新状态后再操作'
+  }
+}
+
+onMounted(() => { void restoreTagCompletionTask() })
 
 let permissionsRevision = 0
 let permissionController = null
@@ -1435,16 +1794,16 @@ onBeforeUnmount(() => permissionController?.abort())
 
             <!-- ═══ IYUU辅种 · 基础设置 ═══ -->
             <div v-if="activeSub === 'iyuu_basic'" class="dm-pane">
-              <div class="dm-section-title">IYUU 辅种设置</div>
+              <div class="dm-section-title">IYUU铺种设置</div>
               <VRow class="dm-form-grid">
                 <VCol cols="12" md="6" class="dm-form-field">
-                  <VSwitch v-model="form.iyuu_enabled" color="success" inset hide-details label="启用辅种" />
+                  <VSwitch v-model="form.iyuu_enabled" color="success" inset hide-details label="启用 IYUU 铺种" />
                 </VCol>
                 <VCol cols="12" md="6" class="dm-form-field">
                   <VSwitch v-model="form.iyuu_onlyonce" color="warning" inset hide-details label="立即运行一次" />
                 </VCol>
               </VRow>
-              <div class="dm-hint mt-2">周期或手动触发；新种添加后进入公共后处理链路。</div>
+              <div class="dm-hint mt-2">按执行周期运行；勾选“立即运行一次”并保存可立即执行。</div>
               <VRow class="mt-2 dm-form-grid">
                 <VCol cols="12" md="6" class="dm-form-field">
                   <VTextField v-model="form.iyuu_token" label="IYUU Token" density="compact" variant="outlined" hide-details />
@@ -1454,6 +1813,21 @@ onBeforeUnmount(() => permissionController?.abort())
                   <VCronField v-model="form.iyuu_cron" label="执行周期" density="compact" variant="outlined" hide-details />
                 </VCol>
               </VRow>
+              <div class="dm-section-title mt-4">辅助铺种</div>
+              <VRow class="mt-2 dm-form-grid dm-form-grid--one">
+                <VCol cols="12" class="dm-form-field">
+                  <VTextarea v-model="form.pieces_site_keys" label="站点Passkey" density="compact" variant="outlined"
+                    rows="4" auto-grow hide-details :disabled="!canManage"
+                    placeholder="站点名称:Passkey[:请求间隔秒数]&#10;例如：站点A:你的Passkey&#10;站点B:你的Passkey:3" />
+                </VCol>
+              </VRow>
+              <VAlert type="info" variant="tonal" density="compact" class="mt-3">
+                <div>1. 每行填写一个站点，格式为“站点名称:Passkey”；站点名称请与 MoviePilot「站点管理」中的名称一致。</div>
+                <div>2. 可在行末标注请求间隔，单位为整数秒，例如“站点名称:Passkey:3”。该格式约定省略间隔时为 1 秒。</div>
+                <div>3. 使用 MoviePilot 配置的站点域名：通用站点为“/api/pieces-hash”，朋友为“/api/torrents/pieces-hash”，憨憨为“/nexusapi/pieces-hash”。</div>
+                <div>4. FluxTorrent／好学填写 fxo_ 开头的开放 API 令牌，需具有 crossseed 查询和下载权限；其他站点填写 Passkey。</div>
+                <div>5. 随 IYUU 铺种任务运行，只补查 IYUU 未匹配到的站点；留空则仅使用 IYUU。</div>
+              </VAlert>
             </div>
 
             <!-- ═══ IYUU辅种 · 筛选条件 ═══ -->
@@ -1466,7 +1840,7 @@ onBeforeUnmount(() => permissionController?.abort())
                   :items="downloaderItems" clearable /></VCol>
               </VRow>
               <VRow class="mb-2 dm-form-grid dm-form-grid--one">
-                <VCol cols="12" class="dm-form-field"><VSelect v-model="form.iyuu_sites" label="辅种站点" density="compact" variant="outlined" hide-details
+                <VCol cols="12" class="dm-form-field"><VSelect v-model="form.iyuu_sites" label="IYUU 匹配站点" density="compact" variant="outlined" hide-details
                   :items="siteItems" multiple chips closable-chips clearable />
                 <div class="dm-hint">留空表示全部站点</div></VCol>
               </VRow>
@@ -1490,6 +1864,10 @@ onBeforeUnmount(() => permissionController?.abort())
             <!-- ═══ IYUU辅种 · 高级选项 ═══ -->
             <div v-if="activeSub === 'iyuu_advanced'" class="dm-pane">
               <div class="dm-section-title">辅种后处理</div>
+              <VTextField v-model.number="form.reseed_max_additions" label="每轮最多新增任务" type="number" min="1" max="1000" density="compact" variant="outlined" hide-details class="mb-3" />
+              <VTextarea v-model="form.pieces_torrent_paths" label="Transmission 种子目录（可选）" rows="2" density="compact" variant="outlined" hide-details
+                placeholder="下载器名称=/MoviePilot内可读的种子目录" />
+              <div class="dm-hint mb-3">Pieces 补查时使用，每行一个下载器的已挂载目录；qBittorrent 无需填写。</div>
               <VRow class="dm-form-grid">
                 <VCol cols="12" md="6" class="dm-form-field"><VTextField v-model="form.iyuu_labelsafterseed" label="辅种后增加标签" density="compact" variant="outlined" hide-details />
                 <div class="dm-hint">逗号分隔，默认：已整理,辅种</div></VCol>
@@ -1532,7 +1910,11 @@ onBeforeUnmount(() => permissionController?.abort())
 
             <!-- ═══ 站点标签 · Tracker 映射 ═══ -->
             <div v-if="activeSub === 'tag_basic'" class="dm-pane">
-              <div class="dm-section-title">站点标签设置</div>
+              <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-3">
+                <div class="dm-section-title">站点标签设置</div>
+                <VBtn size="small" color="primary" variant="tonal" prepend-icon="mdi-tag-plus-outline"
+                  @click="activeSub = 'tag_repair'">补全标签</VBtn>
+              </div>
               <VRow class="dm-form-grid">
                 <VCol cols="12" md="6" class="dm-form-field">
                   <VSwitch v-model="form.tag_enabled" color="success" inset hide-details label="启用站点标签" />
@@ -1547,6 +1929,91 @@ onBeforeUnmount(() => permissionController?.abort())
                   <div class="dm-hint">每行一条，例如 tracker.example.com -> example</div>
                 </VCol>
               </VRow>
+            </div>
+
+            <!-- ═══ 站点标签 · 补全标签 ═══ -->
+            <div v-if="activeSub === 'tag_repair'" class="dm-pane">
+              <div class="dm-section-title">补全标签</div>
+              <VAlert type="info" variant="tonal" density="compact" class="mb-3">
+                站点标签按 tracker 与站点映射恢复；转种和 IYUU 铺种标签只对有对应历史记录的任务补全。仅追加缺失标签，不改名、不转移、不删除种子。
+              </VAlert>
+              <div class="dm-cleanup-toolbar">
+                <VSelect v-model="completionDownloaders" label="下载器" density="compact" variant="outlined" hide-details
+                  :items="tagCompletionDownloaderItems" multiple chips closable-chips class="dm-cleanup-select" />
+                <VBtn color="primary" variant="tonal" prepend-icon="mdi-radar" :loading="completionScanning"
+                  :disabled="!canManage || !completionDownloaders.length || completionScanning || completionExecuting || completionTask?.status === 'unknown'"
+                  @click="scanTagCompletion">扫描待补标签</VBtn>
+                <VBtn v-if="completionTask?.can_cancel" color="warning" variant="text" prepend-icon="mdi-stop-circle-outline"
+                  :disabled="!canManage" @click="cancelTagCompletionTask">停止任务</VBtn>
+              </div>
+
+              <VProgressLinear v-if="completionScanning || completionExecuting" :model-value="completionTask?.progress || 0"
+                color="primary" height="4" rounded class="mt-3" />
+
+              <VAlert v-if="completionMessage" :type="completionStatus" variant="tonal" density="compact" closable class="mt-3"
+                @click:close="completionMessage = ''">{{ completionMessage }}</VAlert>
+
+              <div v-if="completionScan" class="dm-cleanup-results mt-4">
+                <div class="dm-cleanup-summary">
+                  <div>
+                    <div class="text-subtitle-2">扫描结果</div>
+                    <div class="text-caption text-medium-emphasis">
+                      {{ completionGroups.length }} 个下载器 · 待补 {{ completionRepairAssociations }} 条标签关联
+                    </div>
+                  </div>
+                  <div class="d-flex ga-1 flex-wrap justify-end">
+                    <VBtn size="small" variant="text" prepend-icon="mdi-check-all" @click="setAllCompletionTags(true)">全选</VBtn>
+                    <VBtn size="small" variant="text" color="warning" prepend-icon="mdi-checkbox-blank-outline"
+                      @click="setAllCompletionTags(false)">取消全选</VBtn>
+                  </div>
+                </div>
+
+                <VAlert v-for="item in completionScan.errors || []" :key="`${item.downloader}-${item.message}`"
+                  type="warning" variant="tonal" density="compact" class="mb-2">
+                  {{ item.downloader }} · {{ item.message }}
+                </VAlert>
+
+                <div v-for="group in completionGroups" :key="group.name" class="dm-tag-group">
+                  <div class="dm-tag-group-head">
+                    <div class="d-flex align-center ga-2 min-w-0">
+                      <VIcon icon="mdi-download-network-outline" size="19" color="primary" />
+                      <strong class="text-body-2">{{ group.name }}</strong>
+                    </div>
+                    <span class="text-caption text-medium-emphasis">
+                      {{ group.task_count }} 个任务 · {{ group.missing_count }} 条待补
+                      <template v-if="group.unmatched_tracker_count"> · {{ group.unmatched_tracker_count }} 个 tracker 未识别</template>
+                    </span>
+                  </div>
+
+                  <div v-if="!group.tags.length" class="dm-cleanup-empty">
+                    <VIcon icon="mdi-tag-check-outline" size="28" color="success" />
+                    <span>没有可恢复的缺失标签</span>
+                  </div>
+                  <div v-else class="dm-tag-list">
+                    <label v-for="item in group.tags" :key="`${group.name}-${item.kind}-${item.tag}`" class="dm-tag-row">
+                      <VCheckboxBtn v-model="completionKeep[tagCompletionSelectionKey(group.name, item.kind, item.tag)]" color="success" />
+                      <div class="dm-tag-content">
+                        <div class="dm-tag-line">
+                          <span class="dm-tag-name" :title="item.tag">{{ item.tag }}</span>
+                          <VChip size="x-small" variant="tonal" :color="completionKindMeta(item.kind).color">
+                            {{ completionKindMeta(item.kind).label }}
+                          </VChip>
+                          <span class="text-caption text-medium-emphasis">{{ item.count }} 个任务</span>
+                        </div>
+                        <div class="dm-tag-samples" :title="(item.samples || []).join(' · ')">{{ (item.samples || []).join(' · ') }}</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="dm-cleanup-actions">
+                  <div class="text-caption text-medium-emphasis">
+                    已选 {{ completionRepairs.length }} 个标签组 · {{ completionRepairAssociations }} 条任务关联
+                  </div>
+                  <VBtn color="primary" variant="tonal" prepend-icon="mdi-eye-outline"
+                    :disabled="!canManage || !completionRepairs.length" @click="previewTagCompletion">预览补全</VBtn>
+                </div>
+              </div>
             </div>
 
             <!-- ═══ 站点标签 · 标签清理 ═══ -->
@@ -1705,6 +2172,38 @@ onBeforeUnmount(() => permissionController?.abort())
           <VBtn variant="text" :disabled="cleanupExecuting" @click="cleanupDialog = false">取消</VBtn>
           <VBtn :disabled="!canManage" color="error" variant="flat" prepend-icon="mdi-tag-remove-outline" :loading="cleanupExecuting"
             @click="executeCleanupTags">确认清理</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
+
+    <VDialog v-model="completionDialog" max-width="680">
+      <VCard>
+        <VCardItem>
+          <template #prepend>
+            <VAvatar color="primary" variant="tonal" size="40" rounded="lg"><VIcon icon="mdi-tag-plus-outline" /></VAvatar>
+          </template>
+          <VCardTitle class="text-subtitle-1">确认补全标签</VCardTitle>
+          <VCardSubtitle>{{ completionRepairAssociations }} 条任务标签关联</VCardSubtitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="text-body-2">
+          只追加仍能从 tracker 或下载中心历史确认的标签。已有标签会保留；不会转移、铺种、重命名或删除种子。
+        </VCardText>
+        <VList density="compact" class="dm-cleanup-preview-list">
+          <VListItem v-for="item in completionRepairs" :key="`${item.downloader}-${item.kind}-${item.tag}`">
+            <template #prepend><VIcon icon="mdi-tag-outline" size="18" /></template>
+            <VListItemTitle>
+              {{ item.tag }} <VChip size="x-small" variant="tonal" :color="completionKindMeta(item.kind).color">{{ completionKindMeta(item.kind).label }}</VChip>
+            </VListItemTitle>
+            <VListItemSubtitle>{{ item.downloader }} · {{ item.hashes.length }} 个任务</VListItemSubtitle>
+          </VListItem>
+        </VList>
+        <VDivider />
+        <VCardActions>
+          <VSpacer />
+          <VBtn variant="text" :disabled="completionExecuting" @click="completionDialog = false">取消</VBtn>
+          <VBtn :disabled="!canManage || completionExecuting || completionTask?.status === 'unknown'" color="primary" variant="flat" prepend-icon="mdi-tag-plus-outline" :loading="completionExecuting"
+            @click="executeTagCompletion">确认补全</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>

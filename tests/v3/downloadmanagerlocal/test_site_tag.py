@@ -201,6 +201,7 @@ def test_default_tracker_aliases_cover_reported_domains():
     """默认映射覆盖 issue 报告的别名 tracker。"""
     mappings = parse_tracker_mappings(DEFAULT_TRACKER_MAPPINGS)
     assert site_tag._mapped_tracker_domain("tracker.m-team.cc:443", mappings) == "m-team.cc"
+    assert site_tag._mapped_tracker_domain("https://tracker.m-team.io/announce?passkey=redacted", mappings) == "m-team.cc"
     assert site_tag._mapped_tracker_domain("agsvpt.cn", mappings) == "agsvpt.com"
     assert site_tag._mapped_tracker_domain("x-anime.cc", mappings) == "u2.dmhy.org"
     assert site_tag._mapped_tracker_domain("anime.dmhy.org:443", mappings) == "u2.dmhy.org"
@@ -216,3 +217,28 @@ def test_site_lookup_uses_longest_parent_domain_and_rejects_lookalikes(monkeypat
     monkeypatch.setattr(site_tag, "get_site_indexer", lambda _: None)
     assert site_tag.find_site_by_domain("tracker.foo.example.com:443") == "子站"
     assert site_tag.find_site_by_domain("evil-example.com") is None
+
+
+def test_completion_restores_mteam_io_tag_only_for_selected_hash(monkeypatch):
+    """实际报告的馒头 Tracker 别名可扫描修复，限定 hash 不影响其他任务。"""
+    monkeypatch.setattr(site_tag, "list_site_dicts", lambda: [{"domain": "m-team.cc", "name": "馒头"}])
+    monkeypatch.setattr(site_tag, "get_site_indexer", lambda _: None)
+    downloader = MemoryDownloader("qbittorrent", ["🌱铺种"])
+    selected_hash = "43991c45f704df78a232b3f946a5d213496abd40"
+    rows = [{"hash": identity, "name": "凡人修仙传", "tags": "🌱铺种",
+             "trackers": [{"url": "https://tracker.m-team.io/announce", "tier": 0}]}
+            for identity in [selected_hash, "other-hash"]]
+    downloader.get_torrents = Mock(side_effect=lambda ids=None: (
+        [dict(row, tags=", ".join(downloader.labels)) for row in rows], None))
+    service = SimpleNamespace(name="QB", type="qbittorrent", instance=downloader)
+    plugin = SimpleNamespace(_tracker_mappings=parse_tracker_mappings(DEFAULT_TRACKER_MAPPINGS),
+                             _tag_siteprefix="🏠", service_info=lambda _: service)
+    result = site_tag.scan_tag_completion(plugin, ["QB"], torrent_hashes=[selected_hash])
+    assert result["downloaders"][0]["task_count"] == 1
+    group = result["downloaders"][0]["tags"][0]
+    assert group["tag"] == "🏠馒头"
+    assert group["hashes"] == [selected_hash]
+    downloader.get_torrents.assert_called_once_with(ids=[selected_hash])
+    result = site_tag.execute_tag_completion(plugin, [{"downloader": "QB", **group}])
+    assert len(result["added"]) == 1
+    assert set(downloader.labels) == {"🌱铺种", "🏠馒头"}

@@ -169,7 +169,7 @@ def test_nonsecret_query_is_preserved_and_malformed_address_cannot_echo_api_key(
 
 @pytest.mark.parametrize("status", [200, 401])
 def test_host_chain_redeems_piggo_recipe_and_never_forwards_bearer_to_final_get(monkeypatch, status):
-    """运行真实 v3.2.6 DownloadChain，只替换 HTTP、额度等待和二进制下载端口。"""
+    """运行真实 DownloadChain，只替换 HTTP、额度等待和二进制下载端口。"""
     from app.chain.download import submission
     from app.modules.indexer.spider.piggo import PiggoSpider
 
@@ -207,13 +207,15 @@ def test_host_chain_redeems_piggo_recipe_and_never_forwards_bearer_to_final_get(
     monkeypatch.setattr(submission, "_download_ports_snapshot", lambda: (SimpleNamespace(post=post), None))
     monkeypatch.setattr(submission, "site_request_config", lambda *_: {"domain": "piggo.me"})
     monkeypatch.setattr(submission, "wait_for_site_request", lambda _: None)
-    monkeypatch.setattr(submission, "get_chain_runtime_config_snapshot", lambda: SimpleNamespace(proxy={}))
+    monkeypatch.setattr(submission, "get_chain_runtime_config_snapshot", lambda: SimpleNamespace(
+        proxy={}, site_user_agent=None, user_agent="test-host-UA"))
     monkeypatch.setattr(submission, "is_expiring_download_url", lambda _: False)
     monkeypatch.setattr(submission, "torrent_resource_identity", lambda _: None)
     monkeypatch.setattr(submission, "TorrentHelper", lambda: SimpleNamespace(is_invalid=lambda _: False, download_torrent=binary))
     result = adapter.download_torrent_content(recipe, cookie=None, ua="test-UA", site_name="猪猪")
     assert calls[0][0:2] == ("POST", "https://api.piggo.me/v1/api/torrents/29664/download-link")
     assert calls[0][2]["headers"]["Authorization"] == "Bearer test-api-key"
+    assert calls[0][2]["headers"]["User-Agent"] == "test-UA"
     assert calls[0][2]["cookies"] is None and calls[0][2]["json_body"] == {}
     assert calls[0][2]["allow_redirects"] is False and closed == [True]
     assert not notifications

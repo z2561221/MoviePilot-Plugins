@@ -53,12 +53,14 @@ def build_module_overview(plugin, diagnostics, cards, speed, upload):
             "截至昨日累计": max(0, transfer["success_total"] - transfer["today_success"]),
             "待到期": len(pending_runs) or len(transfer_schedule.get("items", {}))})
     iyuu = cards["iyuu"]
-    ready = bool(getattr(plugin, "_iyuu_token", "") and getattr(plugin, "_iyuu_downloaders", []))
-    append("iyuu", "IYUU辅种", iyuu["enabled"], ready, bool(activity.get("iyuu")),
+    from ..utils.config import is_iyuu_active
+
+    ready = is_iyuu_active(plugin)
+    append("iyuu", "IYUU铺种", iyuu["enabled"], ready, bool(activity.get("iyuu")) or getattr(plugin, "_reseed_worker", None) is not None,
            "定时辅种已配置" if getattr(plugin, "_iyuu_cron", "") else "等待手动或相关事件触发",
            {"今日成功": iyuu["today_success"], "今日失败": iyuu["today_fail"],
             "截至昨日累计": max(0, iyuu["success_total"] - iyuu["today_success"]), "待后处理": len(iyuu_pending)},
-           pending=len(iyuu_pending))
+           pending=len(iyuu_pending), error=getattr(plugin, "_iyuu_schedule_error", ""))
     rename = cards["rename"]
     target = diagnostics.get("downloaders", {}).get("to", {})
     downloader_configs = {}

@@ -1,5 +1,6 @@
 """转移做种服务实现。"""
 
+import hashlib
 import os
 import time
 from pathlib import Path
@@ -7,7 +8,6 @@ from typing import Any, Optional
 
 from app.schemas import ServiceInfo
 from app.schemas.types import MessageType
-from app.sdk.config import settings
 from app.sdk.logging import logger
 
 from .coordination import coordinated, task_blocked
@@ -20,6 +20,7 @@ from ..model.state import record_transfer_success
 from ..utils.name_cleaner import is_dirty_renamed_torrent_name
 from ..utils.torrent_adapter import get_label, get_save_path, get_tracker_urls, normalize_torrent
 from .rename import _get_torrent_content_name, resolve_retry_original_name
+from .pieces import _raw_info
 from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
 
 _AUTOMATIC_DELAY_TRIGGER_SOURCES = frozenset({"兜底扫描", "事件驱动"})
@@ -73,6 +74,37 @@ def validate_config(plugin) -> bool:
         plugin.systemmessage.put("源下载器和目的下载器不能相同", title="自动转移做种")
         return False
     return True
+
+
+def _validated_transfer_metadata(content: bytes, expected_hash: str) -> tuple[dict, set[str]]:
+    """按原始 info 编码核验源身份，兼容 v1、纯 v2 及混合种子 hash。"""
+    try:
+        raw_info = _raw_info(content)
+        info = bdecode(raw_info, decode=0)
+        if not isinstance(info, dict):
+            raise TypeError("种子 info 不是字典")
+        hashes = {hashlib.sha1(raw_info).hexdigest()}
+        if info.get(b"meta version") == 2:
+            v2_hash = hashlib.sha256(raw_info).hexdigest()
+            hashes = {v2_hash, v2_hash[:40]}
+            if b"pieces" in info:
+                hashes.add(hashlib.sha1(raw_info).hexdigest())
+        if str(expected_hash or "").strip().lower() not in hashes:
+            raise ValueError("种子文件 info hash 与源任务不符")
+        metadata = bdecode(content)
+        if not isinstance(metadata, dict):
+            raise TypeError("种子元数据不是字典")
+        return metadata, hashes
+    except Exception as error:
+        raise ValueError("种子元数据或源任务身份无法核验") from error
+
+
+def _encode_transfer_metadata(metadata: dict, original: bytes) -> bytes:
+    """仅重组顶层 Tracker 元数据，保留 info 原始字节及真实 hash。"""
+    raw_info = _raw_info(original)
+    entries = sorted(metadata.items(), key=lambda item: item[0].encode("utf-8") if isinstance(item[0], str) else item[0])
+    return b"d" + b"".join(bencode(key) + (raw_info if key in ("info", b"info") else bencode(value))
+                           for key, value in entries) + b"e"
 
 
 def download_torrent(plugin, service: ServiceInfo, content: bytes,
@@ -251,10 +283,10 @@ def _save_transfer_state(plugin, from_service, to_service, source_hash: str,
 
 @coordinated
 @observed("transfer")
-def transfer(plugin, trigger_source: str = "手动/定时"):
+def transfer(plugin, trigger_source: str = "手动/定时", stop_generation=None):
     """开始转移做种"""
     logger.info(f"开始转移做种任务，触发来源：{trigger_source} ...")
-    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) if stop_generation is None else stop_generation
     if _transfer_stopped(plugin, generation):
         return
 
@@ -416,19 +448,16 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                 fail += 1
                 continue
 
-            if is_downloader_type("qbittorrent", service=from_service):
+            try:
                 content = torrent_file.read_bytes()
-                if not content:
-                    logger.warning(f"读取种子文件失败：{torrent_file}")
-                    fail += 1
-                    continue
-                try:
-                    torrent_main = bdecode(content)
-                    main_announce = torrent_main.get('announce')
-                except Exception as err:
-                    logger.warning(f"解析种子文件 {torrent_file} 失败：{str(err)}")
-                    fail += 1
-                    continue
+                torrent_main, valid_hashes = _validated_transfer_metadata(content, torrent_item["hash"])
+            except (OSError, ValueError) as error:
+                logger.warning(f"转种元数据核验失败，保留源任务 {torrent_item['hash']}：{type(error).__name__}")
+                fail += 1
+                continue
+
+            if is_downloader_type("qbittorrent", service=from_service):
+                main_announce = torrent_main.get('announce')
 
                 if not main_announce:
                     logger.info(f"{torrent_item.get('hash')} 未发现tracker信息，尝试补充tracker信息...")
@@ -447,8 +476,7 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                             torrent_main['announce'] = fastresume_trackers[0][0]
                             if len(fastresume_trackers) > 1 or len(fastresume_trackers[0]) > 1:
                                 torrent_main['announce-list'] = fastresume_trackers
-                            torrent_file = settings.TEMP_PATH / f"{torrent_item.get('hash')}.torrent"
-                            torrent_file.write_bytes(bencode(torrent_main))
+                            content = _encode_transfer_metadata(torrent_main, content)
                     except Exception as err:
                         logger.error(f"解析fastresume文件 {fastresume_file} 出错：{str(err)}")
                         fail += 1
@@ -458,7 +486,7 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                 break
             logger.info(f"添加转移做种任务到下载器 {to_service.name}：{torrent_file}")
             download_id = download_torrent(plugin, service=to_service,
-                                           content=torrent_file.read_bytes(),
+                                           content=content,
                                            save_path=download_dir,
                                            torrent=torrent_item.get('torrent'),
                                            stop_generation=generation)
@@ -467,6 +495,10 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
                     break
                 fail += 1
                 logger.error(f"添加下载任务失败：{torrent_file}")
+                continue
+            if str(download_id).strip().lower() not in valid_hashes:
+                fail += 1
+                logger.error(f"转种添加回执 hash 与源元数据不符，保留源任务：{torrent_item['hash']}")
                 continue
             completed = _finish_saved_transfer(
                 plugin, from_service, to_service, torrent_item["hash"], download_id, generation,
@@ -503,6 +535,7 @@ def transfer(plugin, trigger_source: str = "手动/定时"):
 
 def retry_pending_renames(plugin):
     """独立补刀重命名，避免转移扫描提前返回时跳过旧污染记录修复。"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     if not plugin._todownloader:
         return {"code": 1, "msg": "未配置目标下载器", "history": 0, "dirty": 0, "total": 0}
     try:
@@ -511,6 +544,10 @@ def retry_pending_renames(plugin):
             logger.warning("转移做种兜底服务：目标下载器不可用，跳过重命名补刀")
             return {"code": 1, "msg": "目标下载器不可用，已跳过补刀", "history": 0, "dirty": 0, "total": 0}
         history_result = plugin._retry_failed_renames(to_service) or {}
+        if _transfer_stopped(plugin, generation):
+            completed = int(history_result.get("success", 0) or 0)
+            return {"code": 2, "msg": "补刀已停止，不继续扫描新任务", "history": completed,
+                    "dirty": 0, "total": completed}
         dirty_result = retry_dirty_torrent_names(plugin, to_service) or {}
         history_count = int(history_result.get("success", 0) or 0)
         dirty_count = int(dirty_result.get("success", 0) or 0)
@@ -539,6 +576,7 @@ def retry_pending_renames(plugin):
 
 def retry_dirty_torrent_names(plugin, to_service: ServiceInfo):
     """扫描目标下载器当前任务名，补刀不在历史记录里的副标题污染任务。"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     result = {"attempted": 0, "success": 0, "failed": 0, "skipped": 0, "errors": []}
     if not plugin._rename_enabled or not to_service or not to_service.instance:
         return result
@@ -549,10 +587,12 @@ def retry_dirty_torrent_names(plugin, to_service: ServiceInfo):
     except Exception as e:
         logger.error(f"转移做种兜底服务：获取目标下载器任务失败: {e}")
         return result
-    if not torrents:
+    if not torrents or _transfer_stopped(plugin, generation):
         return result
 
     for torrent in torrents:
+        if _transfer_stopped(plugin, generation):
+            break
         torrent_name = torrent.get("name", "") if dl_type == "qbittorrent" else torrent.name
         if not is_dirty_renamed_torrent_name(torrent_name):
             continue
@@ -582,6 +622,8 @@ def retry_dirty_torrent_names(plugin, to_service: ServiceInfo):
                 result["failed"] += 1
                 result["errors"].append(f"{torrent_hash}: 无可信原始名称")
                 continue
+            if _transfer_stopped(plugin, generation):
+                break
             if plugin._rename_torrent(
                 dl, dl_type, torrent_hash,
                 retry_name,
@@ -607,8 +649,10 @@ def retry_dirty_torrent_names(plugin, to_service: ServiceInfo):
 
 def fallback_transfer(plugin):
     """转移做种兜底扫描包装函数"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     retry_pending_renames(plugin)
-    transfer(plugin, trigger_source="兜底扫描")
+    if not _transfer_stopped(plugin, generation):
+        transfer(plugin, trigger_source="兜底扫描", stop_generation=generation)
 
 
 def delayed_transfer(plugin):

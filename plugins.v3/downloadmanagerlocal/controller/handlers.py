@@ -24,6 +24,11 @@ from ..model.api import (
     TagCleanupExecuteResult,
     TagCleanupScanRequest,
     TagCleanupScanResult,
+    TagCompletionExecuteRequest,
+    TagCompletionCancelRequest,
+    TagCompletionScanRequest,
+    TagCompletionResultResponse,
+    TagCompletionTaskResult,
     UploadLimitDisableResult,
     UploadLimitReallocateResult,
     UploadLimitRulesRequest,
@@ -39,7 +44,18 @@ from ..model.state import (
     load_transfer_stats,
 )
 from ..service.archive import serialized_rename_state
-from ..service.site_tag import execute_tag_cleanup, scan_and_clean_tags
+from ..service.overview import build_module_overview
+from ..service.site_tag import (
+    execute_tag_cleanup,
+    scan_and_clean_tags,
+)
+from ..service.tag_completion import (
+    cancel_tag_completion_task,
+    get_tag_completion_result,
+    get_tag_completion_status,
+    submit_tag_completion_execute,
+    submit_tag_completion_scan,
+)
 from ..service.speed_baseline import suggest_thresholds
 from ..service.speed_decision import resolve_reference_speed
 from ..service.speed_monitor import (
@@ -56,7 +72,6 @@ from ..service.upload_limiter import (
     scan_upload_limit_site_tags,
 )
 from ..utils.config import is_speed_monitor_active
-from ..service.overview import build_module_overview
 
 BusinessModelT = TypeVar("BusinessModelT", bound=ApiBusinessModel)
 
@@ -469,6 +484,74 @@ def api_tag_cleanup_execute(plugin, payload: TagCleanupExecuteRequest):
             {"code": 1, "msg": f"清理失败: {e}", "removed": [], "failed": []},
             TagCleanupExecuteResult,
         )
+
+
+def api_tag_completion_scan(plugin, payload: TagCompletionScanRequest):
+    """提交所选下载器的标签补全扫描任务。"""
+    try:
+        request = _request_dict(payload)
+        result = submit_tag_completion_scan(
+            plugin,
+            request.get("downloaders") or [],
+            request.get("request_id") or "",
+            torrent_hashes=request.get("torrent_hashes") or [],
+        )
+        return _operation_response(result, TagCompletionTaskResult)
+    except Exception as e:
+        logger.error(f"标签补全扫描任务提交失败: {type(e).__name__}")
+        return _operation_response(
+            {"code": 1, "msg": "扫描任务提交失败", "found": False},
+            TagCompletionTaskResult,
+        )
+
+
+def api_tag_completion_execute(plugin, payload: TagCompletionExecuteRequest):
+    """登记按用户确认的服务端扫描快照执行的任务。"""
+    try:
+        request = _request_dict(payload)
+        result = submit_tag_completion_execute(
+            plugin,
+            request.get("scan_task_id") or "",
+            request.get("repairs") or [],
+            request.get("request_id") or "",
+        )
+        return _operation_response(result, TagCompletionTaskResult)
+    except Exception as e:
+        logger.error(f"标签补全执行任务提交失败: {type(e).__name__}")
+        return _operation_response(
+            {"code": 1, "msg": "补全任务提交失败", "found": False},
+            TagCompletionTaskResult,
+        )
+
+
+def api_tag_completion_task(plugin, task_id: str | None = None, request_id: str | None = None):
+    """返回标签补全任务的轻量进度，不读取下载器。"""
+    return _operation_response(
+        get_tag_completion_status(plugin, task_id=task_id, request_id=request_id),
+        TagCompletionTaskResult,
+    )
+
+
+def api_tag_completion_result(
+    plugin,
+    task_id: str,
+    offset: int = 0,
+    limit: int = 200,
+):
+    """读取指定标签补全任务的完整结果。"""
+    return _operation_response(
+        get_tag_completion_result(plugin, task_id, offset=offset, limit=limit),
+        TagCompletionResultResponse,
+    )
+
+
+def api_tag_completion_cancel(plugin, payload: TagCompletionCancelRequest):
+    """请求停止指定标签补全任务。"""
+    request = _request_dict(payload)
+    return _operation_response(
+        cancel_tag_completion_task(plugin, request.get("task_id") or ""),
+        TagCompletionTaskResult,
+    )
 
 
 def api_rename_history(plugin, page: int = 1, page_size: int = 15):

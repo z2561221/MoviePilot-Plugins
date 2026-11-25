@@ -53,6 +53,7 @@ const dirty = computed(() => settings.value && JSON.stringify(settings.value) !=
 const needsSourcePaths = computed(() => settings.value?.rules.some(rule => rule.enabled && rule.action === 'data'))
 const missingSourcePaths = computed(() => needsSourcePaths.value && !settings.value.source_paths.length)
 const sourcePathMessage = '请填写「允许删除的下载目录」。选择删除下载数据时，至少需要一个 MP 容器内的下载目录。'
+const ruleIdMessage = '无法生成规则编号，未添加规则'
 const regexFields = [
   ['name_include', '种子名称包含正则'], ['name_exclude', '种子名称排除正则'],
   ['path_include', '保存路径包含正则'], ['path_exclude', '保存路径排除正则'],
@@ -142,13 +143,35 @@ async function action(name, callback) {
   } finally { if (owns(current)) busy.value = '' }
 }
 
-function newRule() {
-  return { id: crypto.randomUUID().replaceAll('-', ''), name: '新规则', revision: 1, enabled: false, mode: 'debug', action: 'torrent',
+function createRuleId() {
+  const usedIds = new Set(settings.value.rules.map(rule => rule.id))
+  const bytes = new Uint8Array(16)
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try { globalThis.crypto.getRandomValues(bytes) } catch { return null }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40
+    bytes[8] = (bytes[8] & 0x3f) | 0x80
+    const id = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+    if (!usedIds.has(id)) return id
+  }
+  return null
+}
+function appendRule(makeRule) {
+  const id = createRuleId()
+  if (!id) { error.value = ruleIdMessage; return }
+  settings.value.rules.push(makeRule(id))
+  if (error.value === ruleIdMessage) error.value = ''
+}
+function newRule(id) {
+  return { id, name: '新规则', revision: 1, enabled: false, mode: 'debug', action: 'torrent',
     downloaders: [], ignore_case: true, consecutive: 2, conditions: Object.fromEntries([...regexFields.map(([key]) => [key, '']), ...numberFields.map(([key]) => [key, null])]) }
 }
-function addRule() { settings.value.rules.push(newRule()) }
-function duplicate(rule) { const cloned = copy(rule); cloned.id = newRule().id; cloned.name += ' 副本'; cloned.revision = 1; cloned.mode = 'debug'; cloned.enabled = false; settings.value.rules.push(cloned) }
-function numberValue(rule, key, value) { rule.conditions[key] = value === '' || value === null ? null : Number(value) }
+function addRule() { appendRule(newRule) }
+function duplicate(rule) {
+  appendRule(id => ({ ...copy(rule), id, name: `${rule.name} 副本`, revision: 1, mode: 'debug', enabled: false }))
+}
+function numberValue(rule, key, value) {
+  rule.conditions[key] = value === '' || value === null ? null : Number(value)
+}
 function setPaths(key, value) { settings.value[key] = String(value || '').split('\n').map(item => item.trim()).filter(Boolean) }
 function checkedDraft() {
   if (missingSourcePaths.value) throw new Error(sourcePathMessage)

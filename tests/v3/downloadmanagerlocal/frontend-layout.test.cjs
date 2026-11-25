@@ -43,13 +43,14 @@ function fixture(name, input = {}, options = {}) {
       const permission = options.permissions ? await options.permissions(_client, props.pluginId, requestOptions) : { can_manage: true }
       return { is_active: true, is_superuser: permission.can_manage }
     } }, { ...optionsArg, timeoutMs: options.permissionTimeoutMs || 8000 }),
-    getPluginApi: async (_client, _id, path) => {
+    getPluginApi: async (_client, _id, path, requestOptions) => {
       reads.push(path)
-      if (options.get && Object.hasOwn(options.get, path)) return options.get[path]()
+      if (options.get && Object.hasOwn(options.get, path)) return options.get[path](requestOptions)
       if (path === '') return structuredClone(stored)
       if (path === 'permissions') return options.permissions ? options.permissions(_client, _id) : { can_manage: true }
       if (path === 'auto_delete/config') return { settings: structuredClone(options.settings || defaults()), revision: 1 }
       if (path === 'auto_delete/status') return { state: 'disabled', enabled: false, active: false }
+      if (path === 'reseed/status') return { status: 'idle', phase: '尚未运行' }
       if (path.startsWith('auto_delete/history')) return { items: [{ id: 'job', rule_name: '旧规则', name: '旧任务', downloader: 'QB', created_at: 1, state: 'removed' }], total: 1 }
       if (path.startsWith('rename_history')) return { items: options.renameRecords || [], total: options.renameTotal || (options.renameRecords || []).length }
       if (path.startsWith('rename_archive')) return { items: options.archiveRecords || [], total: options.archiveTotal || (options.archiveRecords || []).length }
@@ -72,7 +73,7 @@ function fixture(name, input = {}, options = {}) {
     postPluginApi: async () => ({}), isApiRequestCancellation: requireFrontend('./src/components/api.js').isApiRequestCancellation,
   }
   const components = {}
-  for (const component of ['HistoryRow', 'AutoDeleteCron', 'AutoDeletePane', 'SyncDeleteDetails', 'SyncDeletePane', 'Page', 'Config']) {
+  for (const component of ['HistoryRow', 'AutoDeleteCron', 'AutoDeletePane', 'SyncDeleteDetails', 'SyncDeletePane', 'ReseedTask', 'Page', 'Config']) {
     components[component] = compiledComponent(component, api, components)
   }
   const element = type => ({ type, props: {}, children: [], parent: null, style: {} })
@@ -94,7 +95,7 @@ function fixture(name, input = {}, options = {}) {
   const container = element('root')
   const app = renderer.createApp({ render: () => vue.h(components[name], { ...props, canManage: props.canManage, onSave: value => events.push(value), onClose: () => events.push('close'), onReview: value => events.push({ review: value }) }) })
   const uiNames = new Set()
-  for (const component of ['HistoryRow', 'AutoDeleteCron', 'AutoDeletePane', 'SyncDeleteDetails', 'SyncDeletePane', 'Config', 'Page']) {
+  for (const component of ['HistoryRow', 'AutoDeleteCron', 'AutoDeletePane', 'SyncDeleteDetails', 'SyncDeletePane', 'ReseedTask', 'Config', 'Page']) {
     for (const match of readFileSync(resolve(frontend, `src/components/${component}.vue`), 'utf8').matchAll(/<(V\w+)\b/g)) uiNames.add(match[1])
   }
   for (const component of uiNames) app.component(component, {
@@ -284,6 +285,222 @@ test('host validation details reach the shared save notice', async () => {
   } finally { view.close() }
 })
 
+test('Pieces-hash passkey lines select generic sites without a separate site picker', async () => {
+  const view = fixture('Config', { initialConfig: { pieces_enabled: false, pieces_sites: [7] } }, { get: {
+    sites: () => [{ title: '青蛙', value: 7 }, { title: 'Example tracker', value: 8 }],
+  } })
+  try {
+    await settle()
+    const find = (type, text) => view.all(node => node.type === type && view.text(node) === text && view.visible(node))[0]
+    const field = label => view.all(node => node.props.label === label && view.visible(node))
+    await find('VListItem', 'IYUU铺种').props.onClick()
+    await settle()
+    await find('button', '基础设置').props.onClick()
+    await settle()
+
+    assert(!view.reads.includes('reseed/status'))
+    assert.equal(view.text().includes('本轮完成'), false)
+    assert.equal(view.text().includes('目标任务已存在'), false)
+    assert.equal(view.text().includes('已扫描 100'), false)
+    assert(view.text().includes('辅助铺种'))
+    assert.equal(field('匹配方式').length, 0)
+    assert.equal(field('IYUU Token').length, 1)
+    assert.equal(find('VBtn', '匹配预览'), undefined)
+    assert.equal(find('VBtn', '运行辅助铺种'), undefined)
+    assert.equal(view.text().includes('Pieces-hash 通用配置'), false)
+    assert.equal(field('辅种站点').length, 0)
+    assert.equal(field('站点Passkey').length, 1)
+    const passkeyField = field('站点Passkey')[0]
+    const pane = passkeyField.parent.parent.parent
+    const help = view.all(node => node.type === 'VAlert' && view.visible(node), pane)
+    assert.equal(help.length, 1)
+    const paneNodes = view.all(() => true, pane)
+    assert(paneNodes.indexOf(passkeyField) < paneNodes.indexOf(help[0]))
+    assert(view.text(help[0]).includes('站点管理'))
+    assert(view.text(help[0]).includes('站点名称:Passkey:3'))
+    assert(view.text(help[0]).includes('朋友为“/api/torrents/pieces-hash”'))
+    assert(view.text(help[0]).includes('憨憨为“/nexusapi/pieces-hash”'))
+    assert(view.text(help[0]).includes('FluxTorrent／好学'))
+    assert(view.text(help[0]).includes('fxo_'))
+    assert(view.text(help[0]).includes('crossseed 查询和下载权限'))
+    assert.equal(view.text(help[0]).includes('定时辅种周期'), false)
+    assert.equal(view.text(help[0]).includes('不要同时配置 IYUU'), false)
+    assert.equal(view.text().includes('仅保存设置'), false)
+    assert.equal(view.text().includes('青蛙、AGSVPT'), false)
+    assert.equal(field('API 路径').length, 0)
+    assert.equal(field('站点请求间隔（秒）').length, 0)
+    assert.equal(field('每批指纹数量').length, 0)
+    assert.equal(field('源 qB 下载器').length, 0)
+    assert.equal(field('已完成源种子').length, 0)
+    assert.equal(field('选择种子').length, 0)
+    assert.equal(find('VBtn', '只查青蛙匹配'), undefined)
+
+    field('站点Passkey')[0].props['onUpdate:modelValue']('Example tracker:test-passkey\n青蛙:another-key:3')
+    await find('VBtn', '保存配置').props.onClick()
+    await settle()
+
+    const saved = view.writes.find(item => item.path === 'plugin/ScopedInstance')?.body
+    assert.equal(saved.pieces_site_keys, 'Example tracker:test-passkey\n青蛙:another-key:3')
+    assert.equal('pieces_sites' in saved, false)
+    assert.equal('pieces_enabled' in saved, false)
+    assert.equal('pieces_site_configs' in saved, false)
+    assert.equal('pieces_site_passkeys' in saved, false)
+    assert.equal('pieces_batch_size' in saved, false)
+    assert(!view.reads.some(path => path.startsWith('pieces/')))
+    assert(!view.writes.some(item => String(item.path).includes('pieces/preview')))
+  } finally { view.close() }
+})
+
+test('reseed displays progress from the existing IYUU task without a separate start', async () => {
+  const task = { task_id: 'iyuu', status: 'running', phase: '查询 IYUU', scanned: 100, result_count: 0 }
+  const view = fixture('ReseedTask', {}, {
+    get: { 'reseed/status': () => task },
+  })
+  try {
+    await settle()
+    assert.equal(view.writes.length, 0)
+    assert(view.text().includes('查询 IYUU'))
+    assert(!view.text().includes('匹配预览'))
+    assert(!view.text().includes('运行辅助铺种'))
+    assert.deepEqual(view.errors, [])
+  } finally { view.close() }
+})
+
+test('reseed stop addresses the current task and preserves failure feedback', async () => {
+  const view = fixture('ReseedTask', {}, {
+    get: { 'reseed/status': () => ({ task_id: 'iyuu-current', status: 'running', phase: '查询 IYUU' }) },
+    post: async () => { throw new Error('504 回执超时') },
+  })
+  try {
+    await settle()
+    const button = () => view.all(node => node.type === 'VBtn' && view.text(node) === '停止')[0]
+    await button().props.onClick()
+    await settle()
+    assert(view.text().includes('504 回执超时'))
+    assert.equal(view.writes[0].path, 'reseed/stop')
+    assert.equal(view.writes[0].body.task_id, 'iyuu-current')
+  } finally { view.close() }
+})
+
+test('reseed late response cannot overwrite another plugin instance', async () => {
+  let resolveOld
+  let reads = 0
+  const old = new Promise(resolve => { resolveOld = resolve })
+  const view = fixture('ReseedTask', {}, {
+    get: { 'reseed/status': () => ++reads === 1 ? old : { status: 'idle', phase: '新实例' } },
+  })
+  try {
+    await settle()
+    view.props.pluginId = 'AnotherInstance'
+    await settle()
+    resolveOld({ status: 'completed', phase: '旧实例完成', result_count: 0 })
+    await settle()
+    assert(view.text().includes('新实例'))
+    assert(!view.text().includes('旧实例完成'))
+  } finally { view.close() }
+})
+
+test('reseed stop requires management permission', async () => {
+  const view = fixture('ReseedTask', {}, {
+    get: { 'reseed/status': () => ({ task_id: 'iyuu-current', status: 'running', phase: '查询 IYUU' }) },
+  })
+  try {
+    await settle()
+    const button = view.all(node => node.type === 'VBtn' && view.text(node) === '停止')[0]
+    view.props.canManage = false
+    await settle()
+    await button.props.onClick()
+    assert.equal(view.writes.length, 0)
+  } finally { view.close() }
+})
+
+test('tag completion submits background tasks, restores status, and keeps the preview confirmation step', async () => {
+  const scan = { code: 0, msg: '扫描完成', errors: [], downloaders: [{
+    name: 'QB2', type: 'qbittorrent', task_count: 2, missing_count: 2, unmatched_tracker_count: 0,
+    tags: [{ kind: 'site', tag: '🏠站点A', hashes: ['hash-1', 'hash-2'], count: 2, samples: ['种子A'] }],
+  }] }
+  const tasks = new Map()
+  const results = new Map()
+  let taskIndex = 0
+  let statusReads = 0
+  const view = fixture('Config', { initialConfig: {} }, {
+    post: async (path, body) => {
+      if (path === 'tag_completion_scan') {
+        const taskId = `task-${++taskIndex}`
+        const task = { found: true, code: 0, task_id: taskId, operation: 'scan', status: 'queued', phase: '等待后台任务', can_cancel: true }
+        tasks.set(taskId, task)
+        results.set(taskId, scan)
+        return task
+      }
+      if (path === 'tag_completion_execute') {
+        assert.equal(body.scan_task_id, 'task-1')
+        assert.deepEqual(body.repairs, [{ downloader: 'QB2', kind: 'site', tag: '🏠站点A' }])
+        const taskId = `task-${++taskIndex}`
+        const task = { found: true, code: 0, task_id: taskId, operation: 'execute', status: 'queued', phase: '等待后台任务', can_cancel: true }
+        tasks.set(taskId, task)
+        results.set(taskId, { code: 0, msg: '补全完成：新增 1 条标签关联，失败 0 个任务' })
+        return task
+      }
+      if (path === 'tag_completion_cancel') {
+        const task = tasks.get(body.task_id)
+        return { ...task, status: 'cancelled', can_cancel: false, msg: '任务已取消' }
+      }
+      return {}
+    },
+    get: {
+      downloaders: () => [{ title: 'QB2', value: 'QB2', type: 'qbittorrent' }],
+      tag_completion_task: requestOptions => {
+        statusReads += 1
+        const taskId = requestOptions?.params?.task_id
+        const task = taskId ? tasks.get(taskId) : null
+        return task ? { ...task, status: task.operation === 'scan' ? 'completed' : 'completed', can_cancel: false }
+          : { found: false, msg: '没有可查询的标签补全任务' }
+      },
+      tag_completion_result: requestOptions => {
+        const taskId = requestOptions?.params?.task_id
+        const stored = results.get(taskId)
+        const offset = requestOptions?.params?.offset || 0
+        if (taskId === 'task-1') {
+          const page = structuredClone(stored)
+          page.downloaders[0].tags[0].hashes = [stored.downloaders[0].tags[0].hashes[offset]]
+          return { code: 0, result: page, offset, next_offset: offset + 1, total: 2, complete: offset === 1 }
+        }
+        return { code: 0, result: stored, offset: 0, next_offset: 0, total: 0, complete: true }
+      },
+    },
+  })
+  try {
+    await settle()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    await settle()
+    const find = (type, text) => view.all(node => node.type === type && view.text(node) === text && view.visible(node))[0]
+    const field = label => view.all(node => node.props.label === label && view.visible(node))
+    find('VListItem', '站点标签').props.onClick()
+    await settle()
+    find('button', '补全标签').props.onClick()
+    await settle()
+    field('下载器')[0].props['onUpdate:modelValue'](['QB2'])
+    await find('VBtn', '扫描待补标签').props.onClick()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    await settle()
+    assert.equal(view.writes.filter(item => item.path === 'tag_completion_scan').length, 1)
+    assert.equal(view.text().includes('扫描结果'), true)
+    assert(view.text().includes('待补 2 条标签关联'))
+    assert.equal(statusReads > 0, true)
+    await find('VBtn', '预览补全').props.onClick()
+    await settle()
+    await find('VBtn', '确认补全').props.onClick()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    await settle()
+    assert.deepEqual(view.writes.filter(item => item.path.startsWith('tag_completion_')).map(item => item.path), [
+      'tag_completion_scan', 'tag_completion_execute',
+    ])
+    assert(view.text().includes('请重新扫描核对剩余标签'))
+    assert.equal(view.text().includes('扫描结果'), false)
+    assert.equal(view.writes.find(item => item.path === 'tag_completion_execute').body.repairs[0].hashes, undefined)
+  } finally { view.close() }
+})
+
 test('configuration navigation preserves drafts and places settings in their functional sections', async () => {
   const view = fixture('Config', { initialConfig: {} })
   try {
@@ -333,7 +550,7 @@ test('configuration navigation preserves drafts and places settings in their fun
     assert.equal(shownField('允许删除的下载目录').length, 1)
     assert.equal(shownField('扫描间隔（分钟）').length, 0)
 
-    await nav('IYUU辅种')
+    await nav('IYUU铺种')
     assert.equal(shownField('辅种下载器').length, 0)
     await sub('条件筛选')
     assert.equal(shownField('辅种下载器').length, 1)
@@ -376,7 +593,16 @@ test('configuration navigation preserves drafts and places settings in their fun
     await nav('站点标签')
     assert.equal(shownField('Tracker 映射（域名 -> 映射域名）').length, 1)
     assert.equal(view.all(node => node.type === 'VSelect' && node.props.label === '下载器' && view.visible(node)).length, 0)
-    await sub('高级选项')
+    const completionShortcut = view.all(node => node.type === 'VBtn' && view.text(node) === '补全标签' && view.visible(node))[0]
+    assert(completionShortcut)
+    completionShortcut.props.onClick()
+    await settle()
+    assert.equal(view.all(node => node.type === 'VSelect' && node.props.label === '下载器' && view.visible(node)).length, 1)
+    assert.equal(view.text().includes('扫描待补标签'), true)
+    await sub('基础设置')
+    await sub('补全标签')
+    assert.equal(view.all(node => node.type === 'VSelect' && node.props.label === '下载器' && view.visible(node)).length, 1)
+    await sub('标签清理')
     assert.equal(view.all(node => node.type === 'VSelect' && node.props.label === '下载器' && view.visible(node)).length, 1)
 
     await nav('做种校验')

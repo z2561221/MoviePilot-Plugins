@@ -232,9 +232,9 @@ def test_scheduler_and_lifecycle_use_on_demand_monitor_worker():
     assert "if is_speed_monitor_active(plugin):" in lifecycle_source
     assert "ensure_speed_monitor_runtime(plugin)" in lifecycle_source
     assert "start_speed_monitor_worker_if_needed(plugin, runtime)" in lifecycle_source
-    assert "stop_speed_monitor_worker(plugin)" in lifecycle_source
-    assert lifecycle_source.index("stop_speed_monitor_worker(plugin)") < lifecycle_source.index(
-        "stop_speed_monitor_runtime(plugin)"
+    assert '("速度监控线程", stop_speed_monitor_worker)' in lifecycle_source
+    assert lifecycle_source.index('("速度监控线程", stop_speed_monitor_worker)') < lifecycle_source.index(
+        '("速度监控状态", stop_speed_monitor_runtime)'
     )
     assert "def _scan_download_speed(self):" in entry_source
     assert "EventType.DownloadAdded" in entry_source

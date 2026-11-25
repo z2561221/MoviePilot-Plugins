@@ -22,6 +22,7 @@ from ..utils.name_cleaner import (
 )
 from ..utils.torrent_adapter import get_hash, get_label, get_save_path, get_tracker_urls
 from .activity import observed
+from .coordination import coordinated, operation_stopped
 
 
 def _set_meta_attr(meta: MetaBase, attr: str, value: str) -> None:
@@ -403,9 +404,11 @@ def _find_iyuu_source_hash(plugin, torrent_hash: str) -> str:
     return _find_iyuu_source_hash_from_files(plugin, hash_text)
 
 
+@coordinated(read_protection=False)
 @observed("rename")
 def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: str, save_path: str) -> bool:
     """重命名单个种子，持久化记录并返回实际是否成功。"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     try:
         # 排除目录检查
         if plugin._rename_exclude_dirs:
@@ -417,6 +420,8 @@ def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: st
 
         # 历史只提供媒体身份，季集优先从当前种子原始名解析
         downloadhis = get_download_history_by_hash(torrent_hash)
+        if operation_stopped(plugin, generation):
+            return False
         if downloadhis:
             logger.info(
                 f"转移后重命名：找到下载历史记录，使用当前种子名保留季集: "
@@ -437,9 +442,13 @@ def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: st
                     media_id=media_id,
                 )
             media_info = plugin.chain.recognize_media(**recognize_kwargs)
+            if operation_stopped(plugin, generation):
+                return False
             if media_info:
                 template = plugin._rename_movie_format if media_info.type == MediaType.MOVIE else plugin._rename_tv_format
                 new_name = format_torrent_name(template, meta, media_info)
+                if operation_stopped(plugin, generation):
+                    return False
                 if new_name and str(new_name) != torrent_name:
                     if dl_type == "qbittorrent":
                         dl.qbc.torrents_rename(torrent_hash=torrent_hash, new_torrent_name=str(new_name))
@@ -461,6 +470,8 @@ def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: st
 
         # TMDB 识别
         media_info = plugin.chain.recognize_media(meta=meta)
+        if operation_stopped(plugin, generation):
+            return False
         if not media_info:
             logger.warning(f"转移后重命名：媒体识别失败 hash={torrent_hash} name={torrent_name}")
             save_rename_record(plugin, torrent_hash, torrent_name, torrent_name, False, "媒体识别失败")
@@ -469,6 +480,8 @@ def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: st
         # 选择模板
         template = plugin._rename_movie_format if media_info.type == MediaType.MOVIE else plugin._rename_tv_format
         new_name = format_torrent_name(template, meta, media_info)
+        if operation_stopped(plugin, generation):
+            return False
         if not new_name:
             logger.warning(f"转移后重命名：格式化结果为空 hash={torrent_hash}")
             save_rename_record(plugin, torrent_hash, torrent_name, torrent_name, False, "格式化结果为空")
@@ -488,16 +501,20 @@ def rename_torrent(plugin, dl, dl_type: str, torrent_hash: str, torrent_name: st
         return True
     except Exception as e:
         logger.error(f"转移后重命名失败 hash={torrent_hash}: {e}")
-        save_rename_record(plugin, torrent_hash, torrent_name, torrent_name, False, str(e))
+        if not operation_stopped(plugin, generation):
+            save_rename_record(plugin, torrent_hash, torrent_name, torrent_name, False, str(e))
         return False
 
 
 def retry_failed_renames(plugin, to_service):
     """对目标下载器中之前重命名失败的种子进行补刀并返回逐项统计。"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     summary = _retry_summary()
     if not plugin._rename_enabled and not plugin._tag_enabled:
         return summary
     failed_hashes = get_failed_rename_hashes(plugin)
+    if operation_stopped(plugin, generation):
+        return summary
     if not failed_hashes:
         return summary
 
@@ -510,9 +527,13 @@ def retry_failed_renames(plugin, to_service):
     dl_type = to_service.type
     try:
         torrents, _ = dl.get_torrents(ids=list(failed_hashes))
+        if operation_stopped(plugin, generation):
+            return summary
         if not torrents:
             return summary
         for torrent in torrents:
+            if operation_stopped(plugin, generation):
+                break
             th = get_hash(torrent, dl_type)
             if th not in failed_hashes:
                 continue
@@ -531,6 +552,8 @@ def retry_failed_renames(plugin, to_service):
             if plugin._rename_enabled:
                 retry_name = resolve_retry_original_name(plugin, th, tn, _get_torrent_content_name(torrent, dl_type))
                 source_hash = _find_iyuu_source_hash(plugin, th) if _is_iyuu_seed_tags(plugin, tags) else ""
+                if operation_stopped(plugin, generation):
+                    break
                 if source_hash and rename_iyuu_torrent_by_source_record(plugin, dl, dl_type, th, retry_name or tn, source_hash):
                     rename_success = True
                 elif retry_name:
@@ -541,6 +564,8 @@ def retry_failed_renames(plugin, to_service):
                 if not rename_success:
                     item_success = False
                     summary["errors"].append(f"{th}: 重命名失败")
+            if operation_stopped(plugin, generation):
+                break
             if plugin._tag_enabled:
                 from .site_tag import tag_torrent
                 if not tag_torrent(plugin, dl, dl_type, th, tags, trackers):
@@ -576,8 +601,10 @@ def _get_tracker_urls(torrent, dl_type):
     return get_tracker_urls(torrent, dl_type)
 
 
+@coordinated(read_protection=False)
 def retry_rename_by_hash(plugin, to_service, torrent_hash: str):
     """对目标下载器中的单个种子执行补刀（重命名+站点标签）。"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     hash_text = str(torrent_hash or "").strip()
     if not hash_text:
         return {"code": 1, "msg": "缺少 hash 参数", "hash": ""}
@@ -593,6 +620,8 @@ def retry_rename_by_hash(plugin, to_service, torrent_hash: str):
     dl_type = to_service.type
     try:
         torrents, _ = dl.get_torrents(ids=[hash_text])
+        if operation_stopped(plugin, generation):
+            return {"code": 1, "msg": "补刀已停止或重载，请回读任务后再操作", "hash": hash_text}
         if not torrents:
             record_failure = getattr(plugin, "record_rename_failure", None)
             if callable(record_failure):
@@ -627,6 +656,8 @@ def retry_rename_by_hash(plugin, to_service, torrent_hash: str):
                         record_failure(hash_text, torrent_name, "NO_TRUSTED_SOURCE", "原始发布名污染，无法可靠补刀")
                     return {"code": 1, "msg": "原始发布名污染，无法可靠补刀", "hash": hash_text}
                 source_hash = _find_iyuu_source_hash(plugin, hash_text) if _is_iyuu_seed_tags(plugin, torrent_tags) else ""
+                if operation_stopped(plugin, generation):
+                    return {"code": 1, "msg": "补刀已停止或重载，请回读任务后再操作", "hash": hash_text}
                 if source_hash and rename_iyuu_torrent_by_source_record(
                     plugin, dl, dl_type, hash_text, retry_name, source_hash
                 ):
@@ -637,13 +668,18 @@ def retry_rename_by_hash(plugin, to_service, torrent_hash: str):
                         retry_name,
                         save_path
                     )
+            if operation_stopped(plugin, generation):
+                return {"code": 1, "msg": "补刀已停止或重载，已完成的命名需回读核验", "hash": hash_text}
+            tag_succeeded = True
             if plugin._tag_enabled:
-                plugin._tag_torrent(dl, dl_type, hash_text, torrent_tags, trackers)
+                tag_succeeded = plugin._tag_torrent(dl, dl_type, hash_text, torrent_tags, trackers) is not False
 
             if not rename_succeeded:
                 record = (plugin.get_data(RENAME_RECORDS_KEY) or {}).get(hash_text) or {}
                 reason = record.get("reason") or "重命名未完成"
                 return {"code": 1, "msg": f"补刀失败：{reason}", "hash": hash_text}
+            if not tag_succeeded:
+                return {"code": 1, "msg": "名称已处理，但站点标签未完成，请核验后重试", "hash": hash_text}
 
             clear_state = getattr(plugin, "clear_rename_retry_state", None)
             if callable(clear_state):
@@ -662,9 +698,13 @@ def retry_rename_by_hash(plugin, to_service, torrent_hash: str):
         return {"code": 1, "msg": f"补刀失败: {e}", "hash": hash_text}
 
 
+@coordinated(read_protection=False)
 def rename_iyuu_torrent_by_source_record(plugin, dl, dl_type, torrent_hash, torrent_name, source_hash):
     """IYUU 铺种复用母种重命名前缀"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     records = plugin.get_data(RENAME_RECORDS_KEY) or {}
+    if operation_stopped(plugin, generation):
+        return None
     source_record = records.get(source_hash)
     if not source_record or not source_record.get("success"):
         return None
@@ -686,6 +726,8 @@ def rename_iyuu_torrent_by_source_record(plugin, dl, dl_type, torrent_hash, torr
     new_name = f"[{prefix}] - {release_name}"
 
     try:
+        if operation_stopped(plugin, generation):
+            return None
         if dl_type == "qbittorrent":
             dl.qbc.torrents_rename(torrent_hash=torrent_hash, new_torrent_name=new_name)
         else:

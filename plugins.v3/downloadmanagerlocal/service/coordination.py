@@ -27,8 +27,13 @@ def operation_stopped(plugin, generation: int) -> bool:
             or (event is not None and event.is_set()))
 
 
-def coordinated(function):
-    """为已有批次入口提供同实例互斥，不改变普通执行结果。"""
+def coordinated(function=None, *, read_protection=True):
+    """共享互斥及停止门禁，纯名称/标签操作可不加载删除保护快照。"""
+    if function is None:
+        def decorate(callback):
+            """保留既有默认保护，按调用点明确选择只共享互斥。"""
+            return coordinated(callback, read_protection=read_protection)
+        return decorate
     @wraps(function)
     def wrapper(plugin, *args, **kwargs):
         """等锁前固定停止代次，取消后不进入业务，嵌套调用恢复外层快照。"""
@@ -48,13 +53,14 @@ def coordinated(function):
         try:
             if operation_stopped(plugin, generation):
                 return None
-            plugin._sync_delete_block_snapshot = (plugin.get_data(BLOCKS_KEY) or {}) if hasattr(plugin, "get_data") else {}
-            plugin._sync_delete_block_index = _block_identity_index(plugin._sync_delete_block_snapshot)
-            plugin._auto_delete_protection_snapshot = (plugin.get_data(AUTO_BLOCKS_KEY) or {}) if hasattr(plugin, "get_data") else {}
-            plugin._auto_delete_block_index = _auto_block_index(plugin._auto_delete_protection_snapshot)
-            plugin._auto_delete_retirement_snapshot = (plugin.get_data(RETIREMENTS_KEY) or {}) if hasattr(plugin, "get_data") else {}
-            plugin._auto_delete_retirement_index = retirement_index(plugin._auto_delete_retirement_snapshot,
-                                                                    plugin._auto_delete_protection_snapshot)
+            if read_protection:
+                plugin._sync_delete_block_snapshot = (plugin.get_data(BLOCKS_KEY) or {}) if hasattr(plugin, "get_data") else {}
+                plugin._sync_delete_block_index = _block_identity_index(plugin._sync_delete_block_snapshot)
+                plugin._auto_delete_protection_snapshot = (plugin.get_data(AUTO_BLOCKS_KEY) or {}) if hasattr(plugin, "get_data") else {}
+                plugin._auto_delete_block_index = _auto_block_index(plugin._auto_delete_protection_snapshot)
+                plugin._auto_delete_retirement_snapshot = (plugin.get_data(RETIREMENTS_KEY) or {}) if hasattr(plugin, "get_data") else {}
+                plugin._auto_delete_retirement_index = retirement_index(plugin._auto_delete_retirement_snapshot,
+                                                                        plugin._auto_delete_protection_snapshot)
             return function(plugin, *args, **kwargs)
         finally:
             plugin._sync_delete_block_snapshot = previous

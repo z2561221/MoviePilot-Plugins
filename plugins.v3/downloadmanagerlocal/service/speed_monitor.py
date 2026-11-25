@@ -273,9 +273,12 @@ def persist_speed_monitor_runtime(plugin: Any, runtime: SpeedMonitorRuntime, now
 def stop_speed_monitor_runtime(plugin: Any) -> None:
     """保存速度监控运行态后释放锁引用。"""
     runtime = getattr(plugin, "_speed_monitor_runtime", None)
-    if isinstance(runtime, SpeedMonitorRuntime) and not runtime.state_error:
-        persist_speed_monitor_runtime(plugin, runtime, time.time())
-    plugin._speed_monitor_runtime = None
+    try:
+        if isinstance(runtime, SpeedMonitorRuntime) and not runtime.state_error:
+            persist_speed_monitor_runtime(plugin, runtime, time.time())
+    finally:
+        if getattr(plugin, "_speed_monitor_runtime", None) is runtime:
+            plugin._speed_monitor_runtime = None
 
 
 def _downloader_type(service: Any) -> str:
@@ -641,6 +644,7 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
             "errors": {},
         }
     runtime = ensure_speed_monitor_runtime(plugin)
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     if runtime.state_error:
         return {
             "scanned_downloaders": 0,
@@ -659,6 +663,8 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
         "errors": {},
     }
     for downloader_id in selected:
+        if _monitor_stopped(plugin, runtime, generation):
+            return {**summary, "service_status": "stopped"}
         if not isinstance(downloader_id, str) or not downloader_id.strip():
             continue
         downloader_id = downloader_id.strip()
@@ -681,6 +687,8 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
                 continue
             previous_result = runtime.last_poll_results.get(downloader_id)
             result = poll_downloader(service.instance, downloader_id, downloader_type)
+            if _monitor_stopped(plugin, runtime, generation):
+                return {**summary, "service_status": "stopped"}
             runtime.last_poll_results[downloader_id] = result
             summary["scanned_downloaders"] += 1
             if not result.success:
@@ -709,8 +717,11 @@ def scan_speed_monitor(plugin: Any, now: float | None = None) -> dict:
                     and key not in seen_keys
                 ):
                     _finish_session(runtime, key, "missing", observed_at)
+    if _monitor_stopped(plugin, runtime, generation):
+        return {**summary, "service_status": "stopped"}
     dispatch_pending_speed_alerts(plugin, runtime, observed_at)
-    persist_speed_monitor_runtime(plugin, runtime, observed_at)
+    if not _monitor_stopped(plugin, runtime, generation):
+        persist_speed_monitor_runtime(plugin, runtime, observed_at)
     summary["active_sessions"] = sum(
         session.status == SESSION_ACTIVE
         for session in runtime.sessions.values()
@@ -734,6 +745,7 @@ def handle_download_added_event(
         }
 
     runtime = ensure_speed_monitor_runtime(plugin)
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     if runtime.state_error:
         return {
             "handled": False,
@@ -810,6 +822,9 @@ def handle_download_added_event(
         result = poll_downloader(
             service.instance, downloader_id, downloader_type, ids=[torrent_hash]
         )
+        if _monitor_stopped(plugin, runtime, generation):
+            return {"handled": False, "reason": "monitor stopped", "created_sessions": 0,
+                    "active_sessions": 0, "errors": {}}
         runtime.last_poll_results[downloader_id] = result
         if not result.success:
             _mark_downloader_error(runtime, downloader_id)
@@ -858,8 +873,12 @@ def handle_download_added_event(
             )
             _evaluate_session(plugin, runtime, key, snapshot, observed_at)
 
+    if _monitor_stopped(plugin, runtime, generation):
+        return {"handled": False, "reason": "monitor stopped", "created_sessions": 0,
+                "active_sessions": 0, "errors": {}}
     dispatch_pending_speed_alerts(plugin, runtime, observed_at)
-    persist_speed_monitor_runtime(plugin, runtime, observed_at)
+    if not _monitor_stopped(plugin, runtime, generation):
+        persist_speed_monitor_runtime(plugin, runtime, observed_at)
     return {
         "handled": snapshot is not None,
         "found": snapshot is not None,
@@ -869,6 +888,15 @@ def handle_download_added_event(
         ),
         "errors": {},
     }
+
+
+def _monitor_stopped(plugin, runtime, generation) -> bool:
+    """旧查询回包不能通知或写回已被停止、替换的运行态。"""
+    event = getattr(plugin, "_event", None)
+    return (generation != int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
+            or (event is not None and event.is_set())
+            or getattr(plugin, "_speed_monitor_runtime", runtime) is not runtime
+            or not is_speed_monitor_active(plugin))
 
 
 def reset_speed_monitor_baseline(
