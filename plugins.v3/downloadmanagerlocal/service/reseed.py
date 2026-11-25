@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import threading
 import time
 from copy import deepcopy
@@ -12,6 +13,7 @@ from uuid import uuid4
 
 from app.sdk.logging import logger
 
+from ..adapter.auto_delete import binding_of
 from ..adapter.moviepilot import (
     SiteDownloadError,
     check_site,
@@ -28,7 +30,10 @@ from . import iyuu, pieces
 TASK_KEY = "reseed_task"
 LIMITS_KEY = "reseed_site_limits"
 REQUESTS_KEY = "reseed_requests"
+PROGRESS_KEY = "reseed_scan_progress"
 PAGE_SIZE = 100
+QUERY_ATTEMPTS = 3
+QUERY_RETRY_DELAYS = (6, 15)
 ACTIVE = {"queued", "running", "cancelling"}
 _INIT_LOCK = threading.Lock()
 
@@ -178,6 +183,7 @@ class ReseedRun:
         self.page = 0
         self.counts = {}
         self.seen = set()
+        self.existing_targets = {}
         self.metadata = _load(plugin, "reseed_metadata_cache")
         self.empty_matches = {key: expiry for key, expiry in _load(plugin, "reseed_empty_matches").items()
                               if isinstance(expiry, (int, float)) and expiry > time.time()}
@@ -265,6 +271,8 @@ def run(plugin, task_id):
                     message="已添加任务由校验队列继续处理" if task["added"] else "本轮任务结束")
         if task["failed"] and task["status"] == "completed":
             task["status"] = "partial"
+        if task.get("scan_pending") and not execution.stopped():
+            task.update(phase="本轮结束，扫描未完成", message="已保留扫描断点，下轮继续未完成批次")
     except Exception as error:
         message = str(error) if isinstance(error, ValueError) else f"任务执行失败（{type(error).__name__}）"
         task.update(status="failed", phase="运行失败", message=message)
@@ -317,6 +325,41 @@ def _completed_sources(service):
     return completed
 
 
+def _scan_progress(execution, services, sites):
+    """按配置与下载器绑定隔离断点，预览和小范围试验不推进正式扫描。"""
+    if execution.task["preview"] or execution.task.get("source_limit"):
+        return None
+    plugin = execution.plugin
+    fields = ("iyuu_token", "iyuu_sites", "iyuu_auto_downloader", "iyuu_nolabels",
+              "iyuu_nopaths", "iyuu_size", "pieces_site_keys", "pieces_torrent_paths")
+    context = {name: getattr(plugin, "_" + name, None) for name in fields}
+    context["services"] = [(service.name, binding_of(service)) for service in services]
+    target_name = getattr(plugin, "_iyuu_auto_downloader", "")
+    target = plugin.service_info(target_name) if target_name else None
+    context["target"] = binding_of(target) if target else None
+    context["sites"] = [(site["id"], site["url"]) for site in sites]
+    signature = hashlib.sha256(json.dumps(context, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    progress = _load(plugin, PROGRESS_KEY)
+    if progress.get("context") != signature:
+        progress = {"context": signature, "services": {}}
+    if not isinstance(progress.get("services"), dict):
+        raise ValueError("铺种扫描断点格式错误")  # noqa: TRY004 持久数据损坏属于可展示的业务错误。
+    return progress
+
+
+def _save_scan_progress(execution, progress, name, after="", done=False):
+    """仅在当前任务仍有效时保存已处理批次，未完成批次保持可重查。"""
+    if progress is None:
+        return
+    with _lock(execution.plugin):
+        current = _load(execution.plugin, TASK_KEY)
+        if execution.stopped() or current.get("task_id") != execution.task["task_id"]:
+            return
+        progress["services"][name] = {"after": after, "done": done}
+        execution.plugin.save_data(PROGRESS_KEY, progress)
+        execution.task["scan_pending"] = True
+
+
 def _run_sources(execution):
     """自动枚举全部合格下载器，按百颗来源批次查询。"""
     plugin = execution.plugin
@@ -325,6 +368,10 @@ def _run_sources(execution):
     services = get_downloader_services(name_filters=plugin._iyuu_downloaders or None) or {}
     if not services:
         raise ValueError("没有可用的辅种下载器")
+    services = sorted(services.values(), key=lambda service: service.name)
+    progress = _scan_progress(execution, services, sites)
+    if progress and progress["services"]:
+        task["scan_pending"] = True
     iyuu._reset_iyuu_run_counters(plugin)
     if not task["preview"]:
         iyuu._resume_iyuu_postprocess(plugin, execution.generation)
@@ -340,9 +387,15 @@ def _run_sources(execution):
         execution.cooldown(budget_key, max(60, getattr(plugin.iyuu_helper, "retry_after", 300) or 300))
         raise ValueError("IYUU 预检失败，请检查 Token、绑定站点或冷却状态")
     try:
-        for service in services.values():
+        for service in services:
             if execution.stopped() or execution.limit_reached():
                 return
+            cursor = progress["services"].get(service.name, {}) if progress else {}
+            if not isinstance(cursor, dict) or not isinstance(cursor.get("after", ""), str):
+                raise ValueError("铺种扫描断点格式错误")  # noqa: TRY004 保持持久数据校验的业务错误语义。
+            if cursor.get("done"):
+                task["resumed"] = True
+                continue
             if service.instance.is_inactive():
                 execution.record("failed", f"下载器 {service.name} 未连接")
                 continue
@@ -351,10 +404,16 @@ def _run_sources(execution):
                 torrents = _completed_sources(service)
                 sources = iyuu._iyuu_candidates(plugin, service, torrents, execution.generation,
                                                 ignore_caches=task["mode"] != "iyuu") or []
+                sources.sort(key=lambda source: source["hash"])
+                if cursor.get("after"):
+                    sources = [source for source in sources if source["hash"] > cursor["after"]]
+                    execution.task["resumed"] = True
                 source_rows = {plugin.get_hash(row, service.type): row for row in torrents}
+                execution.existing_targets[service.name] = set(source_rows)
             except Exception:
                 execution.record("failed", f"读取下载器 {service.name} 失败")
                 continue
+            _save_scan_progress(execution, progress, service.name, cursor.get("after", ""))
             for offset in range(0, len(sources), PAGE_SIZE):
                 if execution.stopped() or execution.limit_reached():
                     return
@@ -371,6 +430,16 @@ def _run_sources(execution):
                 if sites:
                     _query_pieces(execution, service, chunk, source_rows, sites, matched_sites)
                 execution.flush()
+                if execution.stopped() or execution.limit_reached():
+                    return
+                _save_scan_progress(execution, progress, service.name, chunk[-1]["hash"])
+            _save_scan_progress(execution, progress, service.name, done=True)
+        if (progress is not None and not execution.stopped()
+                and all(progress["services"].get(service.name, {}).get("done") for service in services)):
+            with _lock(plugin):
+                if not execution.stopped() and _load(plugin, TASK_KEY).get("task_id") == task["task_id"]:
+                    plugin.save_data(PROGRESS_KEY, {})
+                    task["scan_pending"] = False
     finally:
         if not task["preview"]:
             if not execution.stopped():
@@ -396,6 +465,10 @@ def _query_iyuu(execution, service, sources, matched_sites):
         if not _allow_candidate(execution, site, seed.get("torrent_id")):
             return
         try:
+            target_name = getattr(plugin, "_iyuu_auto_downloader", "") or source_service.name
+            if seed["info_hash"] in execution.existing_targets.get(target_name, set()):
+                execution.record("skipped", "目标任务已存在", source, site, seed["info_hash"])
+                return
             target, target_path = _target_service(plugin, source_service, source)
             if target_path != source["save_path"]:
                 raise ValueError("IYUU 跨下载器路径不同，等待路径映射适配")
@@ -410,13 +483,31 @@ def _query_iyuu(execution, service, sources, matched_sites):
             message = str(error) if isinstance(error, ValueError) else "IYUU 候选添加失败"
             execution.record("failed", message, source, site)
 
-    error = iyuu.iyuu_seed_torrents(plugin, sources, service, execution.generation,
-                                  matched_sites=matched_sites, candidate_handler=accept)
-    if error:
-        execution.cooldown(key, max(60, int(getattr(plugin.iyuu_helper, "retry_after", 300) or 300)))
-        execution.record("failed", "IYUU 查询失败，本轮停止补查")
-        return False
-    return True
+    for attempt in range(QUERY_ATTEMPTS):
+        error = iyuu.iyuu_seed_torrents(plugin, sources, service, execution.generation,
+                                      matched_sites=matched_sites, candidate_handler=accept)
+        if execution.stopped():
+            return False
+        if not error:
+            return True
+        limited = any(word in error.lower() for word in ("429", "限流", "频率", "too many requests"))
+        transient = (iyuu._is_iyuu_transient_error(error)
+                     or bool(re.search(r"(?:HTTP|状态码[:：]?)\s*(?:408|5\d\d)\b", error, re.IGNORECASE))
+                     or error == "IYUU 响应格式无效")
+        if limited or iyuu._is_iyuu_config_error(error) or not transient or attempt + 1 == QUERY_ATTEMPTS:
+            execution.cooldown(key, max(60, int(getattr(plugin.iyuu_helper, "retry_after", 300) or 300)))
+            message = ("IYUU 查询失败，本轮停止补查" if execution.task["preview"] or execution.task.get("source_limit")
+                       else "IYUU 查询失败，保留断点等待下轮续扫")
+            execution.record("failed", message)
+            return False
+        delay = QUERY_RETRY_DELAYS[attempt]
+        execution.cooldown(key, delay)
+        execution.save(f"IYUU 暂时失败，等待第 {attempt + 2} 次查询")
+        if not execution.wait_budget(key, max(delay, 6)):
+            return False
+        execution.task["query_retries"] = execution.task.get("query_retries", 0) + 1
+        execution.save("重试 IYUU 查询")
+    return False
 
 
 def _source_metadata(execution, service, source, row):

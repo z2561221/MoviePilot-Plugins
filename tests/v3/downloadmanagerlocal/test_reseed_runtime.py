@@ -416,3 +416,247 @@ def test_source_limit_bounds_preview_and_registration_fingerprint(environment, m
         reseed.start(environment.plugin, "limited-preview", True, source_limit=2)
     reseed.run(environment.plugin, task["task_id"])
     assert reseed.status(environment.plugin)["scanned"] == 1
+
+
+def add_sources(environment, count=250):
+    """构造排序可预测的来源，模拟两批之后仍有数据等待扫描。"""
+    template = dict(environment.rows[environment.source_hash])
+    environment.rows.clear()
+    for index in range(count):
+        identity = f"{index + 1:040x}"
+        environment.rows[identity] = dict(template, hash=identity)
+    environment.plugin._pieces_site_keys = ""
+
+
+def test_transient_query_retries_then_continues(environment, monkeypatch):
+    """第二批短暂断网后重试同一批，并继续覆盖剩余来源。"""
+    add_sources(environment)
+    calls = []
+
+    def query(plugin, sources, *_args, **_kwargs):
+        """第二次调用模拟网络失败，其余批次成功返回空结果。"""
+        calls.append([source["hash"] for source in sources])
+        return "请求IYUU失败，未获取到返回信息" if len(calls) == 2 else None
+
+    monkeypatch.setattr(iyuu, "iyuu_seed_torrents", query)
+    task, _ = execute(environment)
+    assert task["status"] == "completed"
+    assert task["scanned"] == 250 and task["query_retries"] == 1
+    assert calls[1] == calls[2] and len(calls[-1]) == 50
+    assert environment.stored[reseed.PROGRESS_KEY] == {}
+
+
+def test_exhausted_query_resumes_failed_batch_after_reload(environment, monkeypatch):
+    """失败三次只保留上一完整批次；新实例从失败批续扫且完整轮次重置。"""
+    add_sources(environment)
+    calls = []
+
+    def query(plugin, sources, *_args, **_kwargs):
+        """记录输入；第一批成功，其余请求暂时失败。"""
+        calls.append([source["hash"] for source in sources])
+        return None if len(calls) == 1 else "HTTP 503"
+
+    monkeypatch.setattr(iyuu, "iyuu_seed_torrents", query)
+    task, _ = execute(environment)
+    assert task["status"] == "partial" and task["query_retries"] == 2
+    assert len(calls) == 4 and task["scanned"] == 200
+    assert environment.stored[reseed.PROGRESS_KEY]["services"]["QB"]["after"] == f"{100:040x}"
+    # 下一轮只复用持久状态，不依赖旧 worker 或事件；冷却已经经过。
+    environment.stored[reseed.LIMITS_KEY] = {}
+    environment.plugin = SimpleNamespace(**vars(environment.plugin))
+    environment.plugin._run_reseed_task = lambda task_id: reseed.run(environment.plugin, task_id)
+    seen = []
+    monkeypatch.setattr(iyuu, "iyuu_seed_torrents", lambda p, sources, *a, **kw: seen.extend(sources))
+    task, _ = execute(environment)
+    assert task["resumed"] is True and task["scanned"] == 150
+    assert seen[0]["hash"] == f"{101:040x}" and len(seen) == 150
+    assert environment.stored[reseed.PROGRESS_KEY] == {}
+    seen.clear()
+    task, _ = execute(environment)
+    assert task["scanned"] == 250 and seen[0]["hash"] == f"{1:040x}"
+
+
+@pytest.mark.parametrize("error", ["HTTP 429", "IYUU 请求限流，等待冷却", "请求缺少token", "HTTP 401", "HTTP 404"])
+def test_non_retryable_query_keeps_supplement_blocked(environment, monkeypatch, error):
+    """认证、限流及永久 HTTP 错误只尝试一次，也不扇出 Pieces 请求。"""
+    query = Mock(return_value=error)
+    supplement = Mock()
+    monkeypatch.setattr(iyuu, "iyuu_seed_torrents", query)
+    monkeypatch.setattr(pieces, "query_site", supplement)
+    task, _ = execute(environment)
+    assert task["status"] == "partial"
+    assert query.call_count == 1 and not task.get("query_retries")
+    supplement.assert_not_called()
+
+
+def test_stop_during_retry_does_not_advance_checkpoint(environment, monkeypatch):
+    """重试等待期间取消，不发出第二次查询且保持来源可重查。"""
+    query = Mock(return_value="请求IYUU失败，未获取到返回信息")
+    waits = []
+
+    def wait(run, *_args):
+        """在第一次重试等待时模拟用户停止。"""
+        waits.append(True)
+        if len(waits) == 2:
+            reseed.stop(run.plugin)
+        return not run.stopped()
+
+    monkeypatch.setattr(iyuu, "iyuu_seed_torrents", query)
+    monkeypatch.setattr(reseed.ReseedRun, "wait_budget", wait)
+    task, _ = execute(environment)
+    assert task["status"] == "cancelled" and query.call_count == 1
+    assert environment.stored[reseed.PROGRESS_KEY]["services"]["QB"]["after"] == ""
+
+
+@pytest.mark.parametrize("change", ["preview", "small_run", "config", "binding", "removed_source"])
+def test_checkpoint_scope_and_source_changes(environment, monkeypatch, change):
+    """预览不消费断点；配置与连接变更重扫；源列表变化不依赖旧数组下标。"""
+    add_sources(environment)
+    query = Mock(side_effect=[None, "HTTP 401"])
+    monkeypatch.setattr(iyuu, "iyuu_seed_torrents", query)
+    execute(environment)
+    saved = deepcopy(environment.stored[reseed.PROGRESS_KEY])
+    environment.stored[reseed.LIMITS_KEY] = {}
+    seen = []
+    monkeypatch.setattr(iyuu, "iyuu_seed_torrents", lambda p, sources, *a, **kw: seen.extend(sources))
+    if change == "config":
+        environment.plugin._iyuu_sites = [1]
+    elif change == "binding":
+        environment.service.type = "new-binding"
+        monkeypatch.setattr(reseed, "_completed_sources", lambda s: list(environment.rows.values()))
+        monkeypatch.setattr(iyuu, "_iyuu_candidates", lambda *a, **kw: [{"hash": h} for h in environment.rows])
+    elif change == "removed_source":
+        environment.rows.pop(f"{100:040x}")
+    if change == "small_run":
+        task = reseed.start(environment.plugin, "small", source_limit=1)
+        reseed.run(environment.plugin, task["task_id"])
+    else:
+        execute(environment, preview=change == "preview")
+    if change in ("preview", "small_run"):
+        assert environment.stored[reseed.PROGRESS_KEY] == saved
+    expected_first = 101 if change == "removed_source" else 1
+    assert seen[0]["hash"] == f"{expected_first:040x}"
+
+
+def test_cap_keeps_unfinished_batch_for_next_run(environment, monkeypatch):
+    """新增限额命中时不越过该批剩余候选，下轮仍能重新查询。"""
+    add_sources(environment, 150)
+    environment.plugin._reseed_max_additions = 1
+
+    def query(plugin, sources, *_args, **_kwargs):
+        """模拟本批已经消耗一次实际提交名额。"""
+        plugin._reseed_execution.task["submission_count"] = 1
+
+    monkeypatch.setattr(iyuu, "iyuu_seed_torrents", query)
+    task, _ = execute(environment)
+    assert task["submission_count"] == 1 and task["scanned"] == 100
+    assert environment.stored[reseed.PROGRESS_KEY]["services"]["QB"]["after"] == ""
+
+
+@pytest.mark.parametrize("payload", [None, [], "bad-json"])
+def test_malformed_iyuu_response_is_retryable(monkeypatch, payload):
+    """错误页和无效 JSON 不抛出未分类异常，也不伪装成没有候选。"""
+    from app.plugins.downloadmanagerlocal import iyuu_helper
+
+    response = SimpleNamespace(status_code=200, json=Mock(return_value=payload))
+    if payload == "bad-json":
+        response.json.side_effect = ValueError("invalid json")
+    monkeypatch.setattr(iyuu_helper, "request_post_res", lambda *a, **kw: response)
+    helper = iyuu_helper.IyuuHelper("test")
+    value, error = helper._IyuuHelper__request_iyuu("/query", "post")
+    assert value is None and error == "IYUU 响应格式无效"
+
+
+@pytest.mark.parametrize("status_code,attempts", [(401, 1), (403, 1), (404, 1), (408, 3), (429, 1), (503, 3)])
+@pytest.mark.parametrize("body", [b"<html>error</html>", b'{"code": 0, "data": {}}'])
+def test_http_errors_keep_their_retry_classification(environment, monkeypatch, status_code, attempts, body):
+    """实际 HTTP 错误状态优先于 HTML 或伪成功正文，不误重试认证错误。"""
+    import httpx
+    from app.plugins.downloadmanagerlocal import iyuu_helper
+
+    response = httpx.Response(status_code, content=body, headers={"Retry-After": "60"})
+    monkeypatch.setattr(iyuu_helper, "request_post_res", lambda *a, **kw: response)
+    helper = iyuu_helper.IyuuHelper("test")
+    value, error = helper._IyuuHelper__request_iyuu("/query", "post")
+    assert value is None and error
+    query = Mock(return_value=error)
+    monkeypatch.setattr(iyuu, "iyuu_seed_torrents", query)
+    task, _ = execute(environment)
+    assert task["status"] == "partial" and query.call_count == attempts
+
+
+def test_known_target_skips_download_and_reports_duplicate(environment, monkeypatch):
+    """已完成目标在本轮快照中存在时，不再下载 torrent 或逐候选调用下载器。"""
+    environment.plugin._pieces_site_keys = ""
+    download = Mock()
+
+    def query(plugin, sources, service, *_args, **kwargs):
+        """模拟 IYUU 返回已在本机的跨站候选。"""
+        kwargs["candidate_handler"]({"info_hash": environment.source_hash, "torrent_id": 1},
+                                    sources[0], service, environment.sites[0])
+
+    monkeypatch.setattr(iyuu, "iyuu_seed_torrents", query)
+    monkeypatch.setattr(iyuu, "iyuu_download_torrent", download)
+    task, result = execute(environment)
+    assert task["skipped"] == 1 and result["items"][0]["message"] == "目标任务已存在"
+    download.assert_not_called()
+
+
+def test_completed_downloader_is_not_repeated_when_next_fails(environment, monkeypatch):
+    """第二下载器查询失败后，下轮跳过已完成的第一个下载器。"""
+    environment.plugin._pieces_site_keys = ""
+    second = SimpleNamespace(name="QB2", type="qbittorrent", instance=environment.service.instance)
+    monkeypatch.setattr(reseed, "get_downloader_services", lambda **kw: {"QB": environment.service, "QB2": second})
+    calls = []
+
+    def query(plugin, sources, service, *_args, **_kwargs):
+        """仅第二下载器的请求返回配置错误。"""
+        calls.append(service.name)
+        return "HTTP 401" if service.name == "QB2" else None
+
+    monkeypatch.setattr(iyuu, "iyuu_seed_torrents", query)
+    execute(environment)
+    assert calls == ["QB", "QB2"]
+    assert environment.stored[reseed.PROGRESS_KEY]["services"]["QB"]["done"] is True
+    environment.stored[reseed.LIMITS_KEY] = {}
+    calls.clear()
+    monkeypatch.setattr(iyuu, "iyuu_seed_torrents", lambda p, sources, service, *a, **kw: calls.append(service.name))
+    # append 的返回值为 None，代表查询正常完成。
+    task, _ = execute(environment)
+    assert calls == ["QB2"] and task["status"] == "completed"
+    assert environment.stored[reseed.PROGRESS_KEY] == {}
+
+
+def test_offline_downloader_does_not_starve_other_source(environment, monkeypatch):
+    """一个下载器不可达不饿死其他来源，也不清掉尚未完成的断点。"""
+    environment.plugin._pieces_site_keys = ""
+    offline = SimpleNamespace(name="A", type="qbittorrent", instance=SimpleNamespace(is_inactive=lambda: True))
+    monkeypatch.setattr(reseed, "get_downloader_services", lambda **kw: {"A": offline, "QB": environment.service})
+    query = Mock(return_value=None)
+    monkeypatch.setattr(iyuu, "iyuu_seed_torrents", query)
+    task, _ = execute(environment)
+    assert task["failed"] == 1 and query.call_count == 1
+    assert environment.stored[reseed.PROGRESS_KEY]["services"]["QB"]["done"] is True
+    assert "A" not in environment.stored[reseed.PROGRESS_KEY]["services"]
+
+
+def test_retry_wait_respects_persisted_cooldown_and_cancel(environment, monkeypatch):
+    """实际等待入口尊重冷却时长；取消后不能预约下一次请求。"""
+    monkeypatch.undo()
+    task = {"task_id": "wait", "preview": False}
+    environment.stored[reseed.TASK_KEY] = task
+    environment.plugin._reseed_cancel = Mock()
+    environment.plugin._reseed_cancel.is_set.return_value = False
+    environment.plugin._reseed_cancel.wait.return_value = False
+    monkeypatch.setattr(reseed.time, "time", lambda: 100)
+    execution = reseed.ReseedRun(environment.plugin, task)
+    environment.stored[reseed.LIMITS_KEY] = {"iyuu": 115}
+    assert execution.wait_budget("iyuu", 15) is True
+    execution.cancel.wait.assert_called_once_with(15)
+    assert environment.stored[reseed.LIMITS_KEY]["iyuu"] == 115
+    execution.cancel.wait.return_value = True
+    assert execution.wait_budget("iyuu", 15) is False
+    environment.stored[reseed.LIMITS_KEY]["iyuu"] = 1000
+    execution.cancel.wait.reset_mock()
+    assert execution.wait_budget("iyuu", 15) is False
+    execution.cancel.wait.assert_not_called()

@@ -286,12 +286,16 @@ def test_frontend_node_tests_are_part_of_the_required_gate():
 )
 def test_frontend_built_references_exist(plugin_dir: Path):
     """Every packaged Vue entry must resolve its JS and CSS dependencies."""
-    dist = plugin_dir.parents[1] / "dist"
+    _assert_frontend_built_references(plugin_dir.parents[1] / "dist")
+
+
+def _assert_frontend_built_references(dist: Path):
+    """按引用文件所在目录解析相对依赖，内容版本目录不回退到旧根资源。"""
     assets = dist / "assets"
     pending = [dist / "index.html", assets / "remoteEntry.js"]
     visited = set()
     pattern = re.compile(
-        r"(?:\./|/assets/)([^\"'()]+\.(?:js|css))|"
+        r"((?:\./|/assets/)[^\"'()]+\.(?:js|css))|"
         r"[\"']([^\"']+\.css)[\"']"
     )
     while pending:
@@ -302,9 +306,32 @@ def test_frontend_built_references_exist(plugin_dir: Path):
         visited.add(current)
         for match in pattern.findall(current.read_text(encoding="utf-8")):
             name = next(part for part in match if part)
-            asset = assets / name
-            if not asset.is_file():
-                asset = assets / Path(name).name
+            asset = dist / name.lstrip("/") if name.startswith("/assets/") else current.parent / name
+            asset = asset.resolve()
+            assert asset.is_relative_to(dist.resolve()), f"Asset escapes dist: {name}"
             assert asset.is_file(), f"Missing asset in {current.name}: {name}"
             if asset.suffix == ".js":
                 pending.append(asset)
+
+
+@pytest.mark.parametrize("missing", [None, "Config.js", "Config.css"])
+def test_versioned_frontend_dependencies_resolve_beside_entry(tmp_path: Path, missing: str | None):
+    """内容目录的依赖必须实际存在；同名旧根资源不能掩盖丢失文件。"""
+    dist = tmp_path / "dist"
+    assets = dist / "assets"
+    revision = assets / "r1"
+    revision.mkdir(parents=True)
+    (dist / "index.html").write_text('<script src="/assets/remoteEntry.js"></script>', encoding="utf-8")
+    (assets / "remoteEntry.js").write_text("export * from './r1/remoteEntry.js';", encoding="utf-8")
+    (revision / "remoteEntry.js").write_text(
+        'dynamicLoadingCss(["Config.css"]); import("./Config.js");', encoding="utf-8"
+    )
+    for name in ["Config.js", "Config.css"]:
+        (assets / name).write_text("", encoding="utf-8")
+        if name != missing:
+            (revision / name).write_text("", encoding="utf-8")
+    if missing:
+        with pytest.raises(AssertionError, match=f"Missing asset.*{re.escape(missing)}"):
+            _assert_frontend_built_references(dist)
+    else:
+        _assert_frontend_built_references(dist)
