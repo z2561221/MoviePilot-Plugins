@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from app.application.torrent.download import TorrentHelper
 from app.chain.download import DownloadChain
@@ -31,6 +31,22 @@ except (ImportError, AttributeError):
 
 DownloaderInstance = Qbittorrent | Transmission
 
+PIECES_HASH_PATHS = {
+    "pt.keepfrds.com": "/api/torrents/pieces-hash",
+    "hhanclub.net": "/nexusapi/pieces-hash",
+    "hhanclub.top": "/nexusapi/pieces-hash",
+}
+FLUX_SITE_NAMES = frozenset({"FluxTorrent", "好学"})
+
+
+class SiteDownloadError(ValueError):
+    """提供脱敏下载错误及站点请求冷却秒数。"""
+
+    def __init__(self, message: str, cooldown: int):
+        """保存调用方可执行的冷却期。"""
+        super().__init__(message)
+        self.cooldown = cooldown
+
 
 def create_downloader_helper() -> DownloaderHelper:
     """创建 MoviePilot 下载器 helper。"""
@@ -50,6 +66,68 @@ def get_downloader_config(name: str):
 def get_downloader_services(name_filters=None):
     """按名称过滤读取下载器服务信息。"""
     return create_downloader_helper().get_services(name_filters=name_filters)
+
+
+def list_qb_completed_torrents(name: str) -> tuple[list[dict], bool]:
+    """列出指定 qBittorrent 中正在做种的已完成任务。"""
+    service = get_downloader_service(name)
+    if not service or service.type != "qbittorrent":
+        raise ValueError("请选择一个可用的 qBittorrent 下载器")
+    if service.instance.is_inactive():
+        raise ValueError("所选 qBittorrent 当前未连接")
+    try:
+        torrents, failed = service.instance.get_torrents()
+    except Exception as error:
+        raise RuntimeError("读取 qBittorrent 已完成任务失败") from error
+    if failed:
+        raise RuntimeError("读取 qBittorrent 已完成任务失败")
+    items = []
+    for torrent in torrents:
+        torrent_hash = str(torrent.get("hash") or "").strip().lower()
+        torrent_name = str(torrent.get("name") or "").strip()
+        try:
+            is_complete = float(torrent.get("progress") or 0) >= 1
+        except (TypeError, ValueError):
+            is_complete = False
+        if torrent_hash and torrent_name and is_complete:
+            items.append({"hash": torrent_hash, "name": torrent_name})
+    items.sort(key=lambda item: item["name"].casefold())
+    limit = 500
+    return items[:limit], len(items) > limit
+
+
+def export_qb_completed_torrent(name: str, torrent_hash: str) -> tuple[dict, bytes]:
+    """复核已完成 qB 种子后通过导出 API 读取其 torrent 元数据。"""
+    normalized_hash = str(torrent_hash or "").strip().lower()
+    if len(normalized_hash) != 40 or any(char not in "0123456789abcdef" for char in normalized_hash):
+        raise ValueError("种子 hash 格式不正确")
+    service = get_downloader_service(name)
+    if not service or service.type != "qbittorrent":
+        raise ValueError("请选择一个可用的 qBittorrent 下载器")
+    if service.instance.is_inactive():
+        raise ValueError("所选 qBittorrent 当前未连接")
+    try:
+        torrents, failed = service.instance.get_torrents(ids=[normalized_hash])
+    except Exception as error:
+        raise RuntimeError("查询 qBittorrent 种子状态失败") from error
+    if failed:
+        raise RuntimeError("查询 qBittorrent 种子状态失败")
+    torrent = next((item for item in torrents if str(item.get("hash") or "").lower() == normalized_hash), None)
+    if not torrent:
+        raise ValueError("所选种子已不在该 qBittorrent 中")
+    try:
+        progress = float(torrent.get("progress") or 0)
+    except (TypeError, ValueError) as error:
+        raise ValueError("无法确认所选种子是否已完成") from error
+    if progress < 1:
+        raise ValueError("只允许检查已完成的 qBittorrent 种子")
+    try:
+        content = service.instance.qbc.torrents_export(torrent_hash=normalized_hash)
+    except Exception as error:
+        raise RuntimeError("从 qBittorrent 导出 torrent 元数据失败") from error
+    if not isinstance(content, bytes) or not content:
+        raise RuntimeError("qBittorrent 未返回有效 torrent 元数据")
+    return {"hash": normalized_hash, "name": str(torrent.get("name") or "")}, content
 
 
 def is_downloader_type(downloader_type: str, service: Any) -> bool:
@@ -222,3 +300,102 @@ def request_get_res(url: str, params: dict | None = None, **kwargs):
 def request_post_res(url: str, params: dict | None = None, json: dict | None = None, **kwargs):
     """通过 MoviePilot RequestUtils 发送 POST 请求。"""
     return RequestUtils(**kwargs).post_res(url, params=params, json=json)
+
+
+def is_flux_site(site: dict) -> bool:
+    """按青蛙助手的精确站名或开放 API 令牌前缀选择 Flux 协议。"""
+    return str(site.get("name") or "").strip() in FLUX_SITE_NAMES or str(site.get("passkey") or "").strip().startswith("fxo_")
+
+
+def pieces_hash_url(site: dict) -> str:
+    """按站点当前域名选择 Pieces-hash 查询路径。"""
+    base_url = str(site.get("url") or "").rstrip("/")
+    if is_flux_site(site):
+        return base_url + "/api/v1/crossseed/lookup"
+    if site.get("name") == "憨憨":
+        return base_url + "/nexusapi/pieces-hash"
+    hostname = (urlsplit(base_url).hostname or "").lower().rstrip(".")
+    path = PIECES_HASH_PATHS.get(hostname, "/api/pieces-hash")
+    return base_url + path
+
+
+def request_pieces_res(site: dict, fingerprints: list[str]):
+    """仅向绑定站点提交 Pieces 凭据，禁止重定向转发。"""
+    from app.sdk.config import settings
+
+    user_agent = site.get("ua") or settings.USER_AGENT
+    options = {"timeout": 25, "ua": user_agent, "verify": True,
+               "proxies": settings.PROXY if site.get("proxy") else None,
+               "content_type": "application/json", "accept_type": "application/json"}
+    payload = {"passkey": site["passkey"], "pieces_hash": fingerprints}
+    if is_flux_site(site):
+        options["headers"] = {"Authorization": f"Token {site['passkey']}", "User-Agent": user_agent,
+                              "Content-Type": "application/json", "Accept": "application/json"}
+        payload = {"pieces_sha1": fingerprints}
+    client = RequestUtils(**options)
+    try:
+        return client.post_res(
+            pieces_hash_url(site),
+            json=payload,
+            allow_redirects=False,
+        )
+    finally:
+        client.close()
+
+
+def request_pieces_torrent(site: dict, torrent_id: str) -> bytes:
+    """按站点协议下载元数据，Flux 临时下载跳转限定在原站点。"""
+    from app.sdk.config import settings
+
+    identity = str(torrent_id)
+    if not identity.isascii() or not identity.isdecimal() or identity.startswith("0"):
+        raise ValueError("站点返回了无效种子编号")
+    flux = is_flux_site(site)
+    user_agent = site.get("ua") or settings.USER_AGENT
+    options = {"timeout": 25, "ua": user_agent, "verify": True,
+               "proxies": settings.PROXY if site.get("proxy") else None}
+    if flux:
+        options["headers"] = {"Authorization": f"Token {site['passkey']}", "User-Agent": user_agent}
+    else:
+        options["cookies"] = site.get("cookie")
+    client = RequestUtils(**options)
+    base_url = site["url"].rstrip("/")
+    target_url = base_url + (f"/api/v1/crossseed/dl/{identity}" if flux else "/download.php")
+    origin = urlsplit(base_url)
+    origin_port = origin.port or (443 if origin.scheme == "https" else 80)
+    response = None
+    try:
+        for _redirect in range(4):
+            parameters = {} if flux else {"params": {"id": identity, "passkey": site["passkey"]}}
+            response = client.get_res(target_url, allow_redirects=False, **parameters)
+            if response is not None and response.status_code == 429:
+                from ..service.pieces import retry_after_seconds
+
+                raise SiteDownloadError("种子下载触发站点限流，等待冷却", retry_after_seconds(response.headers))
+            if flux and response is not None and response.status_code in {301, 302, 303, 307, 308}:
+                location = response.headers.get("Location")
+                if not location:
+                    raise SiteDownloadError("种子下载重定向缺少目标地址", 300)
+                try:
+                    next_url = urljoin(target_url, location)
+                    parsed = urlsplit(next_url)
+                    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+                except (TypeError, ValueError):
+                    raise SiteDownloadError("种子下载重定向地址无效", 300) from None
+                if (parsed.scheme != origin.scheme or parsed.hostname != origin.hostname or port != origin_port
+                        or parsed.username or parsed.password or parsed.fragment):
+                    raise SiteDownloadError("种子下载重定向超出站点范围", 300)
+                response.close()
+                response = None
+                target_url = next_url
+                continue
+            if response is None or response.status_code != 200:
+                raise SiteDownloadError("站点未返回可用种子文件，请检查下载权限或站点接口兼容性", 300)
+            if not isinstance(response.content, bytes) or not response.content or len(response.content) > 16 * 1024 * 1024:
+                raise ValueError("目标种子文件为空或超过大小限制")
+            return response.content
+        raise SiteDownloadError("种子下载重定向次数超限", 300)
+    finally:
+        if response is not None:
+            response.close()
+        client.close()

@@ -11,7 +11,8 @@ from app.sdk.logging import logger
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from ..iyuu_helper import IyuuHelper
-from ..utils.config import is_speed_monitor_active, is_upload_limit_active
+from ..utils.config import is_iyuu_active, is_speed_monitor_active, is_upload_limit_active
+from . import reseed
 from .config import initialize_runtime_config
 from .auto_delete import initialize_runtime as initialize_auto_delete, stop_runtime as stop_auto_delete
 from .events import clear_transfer_schedule, restore_transfer_schedule
@@ -32,20 +33,34 @@ from .upload_limit_worker import (
     stop_upload_limit_worker,
 )
 from .upload_limiter import load_upload_limit_state, restore_upload_limits
+from .tag_completion import recover_tag_completion_task, stop_tag_completion_task
 
 
 def initialize_plugin(plugin, config: dict = None) -> None:
     """初始化插件运行时配置，并按当前配置登记一次性后台任务。"""
     previous = getattr(plugin, '_auto_delete_runtime', None)
     retained_samples = None
-    if previous is not None and getattr(plugin, '_enabled', False) and previous.settings.enabled and not previous.stop.is_set():
-        if previous.run_lock.acquire(blocking=False):
-            try:
-                previous.stop.set()
-                retained_samples = deepcopy(previous.samples)
-            finally:
-                previous.run_lock.release()
-    plugin.stop_service()
+    try:
+        if previous is not None and getattr(plugin, '_enabled', False) and previous.settings.enabled and not previous.stop.is_set():
+            if previous.run_lock.acquire(blocking=False):
+                try:
+                    previous.stop.set()
+                    retained_samples = deepcopy(previous.samples)
+                finally:
+                    previous.run_lock.release()
+    finally:
+        plugin.stop_service()
+    try:
+        _initialize_runtime_after_stop(plugin, config, retained_samples)
+    except Exception:
+        plugin.stop_service()
+        raise
+
+
+def _initialize_runtime_after_stop(plugin, config, retained_samples) -> None:
+    """只在旧资源退出后初始化新周期，失败由调用方统一释放新资源。"""
+    recover_tag_completion_task(plugin)
+    reseed.recover(plugin)
     config = initialize_runtime_config(plugin, config)
     event = getattr(plugin, "_event", None)
     if event is not None:
@@ -71,8 +86,9 @@ def initialize_plugin(plugin, config: dict = None) -> None:
             _schedule_transfer_once(plugin, config)
             _start_scheduler_if_needed(plugin, print_jobs=True)
 
-    if plugin._iyuu_enabled and plugin._iyuu_token and plugin._iyuu_downloaders:
-        plugin.iyuu_helper = IyuuHelper(token=plugin._iyuu_token)
+    token = getattr(plugin, "_iyuu_token", "")
+    plugin.iyuu_helper = IyuuHelper(token=token) if token else None
+    if is_iyuu_active(plugin):
         if not plugin._scheduler:
             plugin._scheduler = BackgroundScheduler(timezone=settings.TZ)
 
@@ -102,6 +118,7 @@ def _schedule_transfer_once(plugin, config: dict) -> None:
         plugin.transfer,
         "date",
         run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+        kwargs={"stop_generation": int(getattr(plugin, "_transfer_stop_generation", 0) or 0)},
     )
     plugin._onlyonce = False
     config["onlyonce"] = plugin._onlyonce
@@ -117,6 +134,7 @@ def _schedule_iyuu_once(plugin, config: dict) -> None:
         plugin.iyuu_auto_seed,
         "date",
         run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=5),
+        kwargs={"stop_generation": int(getattr(plugin, "_transfer_stop_generation", 0) or 0)},
     )
     plugin._iyuu_onlyonce = False
     config["iyuu_onlyonce"] = plugin._iyuu_onlyonce
@@ -139,23 +157,42 @@ def stop_plugin_service(plugin) -> None:
     event = getattr(plugin, "_event", None)
     if event is not None:
         event.set()
-    stop_auto_delete(plugin)
-    stop_sync_delete(plugin)
-    clear_transfer_schedule(plugin)
+    for name, cleanup in (
+        ("标签补全", stop_tag_completion_task),
+        ("IYUU铺种", reseed.stop),
+        ("自动删除", stop_auto_delete),
+        ("同步删除", stop_sync_delete),
+        ("延迟转种", clear_transfer_schedule),
+    ):
+        _stop_component(plugin, name, cleanup)
+    scheduler = getattr(plugin, "_scheduler", None)
     try:
-        if not plugin._scheduler:
-            return
-        plugin._scheduler.remove_all_jobs()
-        if plugin._scheduler.running:
-            plugin._scheduler.shutdown()
-        plugin._scheduler = None
+        if scheduler is not None:
+            try:
+                scheduler.remove_all_jobs()
+            finally:
+                if scheduler.running:
+                    scheduler.shutdown(wait=False)
+                if getattr(plugin, "_scheduler", None) is scheduler:
+                    plugin._scheduler = None
     except Exception as error:
-        logger.error(f"停止服务失败: {error}")
+        logger.error(f"停止调度器失败：{type(error).__name__}")
     finally:
-        stop_seed_recheck_worker(plugin)
-        stop_upload_limit_worker(plugin)
-        stop_speed_monitor_worker(plugin)
-        stop_speed_monitor_runtime(plugin)
+        for name, cleanup in (
+            ("做种校验", stop_seed_recheck_worker),
+            ("上传限速", stop_upload_limit_worker),
+            ("速度监控线程", stop_speed_monitor_worker),
+            ("速度监控状态", stop_speed_monitor_runtime),
+        ):
+            _stop_component(plugin, name, cleanup)
+
+
+def _stop_component(plugin, name, cleanup) -> None:
+    """独立尝试各项清理，存储故障不阻断其它后台资源退出。"""
+    try:
+        cleanup(plugin)
+    except Exception as error:
+        logger.error(f"停止{name}失败：{type(error).__name__}")
 
 
 __all__ = ("initialize_plugin", "stop_plugin_service")

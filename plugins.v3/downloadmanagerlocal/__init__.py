@@ -1,5 +1,5 @@
 """
-DownloadManagerLocal v3.3.17 - MoviePilot V3 本地插件
+DownloadManagerLocal v3.3.19 - MoviePilot V3 本地插件
 基于官方自动转移做种 v1.10.3，整合 IYUU 自动辅种，支持转移后自动重命名 + 打站点标签
 """
 from threading import Event as ThreadEvent
@@ -27,16 +27,18 @@ from .service.diagnostics import build_diagnostics as _build_diagnostics_impl
 from .service.site_tag import tag_torrent as _tag_torrent_impl, find_site_by_domain as _find_site_by_domain_impl
 from .service.recheck import load_seed_recheck_queue as _load_seed_recheck_queue_impl, save_seed_recheck_queue as _save_seed_recheck_queue_impl, register_seed_recheck as _register_seed_recheck_impl, ensure_seed_recheck_worker as _ensure_seed_recheck_worker_impl, stop_seed_recheck_worker as _stop_seed_recheck_worker_impl, seed_recheck_loop as _seed_recheck_loop_impl, process_seed_recheck_once as _process_seed_recheck_once_impl, seed_should_remove_missing as _seed_should_remove_missing_impl, seed_is_checking as _seed_is_checking_impl, seed_is_ready as _seed_is_ready_impl, seed_is_error as _seed_is_error_impl, seed_is_timeout as _seed_is_timeout_impl, run_recheck_cycle as _check_recheck_impl, sweep_paused_seed_tasks as _sweep_paused_seed_tasks_impl, can_seed_paused_torrent as _can_seeding_impl
 from .service.transfer import validate_config as _validate_config_impl, download_torrent as _download_impl, post_transfer_process as _post_transfer_process_impl, transfer as _transfer_impl, fallback_transfer as _fallback_transfer_impl, delayed_transfer as _delayed_transfer_impl, retry_pending_renames as _retry_pending_renames_impl
-from .service.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_auto_seed as _iyuu_auto_seed_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
+from .service.iyuu import iyuu_service_infos as _iyuu_service_infos_impl, iyuu_auto_service_info as _iyuu_auto_service_info_impl, iyuu_seed_torrents as _iyuu_seed_torrents_impl, iyuu_download_torrent as _iyuu_download_torrent_impl, iyuu_download as _iyuu_download_impl, iyuu_get_download_url as _iyuu_get_download_url_impl, iyuu_save_history as _iyuu_save_history_impl, append_iyuu_cache as _append_iyuu_cache_impl, trim_seed_cache as _trim_seed_cache_impl, custom_sites as _custom_sites_impl, update_iyuu_config as _update_iyuu_config_impl
 from .controller.api import build_api_routes as _build_api_routes_impl
 from .service.events import handle_download_added_event as _handle_download_added_event_impl, handle_transfer_complete_event as _handle_transfer_complete_event_impl
 from .service.lifecycle import initialize_plugin as _initialize_plugin_impl, stop_plugin_service as _stop_plugin_service_impl
+from .service.coordination import operation_stopped
 from .service.scheduler import build_plugin_services as _build_plugin_services_impl
 from .service.cleanup import handle_sync_delete_by_hash_event as _handle_sync_delete_by_hash_event_impl, handle_webhook_message_event as _handle_webhook_message_event_impl, handle_plugin_action_event as _handle_plugin_action_event_impl
 from .service.speed_notification import handle_speed_message_action_event as _handle_speed_message_action_event_impl
 from .service.speed_monitor import scan_speed_monitor as _scan_speed_monitor_impl
 from .service.upload_limiter import run_upload_limit_cycle as _run_upload_limit_cycle_impl
 from .service.auto_delete import runtime_of as _auto_delete_runtime_of
+from .service.tag_completion import run_tag_completion_task as _run_tag_completion_task_impl
 
 class DownloadManagerLocal(_PluginBase):
     """下载中心插件入口，负责声明 MoviePilot 契约并委托 service 层执行。"""
@@ -153,6 +155,9 @@ class DownloadManagerLocal(_PluginBase):
 
     # 退出事件
     _event = None
+    _tag_completion_lock = None
+    _tag_completion_stop_event = None
+    _tag_completion_job_id = None
     # 待检查种子清单：{下载器名: {hash: 来源}}
     _recheck_torrents: Optional[dict] = None
     _is_recheck_running = False
@@ -209,6 +214,9 @@ class DownloadManagerLocal(_PluginBase):
         self._iyuu_fail = 0
         self._iyuu_cached = 0
         self._event = ThreadEvent()
+        self._tag_completion_lock = threading.RLock()
+        self._tag_completion_stop_event = None
+        self._tag_completion_job_id = None
         self._recheck_torrents = {}
         self._is_recheck_running = False
         self._seed_recheck_running = False
@@ -226,6 +234,9 @@ class DownloadManagerLocal(_PluginBase):
 
     def init_plugin(self, config: dict = None):
         """根据配置初始化插件运行状态和后台服务。"""; return _initialize_plugin_impl(self, config)
+
+    def _run_tag_completion_task(self, task_id: str) -> None:
+        """运行指定的标签补全后台任务。"""; return _run_tag_completion_task_impl(self, task_id)
 
     @staticmethod
     def get_hash(torrent, dl_type: str):
@@ -358,8 +369,11 @@ class DownloadManagerLocal(_PluginBase):
                    save_path: str, torrent) -> Optional[str]:
         """向目标下载器添加转移后的种子内容。"""; return _download_impl(self, service, content, save_path, torrent)
 
-    def transfer(self, trigger_source: str = "手动/定时"):
-        """按当前配置执行一次转移做种流程。"""; return _transfer_impl(self, trigger_source)
+    def transfer(self, trigger_source: str = "手动/定时", stop_generation=None):
+        """按当前配置执行转种，拒绝停止前已取出的旧调度回调。"""
+        if stop_generation is not None and operation_stopped(self, stop_generation):
+            return None
+        return _transfer_impl(self, trigger_source, stop_generation=stop_generation)
 
     def __add_recheck_torrents(self, service: ServiceInfo, download_id: str, source: str = "未知来源"):
         """追加做种校验任务，记录来源用于日志区分。"""
@@ -493,8 +507,19 @@ class DownloadManagerLocal(_PluginBase):
     def _iyuu_auto_service_info(self):
         """返回 IYUU 主辅分离下载器服务。"""; return _iyuu_auto_service_info_impl(self)
 
-    def iyuu_auto_seed(self):
-        """按当前 IYUU 配置执行一次自动辅种。"""; return _iyuu_auto_seed_impl(self)
+    def iyuu_auto_seed(self, stop_generation=None):
+        """提交 IYUU 铺种任务，按已配置的 Pieces 站点补查缺口。"""
+        from .service.reseed import start
+
+        if stop_generation is not None and operation_stopped(self, stop_generation):
+            return None
+        return start(self)
+
+    def _run_reseed_task(self, task_id: str):
+        """由宿主调度器调用当前实例的 IYUU 铺种任务。"""
+        from .service.reseed import run
+
+        return run(self, task_id)
 
     def _iyuu_seed_torrents(self, hash_strs: list, service: ServiceInfo):
         """委托 IYUU 服务查询并处理一批可辅种 hash。"""; return _iyuu_seed_torrents_impl(self, hash_strs, service)

@@ -10,7 +10,7 @@ from contextlib import nullcontext
 
 from ..adapter.auto_delete import binding_of
 from ..utils.torrent_adapter import TORRENT_ACTIVE, delete_torrent_with_files, normalize_torrent
-from .coordination import operation_lock, task_blocked
+from .coordination import operation_lock, operation_stopped, task_blocked
 from .speed_notification import (
     build_speed_monitor_callback,
     original_message_kwargs,
@@ -208,6 +208,7 @@ def process_speed_message_action(
     )
 
     observed_at = float(time.time() if now is None else now)
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     parsed = parse_speed_monitor_callback((event_data or {}).get("text"))
     if not parsed:
         return False
@@ -301,6 +302,9 @@ def process_speed_message_action(
             else:
                 try:
                     instance = _current_delete_target(plugin, session, alert)
+                    if (operation_stopped(plugin, generation)
+                            or getattr(plugin, "_speed_monitor_runtime", runtime) is not runtime):
+                        raise StaleSpeedAlert("下载中心已停止或重载，旧删除确认已失效。")
                     delete_torrent_with_files(
                         instance,
                         session.torrent_hash,
@@ -342,7 +346,9 @@ def process_speed_message_action(
                     )
         else:
             text = "无法识别该速度告警操作。"
-    persist_speed_monitor_runtime(plugin, runtime, observed_at)
+    if (not operation_stopped(plugin, generation)
+            and getattr(plugin, "_speed_monitor_runtime", runtime) is runtime):
+        persist_speed_monitor_runtime(plugin, runtime, observed_at)
     _post_action_card(
         plugin,
         event_data,

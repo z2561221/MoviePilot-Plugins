@@ -2,9 +2,9 @@
 
 from copy import deepcopy
 
+from ..model.auto_delete import Settings as AutoDeleteSettings
+from ..model.auto_delete import config_values as auto_delete_values
 from ..model.sync_delete import DEFAULTS as SYNC_DELETE_CONFIG_DEFAULTS
-from ..model.auto_delete import Settings as AutoDeleteSettings, config_values as auto_delete_values
-
 
 SPEED_MONITOR_CONFIG_DEFAULTS = {
     "speed_monitor_enabled": False,
@@ -63,6 +63,9 @@ PLUGIN_CONFIG_DEFAULTS = {
     "iyuu_cron": "",
     "iyuu_onlyonce": False,
     "iyuu_token": "",
+    "pieces_site_keys": "",
+    "pieces_torrent_paths": "",
+    "reseed_max_additions": 20,
     "iyuu_downloaders": [],
     "iyuu_auto_downloader": "",
     "iyuu_sites": [],
@@ -185,6 +188,11 @@ def _normalize_upload_site_rules(value) -> dict[str, dict]:
     return result
 
 
+def normalize_pieces_site_keys(value) -> str:
+    """保留以站点名称和 Passkey 行确定参与站点的配置文本。"""
+    return value if isinstance(value, str) else ""
+
+
 def normalize_speed_monitor_config(config: dict | None) -> dict:
     """按速度监控契约清洗配置并补齐默认值。"""
     source = config if isinstance(config, dict) else {}
@@ -275,13 +283,11 @@ def is_transfer_active(plugin) -> bool:
 
 
 def is_iyuu_active(plugin) -> bool:
-    """判断 IYUU 辅种能力是否处于可运行状态。"""
-    return bool(
-        getattr(plugin, "_enabled", False)
-        and getattr(plugin, "_iyuu_enabled", False)
-        and getattr(plugin, "_iyuu_token", "")
-        and getattr(plugin, "_iyuu_downloaders", [])
-    )
+    """IYUU 开关、Token 和下载器共同控制主流程及 Pieces 补查。"""
+    return bool(getattr(plugin, "_enabled", False)
+                and getattr(plugin, "_iyuu_enabled", False)
+                and getattr(plugin, "_iyuu_token", "")
+                and getattr(plugin, "_iyuu_downloaders", []))
 
 
 def is_speed_monitor_active(plugin) -> bool:

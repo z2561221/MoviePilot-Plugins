@@ -16,8 +16,8 @@ from ..model.api import (
     SelectionItem,
     TagCleanupExecuteResult,
     TagCleanupScanResult,
-    TagCompletionExecuteResult,
-    TagCompletionScanResult,
+    TagCompletionResultResponse,
+    TagCompletionTaskResult,
     UploadLimitDisableResult,
     UploadLimitReallocateResult,
     UploadLimitRulesResult,
@@ -30,7 +30,10 @@ from .handlers import (
     api_tag_cleanup_execute,
     api_tag_cleanup_scan,
     api_tag_completion_execute,
+    api_tag_completion_cancel,
+    api_tag_completion_result,
     api_tag_completion_scan,
+    api_tag_completion_task,
     api_upload_limit_disable_restore,
     api_upload_limit_reallocate,
     api_upload_limit_site_rules_update,
@@ -39,11 +42,12 @@ from .handlers import (
 )
 from .security import PermissionsResult, permissions, require_admin
 from .sync_delete import routes as sync_delete_routes
+from .reseed import routes as reseed_routes
 
 
 def build_api_routes(plugin) -> List[Dict[str, Any]]:
     """构造插件 API 路由声明，保持前端调用契约不变。"""
-    routes = sync_delete_routes(plugin) + auto_delete_routes(plugin) + [
+    routes = sync_delete_routes(plugin) + auto_delete_routes(plugin) + reseed_routes(plugin) + [
         {"path": "/permissions", "endpoint": permissions, "methods": ["GET"],
          "auth": "bear", "summary": "获取当前用户管理权限", "response_model": PermissionsResult},
         {
@@ -211,16 +215,42 @@ def build_api_routes(plugin) -> List[Dict[str, Any]]:
             "endpoint": partial(api_tag_completion_scan, plugin),
             "auth": "bear",
             "methods": ["POST"],
-            "summary": "扫描可恢复的下载器标签",
-            "response_model": schemas.Response[TagCompletionScanResult],
+            "summary": "提交可恢复下载器标签的扫描任务",
+            "response_model": schemas.Response[TagCompletionTaskResult],
         },
         {
             "path": "/tag_completion_execute",
             "endpoint": partial(api_tag_completion_execute, plugin),
             "auth": "bear",
             "methods": ["POST"],
-            "summary": "按确认快照补全下载器标签",
-            "response_model": schemas.Response[TagCompletionExecuteResult],
+            "summary": "提交已确认的下载器标签补全任务",
+            "response_model": schemas.Response[TagCompletionTaskResult],
+        },
+        {
+            "path": "/tag_completion_task",
+            "endpoint": partial(api_tag_completion_task, plugin),
+            "auth": "bear",
+            "methods": ["GET"],
+            "summary": "读取下载器标签补全任务状态",
+            "response_model": schemas.Response[TagCompletionTaskResult],
+            "dependencies": [Depends(require_admin)],
+        },
+        {
+            "path": "/tag_completion_result",
+            "endpoint": partial(api_tag_completion_result, plugin),
+            "auth": "bear",
+            "methods": ["GET"],
+            "summary": "读取下载器标签补全任务结果",
+            "response_model": schemas.Response[TagCompletionResultResponse],
+            "dependencies": [Depends(require_admin)],
+        },
+        {
+            "path": "/tag_completion_cancel",
+            "endpoint": partial(api_tag_completion_cancel, plugin),
+            "auth": "bear",
+            "methods": ["POST"],
+            "summary": "停止下载器标签补全任务",
+            "response_model": schemas.Response[TagCompletionTaskResult],
         },
     ]
 

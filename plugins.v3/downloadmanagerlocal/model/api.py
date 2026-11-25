@@ -244,19 +244,58 @@ class TagCleanupExecuteRequest(ApiRequestModel):
 class TagCompletionScanRequest(ApiRequestModel):
     """下载器标签补全扫描请求。"""
 
-    downloaders: list[str] = Field(default_factory=list)
+    request_id: str = Field(min_length=1, max_length=128, description="本次扫描请求的幂等标识")
+    downloaders: list[str] = Field(default_factory=list, description="要扫描的下载器名称")
+    torrent_hashes: list[str] = Field(default_factory=list, max_length=100, description="仅扫描指定 hash，留空扫描全部任务")
 
 
 class TagCompletionSelection(ApiRequestModel):
-    """用户确认的单类标签补全快照。"""
+    """用户确认的单类标签组标识。"""
 
-    downloader: str = Field(min_length=1, max_length=128)
-    kind: Literal["site", "transfer", "iyuu"]
-    tag: str = Field(min_length=1, max_length=256)
-    hashes: list[str] = Field(min_length=1, max_length=5000)
+    downloader: str = Field(min_length=1, max_length=128, description="扫描结果中的下载器名称")
+    kind: Literal["site", "transfer", "iyuu"] = Field(description="扫描结果中的标签类别")
+    tag: str = Field(min_length=1, max_length=256, description="扫描结果中的标签名称")
 
 
 class TagCompletionExecuteRequest(ApiRequestModel):
-    """按扫描快照执行标签补全的请求。"""
+    """按服务端扫描快照登记标签补全任务。"""
 
-    repairs: list[TagCompletionSelection] = Field(default_factory=list, max_length=1000)
+    request_id: str = Field(min_length=1, max_length=128, description="本次执行请求的幂等标识")
+    scan_task_id: str = Field(min_length=1, max_length=128, description="待确认的扫描任务标识")
+    repairs: list[TagCompletionSelection] = Field(
+        default_factory=list,
+        max_length=1000,
+        description="用户确认的标签组标识",
+    )
+
+
+class TagCompletionCancelRequest(ApiRequestModel):
+    """停止指定的标签补全后台任务。"""
+
+    task_id: str = Field(min_length=1, max_length=128, description="要停止的任务标识")
+
+
+class TagCompletionTaskResult(ActionResult):
+    """标签补全后台任务的轻量状态。"""
+
+    found: bool = Field(default=False, description="任务是否存在")
+    task_id: str = Field(default="", description="任务标识")
+    request_id: str = Field(default="", description="提交请求的幂等标识")
+    operation: str = Field(default="", description="任务类型：扫描或执行")
+    status: str = Field(default="", description="任务状态")
+    phase: str = Field(default="", description="当前处理阶段")
+    current: int = Field(default=0, description="当前处理数量")
+    total: int = Field(default=0, description="待处理总数")
+    progress: int = Field(default=0, description="完成百分比")
+    can_cancel: bool = Field(default=False, description="当前任务是否可取消")
+    result_available: bool = Field(default=False, description="任务结果是否可读取")
+
+
+class TagCompletionResultResponse(ActionResult):
+    """标签补全后台任务的完整扫描或执行结果。"""
+
+    result: dict[str, JsonData] = Field(default_factory=dict, description="当前分页的扫描或执行结果")
+    offset: int = Field(default=0, description="本页起始游标")
+    next_offset: int = Field(default=0, description="下一页起始游标")
+    total: int = Field(default=0, description="全部结果项数量")
+    complete: bool = Field(default=True, description="是否已读取所有分页")

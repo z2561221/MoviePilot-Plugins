@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import importlib
 import os
-import sys
-import types
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 
 PLUGIN_DIR = Path(
@@ -15,82 +15,32 @@ PLUGIN_DIR = Path(
 
 
 def _load_tag_cleanup():
-    """隔离加载 V3 标签归属判断工具。"""
-    for name in list(sys.modules):
-        if name == "downloadmanagerlocal" or name.startswith("downloadmanagerlocal."):
-            sys.modules.pop(name)
-    package = types.ModuleType("downloadmanagerlocal")
-    package.__path__ = [str(PLUGIN_DIR)]
-    sys.modules["downloadmanagerlocal"] = package
-    return importlib.import_module("downloadmanagerlocal.utils.tag_cleanup")
+    """通过生产命名空间加载纯标签归属工具。"""
+    return importlib.import_module("app.plugins.downloadmanagerlocal.utils.tag_cleanup")
 
 
-def _load_site_tag(host_tag: str):
-    """隔离加载站点标签服务并注入用户自定义宿主标签。"""
-    cleanup = _load_tag_cleanup()
-
-    app = types.ModuleType("app")
-    app.__path__ = []
-    app_sdk = types.ModuleType("app.sdk")
-    app_sdk.__path__ = []
-    app_sdk_config = types.ModuleType("app.sdk.config")
-    app_sdk_config.settings = SimpleNamespace(TORRENT_TAG=host_tag)
-    app_sdk_logging = types.ModuleType("app.sdk.logging")
-    app_sdk_logging.logger = SimpleNamespace(
+@pytest.fixture(autouse=True)
+def isolated_tag_service(monkeypatch):
+    """只替换外部适配器和配置投影，保留真实共享协调及模型。"""
+    service = importlib.import_module("app.plugins.downloadmanagerlocal.service.site_tag")
+    monkeypatch.setattr(service, "settings", SimpleNamespace(TORRENT_TAG="MoviePilot"))
+    monkeypatch.setattr(service, "logger", SimpleNamespace(
         info=lambda *_args, **_kwargs: None,
         warning=lambda *_args, **_kwargs: None,
         error=lambda *_args, **_kwargs: None,
-    )
-    adapter = types.ModuleType("downloadmanagerlocal.adapter.moviepilot")
-    adapter.generate_random_tag = lambda length=10: "A" * length
-    adapter.get_site_indexer = lambda *_args, **_kwargs: None
-    adapter.get_url_domain = lambda value: value
-    adapter.list_site_dicts = lambda: []
-    model = types.ModuleType("downloadmanagerlocal.model")
-    model.__path__ = []
-    state = types.ModuleType("downloadmanagerlocal.model.state")
-    state.iyuu_history_key = lambda source_hash: f"iyuu_{source_hash}"
-    state.iyuu_source_key = lambda seed_hash: f"iyuu_source_{seed_hash}"
-    torrent_adapter = types.ModuleType("downloadmanagerlocal.utils.torrent_adapter")
+    ))
+    monkeypatch.setattr(service, "generate_random_tag", lambda length=10: "A" * length)
+    monkeypatch.setattr(service, "get_site_indexer", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(service, "list_site_dicts", lambda: [])
+    monkeypatch.setattr(service, "find_site_by_domain", service.find_site_by_domain)
+    monkeypatch.setattr(service, "get_tracker_urls", service.get_tracker_urls)
 
-    def get_hash(torrent, kind):
-        if isinstance(torrent, dict):
-            return torrent.get("hash", "") if kind == "qbittorrent" else torrent.get("hashString", "")
-        return getattr(torrent, "hashString", getattr(torrent, "hash_string", ""))
 
-    def get_label(torrent, kind):
-        if isinstance(torrent, dict):
-            return torrent.get("tags", "") if kind == "qbittorrent" else torrent.get("labels", [])
-        return getattr(torrent, "labels", [])
-
-    torrent_adapter.get_hash = get_hash
-    torrent_adapter.get_label = get_label
-    torrent_adapter.get_tracker_urls = lambda torrent, _kind: list(
-        torrent.get("trackers", []) if isinstance(torrent, dict) else getattr(torrent, "trackers", [])
-    )
-
-    stubs = {
-        "app": app,
-        "app.sdk": app_sdk,
-        "app.sdk.config": app_sdk_config,
-        "app.sdk.logging": app_sdk_logging,
-        "downloadmanagerlocal.adapter.moviepilot": adapter,
-        "downloadmanagerlocal.model": model,
-        "downloadmanagerlocal.model.state": state,
-        "downloadmanagerlocal.utils.tag_cleanup": cleanup,
-        "downloadmanagerlocal.utils.torrent_adapter": torrent_adapter,
-    }
-    missing = object()
-    previous = {name: sys.modules.get(name, missing) for name in stubs}
-    sys.modules.update(stubs)
-    try:
-        return importlib.import_module("downloadmanagerlocal.service.site_tag")
-    finally:
-        for name, module in previous.items():
-            if module is missing:
-                sys.modules.pop(name, None)
-            else:
-                sys.modules[name] = module
+def _load_site_tag(host_tag: str):
+    """注入本用例宿主标签，不创建另一份插件模块身份。"""
+    service = importlib.import_module("app.plugins.downloadmanagerlocal.service.site_tag")
+    service.settings = SimpleNamespace(TORRENT_TAG=host_tag)
+    return service
 
 
 class FakeQbittorrent:
@@ -207,7 +157,7 @@ def test_managed_anchor_recognizes_single_task_legacy_temporary_tag():
 def test_custom_host_tag_is_protected_and_anchors_legacy_cleanup():
     """用户自定义宿主标签应受保护并能证明同任务旧随机标签的归属。"""
     site_tag = _load_site_tag("CustomTag1")
-    cleanup = sys.modules["downloadmanagerlocal.utils.tag_cleanup"]
+    cleanup = _load_tag_cleanup()
     plugin = SimpleNamespace(_torrent_tags=[], _iyuu_labelsafterseed="")
     managed_tags = site_tag._managed_tag_anchors(plugin)
     torrent_tags = {"qb-hash": {"CustomTag1", "SUURFaG0p7"}}
@@ -511,7 +461,7 @@ def test_completion_scan_and_execute_restore_all_proven_tag_categories():
         "hash": "h1",
         "name": "Example.Release",
         "tags": "",
-        "trackers": ["https://tracker.example/announce"],
+        "trackers": [{"url": "https://tracker.example/announce", "tier": 0}],
     }])
     source_service = SimpleNamespace(name="QB1", type="qbittorrent", instance=object())
     target_service = SimpleNamespace(name="QB2 display", type="qbittorrent", instance=target)
@@ -524,6 +474,16 @@ def test_completion_scan_and_execute_restore_all_proven_tag_categories():
         "iyuu_source_h1": "mother-hash",
         "iyuu_mother-hash": [{"downloader": "QB2 display", "torrents": ["h1"]}],
     }
+    data_reads = []
+
+    def get_data(key=None):
+        data_reads.append(key)
+        if key is None:
+            return [
+                SimpleNamespace(key=name, value=value) for name, value in data.items()
+            ]
+        return data.get(key)
+
     plugin = SimpleNamespace(
         _fromdownloader="QB1",
         _tracker_mappings={},
@@ -531,11 +491,12 @@ def test_completion_scan_and_execute_restore_all_proven_tag_categories():
         _torrent_tags=["⏩转种"],
         _iyuu_labelsafterseed="已整理,辅种",
         service_info=lambda name: {"QB1": source_service, "QB2": target_service}.get(name),
-        get_data=lambda key: data.get(key),
+        get_data=get_data,
     )
 
     scan = service.scan_tag_completion(plugin, ["QB2"])
     groups = scan["downloaders"][0]["tags"]
+    assert data_reads == [None]
     assert {(item["kind"], item["tag"]) for item in groups} == {
         ("site", "🏠彩虹岛"),
         ("transfer", "⏩转种"),
@@ -550,12 +511,41 @@ def test_completion_scan_and_execute_restore_all_proven_tag_categories():
         "hashes": item["hashes"],
     } for item in groups]
     result = service.execute_tag_completion(plugin, repairs)
+    assert data_reads == [None, None]
     assert result["code"] == 0
     assert set(target.torrents[0]["tags"].split(", ")) == {"🏠彩虹岛", "⏩转种", "已整理", "辅种"}
 
     repeated = service.execute_tag_completion(plugin, repairs)
+    assert data_reads == [None, None, None]
     assert repeated["added"] == []
     assert repeated["skipped"][0]["message"] == "标签已存在"
+
+
+def test_completion_scan_reads_trackers_once_per_torrent():
+    """扫描复用同一份 tracker 结果计算站点标签与未识别计数。"""
+    service = _load_site_tag("MoviePilot")
+    service.find_site_by_domain = lambda _domain: "彩虹岛"
+    target = FakeQbittorrent([{
+        "hash": "h1",
+        "name": "Example.Release",
+        "tags": "",
+        "trackers": ["https://tracker.example/announce"],
+    }])
+    tracker_reads = []
+    service.get_tracker_urls = lambda torrent, _kind: tracker_reads.append(torrent["hash"]) or torrent["trackers"]
+    plugin = SimpleNamespace(
+        _fromdownloader="",
+        _tracker_mappings={},
+        _tag_siteprefix="🏠",
+        _torrent_tags=[],
+        _iyuu_labelsafterseed="",
+        service_info=lambda name: SimpleNamespace(name=name, type="qbittorrent", instance=target),
+    )
+
+    result = service.scan_tag_completion(plugin, ["QB"])
+
+    assert result["downloaders"][0]["tags"][0]["tag"] == "🏠彩虹岛"
+    assert tracker_reads == ["h1"]
 
 
 def test_completion_only_restores_proven_categories_and_preserves_transmission_labels():
@@ -563,7 +553,7 @@ def test_completion_only_restores_proven_categories_and_preserves_transmission_l
     service = _load_site_tag("MoviePilot")
     service.find_site_by_domain = lambda _domain: "彩虹岛"
     target = FakeTransmission([_transmission_torrent("h2", ["用户标签"])])
-    target.torrents[0].trackers = ["https://tracker.example/announce"]
+    target.torrents[0].trackers = [{"announce": "https://tracker.example/announce", "tier": 0}]
     target_service = SimpleNamespace(name="TR1", type="transmission", instance=target)
     source_service = SimpleNamespace(name="QB1", type="qbittorrent", instance=object())
     plugin = SimpleNamespace(
@@ -573,7 +563,9 @@ def test_completion_only_restores_proven_categories_and_preserves_transmission_l
         _torrent_tags=["⏩转种"],
         _iyuu_labelsafterseed="已整理,辅种",
         service_info=lambda name: {"QB1": source_service, "TR1": target_service}.get(name),
-        get_data=lambda key: None,
+        get_data=lambda key=None: (
+            {} if key is None else None
+        ),
     )
 
     scan = service.scan_tag_completion(plugin, ["TR1"])

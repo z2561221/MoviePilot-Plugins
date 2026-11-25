@@ -23,6 +23,8 @@ class IyuuHelper(object):
         self._token = token
         self._sites = {}
         self._sid_sha1 = None
+        self.retry_after = 0
+        self._cooldown_until = 0
         if self._token:
             self.init_config()
 
@@ -50,6 +52,9 @@ class IyuuHelper(object):
         """
         向IYUUApi发送请求
         """
+        if self._cooldown_until > time.time():
+            self.retry_after = max(1, int(self._cooldown_until - time.time()))
+            return None, "IYUU 请求限流，等待冷却"
         if method == "post":
             ret = request_post_res(
                 f'{self._api_base + url}',
@@ -64,6 +69,12 @@ class IyuuHelper(object):
                 accept_type="application/json",
                 headers={'token': self._token}
             )
+        if ret is not None and ret.status_code == 429:
+            from .service.pieces import retry_after_seconds
+
+            self.retry_after = retry_after_seconds(ret.headers)
+            self._cooldown_until = time.time() + self.retry_after
+            return None, "IYUU 请求限流，等待冷却"
         if ret:
             result = ret.json()
             if result.get('code') == 0:

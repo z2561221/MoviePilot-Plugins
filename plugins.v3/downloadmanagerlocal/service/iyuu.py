@@ -40,7 +40,7 @@ from .site_tag import create_temporary_tag, forget_temporary_tag, release_tempor
 from .coordination import coordinated, operation_lock, task_blocked
 from .activity import observed
 from .auto_delete_relations import target_retired
-from .transfer import _transfer_stopped
+from .transfer import _transfer_stopped as _base_stopped
 
 IYUU_QUERY_CHUNK_SIZE = 100
 _IYUU_LOCK_INIT = threading.Lock()
@@ -68,6 +68,15 @@ IYUU_CONFIG_ERROR_KEYWORDS = (
     "站点哈希刷新失败",
     "未获取到 IYUU 支持站点列表",
 )
+
+
+def _transfer_stopped(plugin, generation):
+    """辅种取消只停止当前辅种执行线程，仍遵守插件停止代次。"""
+    cancel = getattr(plugin, "_reseed_cancel", None)
+    return _base_stopped(plugin, generation) or (
+        getattr(plugin, "_reseed_worker", None) is threading.current_thread()
+        and cancel is not None and cancel.is_set()
+    )
 
 
 def _is_iyuu_transient_error(message: str) -> bool:
@@ -273,7 +282,7 @@ def _iyuu_auto_seed(plugin, generation):
 
 
 @coordinated
-def _iyuu_candidates(plugin, service, torrents, generation):
+def _iyuu_candidates(plugin, service, torrents, generation, ignore_caches=False):
     """在同一保护快照中筛选已有列表，外部查询和批间等待在返回后执行。"""
     downloader = service.name
     source_binding = binding_of(service)
@@ -287,7 +296,7 @@ def _iyuu_candidates(plugin, service, torrents, generation):
         if task_blocked(plugin, service.name, torrent, service.type):
             continue
         hash_str = plugin.get_hash(torrent, service.type)
-        if hash_str in plugin._iyuu_error_caches or hash_str in plugin._iyuu_permanent_error_caches:
+        if not ignore_caches and (hash_str in plugin._iyuu_error_caches or hash_str in plugin._iyuu_permanent_error_caches):
             continue
         save_path = plugin.get_save_path(torrent, service.type)
         if plugin._iyuu_nopaths and save_path:
@@ -322,7 +331,8 @@ def _iyuu_candidates(plugin, service, torrents, generation):
     return hash_strs
 
 
-def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo, stop_generation=None):
+def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo, stop_generation=None,
+                      matched_sites=None, candidate_handler=None):
     """执行一批种子的 IYUU 辅种"""
     generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) if stop_generation is None else stop_generation
     if not hash_strs or _transfer_stopped(plugin, generation):
@@ -375,6 +385,11 @@ def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo, stop_gener
                 continue
             if not seed.get("sid") or not seed.get("info_hash"):
                 continue
+            if matched_sites is not None:
+                matched_url, _ = plugin.iyuu_helper.get_torrent_url(seed.get("sid"))
+                matched_site = get_site_indexer(get_url_domain(matched_url)) if matched_url else None
+                if matched_site and (not plugin._iyuu_sites or matched_site.get("id") in plugin._iyuu_sites):
+                    matched_sites.setdefault(current_hash, set()).add(str(matched_site.get("id")))
             if seed.get("info_hash") in hashs:
                 continue
             if seed.get("info_hash") in plugin._iyuu_success_caches:
@@ -390,6 +405,10 @@ def iyuu_seed_torrents(plugin, hash_strs: list, service: ServiceInfo, stop_gener
                 continue
             if plugin._iyuu_sites and site_info.get('id') not in plugin._iyuu_sites:
                 __count(skipped_sites, site_info.get('name') or site_url or str(seed.get("sid")))
+                continue
+
+            if candidate_handler is not None:
+                candidate_handler(seed, sources[current_hash], service, site_info)
                 continue
 
             target_service = iyuu_auto_service_info(plugin) or service
@@ -417,7 +436,6 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
 
     source_service = source_service or service
     source_binding = source_binding or binding_of(source_service)
-    target_binding = binding_of(service)
     if source_hash and source_added_at is None:
         rows = source_service.instance.get_completed_torrents(ids=[source_hash])
         if not rows or len(rows) != 1:
@@ -533,7 +551,21 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         )
         return False
 
-    pending_key = f"{service.name}::{seed.get('info_hash')}"
+    return submit_verified_torrent(
+        plugin, content, seed["info_hash"], service, save_path, save_category, site_info,
+        source_hash, source_service, source_added_at, source_binding, generation, torrent_url,
+    )
+
+
+def submit_verified_torrent(plugin, content, expected_hash, service, save_path, save_category,
+                            site_info, source_hash, source_service, source_added_at,
+                            source_binding, generation, torrent_url=None, provider="iyuu",
+                            source_path=None, verified_metadata=None):
+    """为已取得并核验的候选登记提交意图，再共用添加与可恢复后处理。"""
+    target_binding = binding_of(service)
+    seed = {"info_hash": expected_hash}
+    safe_torrent_url = mask_sensitive_url(torrent_url)
+    pending_key = f"{service.name}::{expected_hash}"
     submitted = False
 
     @coordinated
@@ -551,9 +583,21 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
             if not rows or len(rows) != 1 or not source_added_at or not save_path:
                 return None
             current = normalize_torrent(rows[0], source.name, source.type)
-            if ((current.torrent_hash, current.added_at, current.save_path) != (source_hash, source_added_at, save_path)
+            if ((current.torrent_hash, current.added_at, current.save_path) != (source_hash, source_added_at, source_path or save_path)
                     or task_blocked(owner, source.name, rows[0], source.type)):
                 return None
+            if verified_metadata:
+                from .reseed import verify_data_files
+
+                verify_data_files(source, source_hash, verified_metadata)
+                if source.name != target.name:
+                    target_rows = target.instance.get_completed_torrents(ids=[source_hash])
+                    if not target_rows or len(target_rows) != 1:
+                        return None
+                    target_source = normalize_torrent(target_rows[0], target.name, target.type)
+                    if target_source.save_path != save_path or task_blocked(owner, target.name, target_rows[0], target.type):
+                        return None
+                    verify_data_files(target, source_hash, verified_metadata)
         expected = seed["info_hash"]
         existing, error = target.instance.get_torrents(ids=[expected])
         if error or existing is None or existing or target_retired(
@@ -562,9 +606,15 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         pending = _load_iyuu_pending(owner)
         if pending_key in pending or _transfer_stopped(owner, generation):
             return None
+        from .reseed import reserve_submission
+
+        if not reserve_submission(owner, generation):
+            return None
         pending[pending_key] = {"downloader": target.name, "source_hash": source_hash,
                                 "expected_hash": expected, "download_id": None, "binding": target_binding,
-                                "source_downloader": source.name, "source_added_at": source_added_at}
+                                "source_downloader": source.name, "source_added_at": source_added_at,
+                                "provider": provider, "site_id": site_info.get("id"),
+                                "force_verify": provider == "pieces"}
         owner.save_data(IYUU_PENDING_KEY, pending)
         if _transfer_stopped(owner, generation):
             return None
@@ -572,11 +622,25 @@ def iyuu_download_torrent(plugin, seed: dict, service: ServiceInfo, save_path: s
         return send(target.instance)
 
     logger.info(f"IYUU辅种：准备添加下载任务：{safe_torrent_url}")
-    download_id = iyuu_download(plugin, service=service, content=content,
-                                save_path=save_path, save_category=save_category,
-                                site_name=site_info.get("name"),
-                                expected_hash=seed.get("info_hash"),
-                                torrent_url=torrent_url, stop_generation=generation, submit=lambda send: submit(plugin, send))
+    try:
+        download_id = iyuu_download(plugin, service=service, content=content,
+                                    save_path=save_path, save_category=save_category,
+                                    site_name=site_info.get("name"),
+                                    expected_hash=seed.get("info_hash"),
+                                    torrent_url=torrent_url, stop_generation=generation, submit=lambda send: submit(plugin, send),
+                                    force_verify=provider == "pieces")
+    except Exception as error:
+        if not submitted:
+            raise
+        logger.warning(f"辅种提交回执异常，按目标 hash 回查：{type(error).__name__}")
+        download_id = None
+    if not download_id and submitted and not _transfer_stopped(plugin, generation):
+        try:
+            accepted, read_error = service.instance.get_torrents(ids=[expected_hash])
+            if not read_error and accepted and len(accepted) == 1:
+                download_id = expected_hash
+        except Exception:
+            download_id = None
     if not download_id:
         if _transfer_stopped(plugin, generation):
             return False
@@ -629,7 +693,20 @@ def _finish_iyuu_pending(plugin, key, item, service, generation) -> bool:
             return False
         if _transfer_stopped(plugin, generation):
             return False
-        if not _postprocess_iyuu_target(plugin, service, download_id, source_hash, generation):
+        if item.get("provider") == "pieces":
+            history = plugin.get_data(iyuu_history_key(source_hash)) or []
+            for entry in history:
+                if isinstance(entry, dict) and entry.get("downloader") == service.name:
+                    entry.setdefault("providers", {})[download_id] = {
+                        "provider": "pieces", "site_id": item.get("site_id"),
+                        "source_downloader": item.get("source_downloader"),
+                    }
+            plugin.save_data(iyuu_history_key(source_hash), history)
+        if item.get("force_verify"):
+            finished = _postprocess_iyuu_target(plugin, service, download_id, source_hash, generation, force_verify=True)
+        else:
+            finished = _postprocess_iyuu_target(plugin, service, download_id, source_hash, generation)
+        if not finished:
             return False
         pending = _load_iyuu_pending(plugin)
         pending.pop(key, None)
@@ -672,13 +749,20 @@ def _resume_iyuu_postprocess(plugin, generation) -> None:
             logger.error(f"IYUU辅种：恢复目标 {key} 失败，保留记录：{error}")
 
 
-def _postprocess_iyuu_target(plugin, service, download_id, source_hash, generation) -> bool:
+def _postprocess_iyuu_target(plugin, service, download_id, source_hash, generation, force_verify=False) -> bool:
     """对已接收的辅种目标执行可重试后处理。"""
     dl = service.instance
     dl_type = service.type
 
-    if is_downloader_type("qbittorrent", service=service):
-        if plugin._seed_skipverify:
+    if force_verify:
+        from .recheck import register_seed_recheck
+
+        if dl.recheck_torrents(ids=[download_id]) is False or _transfer_stopped(plugin, generation):
+            return False
+        register_seed_recheck(plugin, service.name, [download_id], "pieces")
+
+    elif is_downloader_type("qbittorrent", service=service):
+        if plugin._seed_skipverify and not force_verify:
             if plugin._seed_autostart:
                 logger.info(f"IYUU辅种：{download_id} 跳过校验，自动开始")
                 plugin._register_seed_recheck(service.name, [download_id], "iyuu")
@@ -735,7 +819,8 @@ def _postprocess_iyuu_target(plugin, service, download_id, source_hash, generati
 
 def iyuu_download(plugin, service: ServiceInfo, content: bytes,
                   save_path: str, save_category: str, site_name: str,
-                  expected_hash: str = None, torrent_url: str = None, stop_generation=None, submit=None) -> Optional[str]:
+                  expected_hash: str = None, torrent_url: str = None, stop_generation=None, submit=None,
+                  force_verify=False) -> Optional[str]:
     """添加 IYUU 辅种下载任务，并用 expected_hash + 临时标签多次确认任务入库。"""
     generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) if stop_generation is None else stop_generation
     if _transfer_stopped(plugin, generation):
@@ -775,7 +860,7 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
             state = submit_to_service(lambda downloader: downloader.add_torrent(content=content, download_dir=save_path,
                                                  is_paused=True, tag=torrent_tags,
                                                  category=save_category,
-                                                 is_skip_checking=plugin._seed_skipverify))
+                                                 is_skip_checking=plugin._seed_skipverify and not force_verify))
             if not state:
                 logger.error(
                     f"IYUU辅种：{service.name} 下载任务添加失败：expected_hash={expected_hash}，"

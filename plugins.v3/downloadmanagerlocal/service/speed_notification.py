@@ -198,18 +198,30 @@ def format_speed_alert_text(session: Any, decision: dict, *, html_mode: bool = F
     return "\n".join(lines)
 
 
-def _post_formatted_alert(plugin: Any, kwargs: dict, html_text: str) -> None:
+def _notification_stopped(plugin: Any, generation: int) -> bool:
+    """通知请求回包后按原代次停止后续渠道和告警派发。"""
+    event = getattr(plugin, "_event", None)
+    return (generation != int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
+            or (event is not None and event.is_set()))
+
+
+def _post_formatted_alert(plugin: Any, kwargs: dict, html_text: str, *, stop_generation=None) -> None:
     """Telegram 使用 HTML 卡片，其余通知源及消息中心使用纯文本。"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0) if stop_generation is None else stop_generation
     try:
         from app.sdk.services import ServiceConfigHelper
 
         configs = ServiceConfigHelper.get_notification_configs() or []
     except Exception:  # pylint: disable=broad-exception-caught  # noqa: BLE001
         configs = []
+    if _notification_stopped(plugin, generation):
+        return
     if not configs:
         plugin.post_message(**kwargs, parse_mode="plain")
         return
     for config in configs:
+        if _notification_stopped(plugin, generation):
+            return
         if not config.enabled or kwargs["mtype"].value not in (config.switchs or []):
             continue
         payload = dict(kwargs)
@@ -223,6 +235,8 @@ def _post_formatted_alert(plugin: Any, kwargs: dict, html_text: str) -> None:
         if not is_telegram:
             payload.pop("buttons", None)
         plugin.post_message(**payload)
+    if _notification_stopped(plugin, generation):
+        return
     from app.schemas.types import NotificationChannel
 
     history = {key: value for key, value in kwargs.items() if key != "buttons"}
@@ -272,6 +286,9 @@ def send_speed_alert(
     notification_type: Any = None,
 ) -> bool:
     """发送一条分类异常通知并把交互身份写入告警状态。"""
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
+    if _notification_stopped(plugin, generation):
+        return False
     token_factory = token_factory or (lambda: secrets.token_urlsafe(6))
     telegram_userid = _resolve_telegram_userid(plugin)
     kwargs = {
@@ -296,6 +313,7 @@ def send_speed_alert(
     _post_formatted_alert(
         plugin, kwargs,
         format_speed_alert_text(session, alert.get("decision") or {}, html_mode=True),
+        stop_generation=generation,
     )
     alert["status"] = "notified"
     alert["notified_at"] = float(now)
@@ -314,7 +332,11 @@ def dispatch_pending_speed_alerts(
 ) -> int:
     """派发全部 pending 告警，失败项保留以便下轮重试。"""
     sent = 0
+    generation = int(getattr(plugin, "_transfer_stop_generation", 0) or 0)
     for alert in runtime.alerts.values():
+        if (_notification_stopped(plugin, generation)
+                or getattr(plugin, "_speed_monitor_runtime", runtime) is not runtime):
+            break
         if not isinstance(alert, dict) or alert.get("status") != "pending":
             continue
         session_key = (

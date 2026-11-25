@@ -27,8 +27,11 @@ def test_all_plugin_routes_declare_concrete_v3_models() -> None:
 
     routes = plugin.get_api()
 
-    assert len(routes) == 38
+    assert len(routes) == 44
     assert {route["path"] for route in routes} == {
+        "/reseed/status",
+        "/reseed/results",
+        "/reseed/stop",
         "/permissions",
         "/downloaders",
         "/rename_history",
@@ -52,6 +55,9 @@ def test_all_plugin_routes_declare_concrete_v3_models() -> None:
         "/tag_cleanup_execute",
         "/tag_completion_scan",
         "/tag_completion_execute",
+        "/tag_completion_task",
+        "/tag_completion_result",
+        "/tag_completion_cancel",
         "/sync_delete/options",
         "/sync_delete/preview",
         "/sync_delete/history",
@@ -82,7 +88,9 @@ def test_all_plugin_routes_declare_concrete_v3_models() -> None:
         "/rename_archive",
         "/sites",
     }
-    envelope_paths = {route["path"] for route in routes if "POST" in route["methods"]} - bare_paths
+    envelope_paths = (
+        {route["path"] for route in routes if "POST" in route["methods"]} - bare_paths
+    ) | {"/tag_completion_task", "/tag_completion_result"}
     for route in routes:
         response_model = route["response_model"]
         is_envelope = isinstance(response_model, type) and issubclass(
@@ -109,6 +117,7 @@ def test_json_post_routes_use_pydantic_request_models() -> None:
         "/tag_cleanup_execute",
         "/tag_completion_scan",
         "/tag_completion_execute",
+        "/tag_completion_cancel",
     }
 
     routes = {route["path"]: route for route in plugin.get_api()}

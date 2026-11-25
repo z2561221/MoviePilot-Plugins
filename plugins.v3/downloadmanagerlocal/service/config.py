@@ -14,6 +14,7 @@ from ..model.state import (
 from ..model.sync_delete import DEFAULTS as SYNC_DELETE_DEFAULTS
 from ..utils.config import (
     PLUGIN_CONFIG_DEFAULTS,
+    normalize_pieces_site_keys,
     normalize_speed_monitor_config,
     normalize_upload_limit_config,
     safe_int,
@@ -24,6 +25,7 @@ DEFAULT_TRACKER_MAPPINGS = (
     "chdbits.xyz -> ptchdbits.co\n"
     "agsvpt.trackers.work -> agsvpt.com\n"
     "tracker.m-team.cc -> m-team.cc\n"
+    "tracker.m-team.io -> m-team.cc\n"
     "agsvpt.cn -> agsvpt.com\n"
     "x-anime.cc -> u2.dmhy.org\n"
     "anime.dmhy.org -> u2.dmhy.org\n"
@@ -114,6 +116,17 @@ def initialize_runtime_config(plugin, config: dict = None) -> dict:
     plugin._iyuu_cron = config.get("iyuu_cron", defaults["iyuu_cron"])
     plugin._iyuu_onlyonce = config.get("iyuu_onlyonce", defaults["iyuu_onlyonce"])
     plugin._iyuu_token = config.get("iyuu_token", defaults["iyuu_token"])
+    plugin._pieces_site_keys = normalize_pieces_site_keys(config.get("pieces_site_keys"))
+    config.pop("reseed_mode", None)
+    plugin._pieces_torrent_paths = normalize_pieces_site_keys(config.get("pieces_torrent_paths"))
+    plugin._reseed_max_additions = safe_int(config.get("reseed_max_additions"), 20, 1, 1000)
+    config.pop("pieces_sites", None)
+    config.pop("pieces_enabled", None)
+    config.update({
+        "pieces_site_keys": plugin._pieces_site_keys,
+        "pieces_torrent_paths": plugin._pieces_torrent_paths,
+        "reseed_max_additions": plugin._reseed_max_additions,
+    })
     plugin._iyuu_downloaders = config.get("iyuu_downloaders") or defaults["iyuu_downloaders"]
     plugin._iyuu_auto_downloader = config.get("iyuu_auto_downloader", defaults["iyuu_auto_downloader"])
     plugin._iyuu_sites = config.get("iyuu_sites") or defaults["iyuu_sites"]
