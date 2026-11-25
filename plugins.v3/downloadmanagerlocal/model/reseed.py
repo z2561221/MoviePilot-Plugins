@@ -27,6 +27,9 @@ class TaskResult(BaseModel):
     submission_count: int = 0
     addition_limit: int = 20
     source_limit: int = 0
+    query_retries: int = 0
+    resumed: bool = False
+    scan_pending: bool = False
     created_at: float = 0
     updated_at: float = 0
 

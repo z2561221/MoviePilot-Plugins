@@ -1822,11 +1822,11 @@ onBeforeUnmount(() => permissionController?.abort())
                 </VCol>
               </VRow>
               <VAlert type="info" variant="tonal" density="compact" class="mt-3">
-                <div>1. 每行填写一个站点，格式为“站点名称:Passkey”；站点名称请与 MoviePilot「站点管理」中的名称一致。</div>
-                <div>2. 可在行末标注请求间隔，单位为整数秒，例如“站点名称:Passkey:3”。该格式约定省略间隔时为 1 秒。</div>
-                <div>3. 使用 MoviePilot 配置的站点域名：通用站点为“/api/pieces-hash”，朋友为“/api/torrents/pieces-hash”，憨憨为“/nexusapi/pieces-hash”。</div>
-                <div>4. FluxTorrent／好学填写 fxo_ 开头的开放 API 令牌，需具有 crossseed 查询和下载权限；其他站点填写 Passkey。</div>
-                <div>5. 随 IYUU 铺种任务运行，只补查 IYUU 未匹配到的站点；留空则仅使用 IYUU。</div>
+                <div>1. 先启用 IYUU 铺种、填写 IYUU Token，并在「条件筛选」选择辅种下载器。</div>
+                <div>2. 每行填写一个支持辅助铺种的站点，格式为“站点名称:Passkey”；站点须在 MoviePilot「站点管理」中启用，名称一致且唯一。</div>
+                <div>3. FluxTorrent／好学将 Passkey 替换为 fxo_ 开头的开放 API 令牌，需有 crossseed 查询和下载权限。</div>
+                <div>4. 请求间隔可省略，默认 1 秒；例如“站点名称:Passkey:3”表示间隔 3 秒。</div>
+                <div>5. 保存后随 IYUU 任务补查未命中的已配置站点；需要立即执行时，勾选「立即运行一次」并保存。此项留空则仅使用 IYUU。</div>
               </VAlert>
             </div>
 

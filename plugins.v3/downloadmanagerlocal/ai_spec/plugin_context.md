@@ -3,7 +3,7 @@
 ## 插件定位
 
 `DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
-`3.3.19`（基于实时 main 的 V3.3.18）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`3.3.20`（基于实时 main 的 V3.3.19）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
@@ -36,7 +36,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理；同步删除实施测试只使用隔离替身，生产接管需单独回读配置与运行日志。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 为本周期开发版 `3.3.19`；V2 源码与元数据保持原样。
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 为本周期开发版 `3.3.20`；V2 源码与元数据保持原样。
 - 标签补全先扫描预览，执行时回读任务并复核来源；站点标签依 tracker/站点映射，转种标签依已完成转移记录，IYUU 标签依种子 hash 的母种与目标下载器历史。只追加缺失标签，不重命名、不转移/铺种、不清除现有标签；无法确认来源的任务不补转种或 IYUU 标签。
 - 转移批次在停止和重新初始化后失效；已创建目标而未收尾的任务以 `stopped_after_add` 记录，保留源任务，下次继续后处理并避免重复添加。
 - 不 push、merge 或发布。
@@ -49,6 +49,13 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 - `iyuu.submit_verified_torrent` 为公共添加入口，记录 provider 并沿用既有 pending/history。Pieces 目标强制校验，`recheck.py` 保存校验回执，100% 后遵守自动开始开关。
 - 保留受管理员权限保护的 `reseed/status|results|stop`，移除独立 start 路由。模块名称为 IYUU铺种，沿用原开关、Token、下载器、周期和“立即运行一次”；设置页不挂载运行记录组件，也不轮询结果。每轮默认最多新增 20 个任务；后台服务/API仍保留任务进度和分页结果用于非页面调用。
 - 验证与部署进度保存在本批 archive 报告，当前 API 总数为 44。真实校验结果与源码测试分别记录。
+
+## 铺种查询恢复
+
+- `reseed_scan_progress` 保存当前配置签名和各下载器最后已完成批次的 hash；固定排序使来源增删不依赖旧数组下标。仅正式不限来源扫描消费断点，预览与小范围试验隔离；未完成批次因停止、错误或提交上限保留供下次重查，完整一轮后重置。已完成下载器可跳过，不可达下载器不阻塞其他下载器且不会被标为完成。
+- IYUU 查询仅对临时网络、服务端及响应格式错误有限重试，最多三次，等待受持久冷却与停止信号约束；认证和限流不盲重试，失败仍不扇出 Pieces。错误响应不会被当作空命中缓存。`query_retries`、`resumed`、`scan_pending` 为任务状态增量字段，旧状态按默认值兼容。
+- 来源快照内已经完整存在的目标直接返回“目标任务已存在”，减少逐候选 RPC；未知目标仍通过原有提交意图、身份核验、未知提交占额和校验链。新增状态均经实例 `get_data/save_data` 管理，不写入配置或源码目录。
+- 回归见 `test_reseed_runtime.py`；实际同步、reload 和外部站点成功率以当前任务报告为准，不由单测成功推导。
 
 ## 2026-11-17 自动删除与总览
 

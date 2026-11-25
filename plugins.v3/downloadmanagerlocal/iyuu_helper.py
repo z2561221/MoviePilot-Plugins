@@ -75,14 +75,19 @@ class IyuuHelper(object):
             self.retry_after = retry_after_seconds(ret.headers)
             self._cooldown_until = time.time() + self.retry_after
             return None, "IYUU 请求限流，等待冷却"
-        if ret:
-            result = ret.json()
+        if ret is not None and ret.status_code >= 400:
+            return None, f"请求IYUU失败，HTTP {ret.status_code}"
+        if ret is not None:
+            try:
+                result = ret.json()
+            except ValueError:
+                return None, "IYUU 响应格式无效"
+            if not isinstance(result, dict):
+                return None, "IYUU 响应格式无效"
             if result.get('code') == 0:
                 return result.get('data'), ""
             else:
                 return None, f'请求IYUU失败，状态码：{result.get("code")}，返回信息：{result.get("msg")}'
-        elif ret is not None:
-            return None, f"请求IYUU失败，状态码：{ret.status_code}，错误原因：{ret.reason}"
         else:
             return None, "请求IYUU失败，未获取到返回信息"
 
