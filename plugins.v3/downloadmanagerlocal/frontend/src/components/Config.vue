@@ -22,6 +22,7 @@ const getApi = (path, options = {}) => getPluginApi(props.api, props.pluginId, p
 const postJsonApi = (path, payload = {}, options = {}) => postPluginJsonApi(props.api, props.pluginId, path, payload, options)
 
 const form = reactive({})
+const editingPiecesCredentials = ref(false)
 const saving = ref(false)
 const saveNotice = ref('')
 const saveProblem = ref(false)
@@ -83,6 +84,7 @@ function configRequestScope() {
 }
 
 function resetConfigRequests() {
+  editingPiecesCredentials.value = false
   saving.value = false
   saveNotice.value = ''
   reviewDialog.value = false
@@ -528,6 +530,7 @@ async function saveConfig() {
     }
     if (!owns()) return
     written = true
+    if (form.pieces_site_keys === draft.pieces_site_keys) editingPiecesCredentials.value = false
     // A confirmed one-shot must not be submitted again if readback fails.
     for (const key of ['onlyonce', 'iyuu_onlyonce']) {
       if (payload[key] && form[key] === draft[key]) form[key] = false
@@ -550,7 +553,7 @@ async function saveConfig() {
   } catch (error) {
     if (!owns()) return
     saveProblem.value = true
-    const reason = error?.message || '保存未确认，请检查后重试。'
+    const reason = draft.pieces_site_keys ? '保存未确认，请检查配置后重试。' : error?.message || '保存未确认，请检查后重试。'
     saveNotice.value = written ? '配置已保存，未能回读最新状态。'
       : autoSaved ? `自动删除设置已保存，其他配置未确认：${reason}` : reason
   } finally {
@@ -752,6 +755,7 @@ function syncUploadStatusAutoRefresh() {
 }
 
 watch([activeMain, activeSub], syncUploadStatusAutoRefresh, { flush: 'post' })
+watch([activeSub, canManage], () => { editingPiecesCredentials.value = false }, { flush: 'sync' })
 
 onMounted(() => {
   document.addEventListener('visibilitychange', syncUploadStatusAutoRefresh)
@@ -1823,16 +1827,19 @@ onBeforeUnmount(() => permissionController?.abort())
               <div class="dm-section-title mt-4">辅助铺种</div>
               <VRow class="mt-2 dm-form-grid dm-form-grid--one">
                 <VCol cols="12" class="dm-form-field">
-                  <VTextarea v-model="form.pieces_site_keys" label="站点Passkey" density="compact" variant="outlined"
-                    rows="4" auto-grow hide-details :disabled="!canManage"
-                    placeholder="站点名称:Passkey[:请求间隔秒数]&#10;例如：站点A:你的Passkey&#10;站点B:你的Passkey:3" />
+                  <VBtn size="small" variant="tonal" :disabled="!canManage" :aria-expanded="editingPiecesCredentials && canManage"
+                    @click="editingPiecesCredentials = !editingPiecesCredentials">{{ editingPiecesCredentials && canManage ? '隐藏凭据' : '编辑接口与凭据' }}</VBtn>
+                  <VTextarea v-if="editingPiecesCredentials && canManage" v-model="form.pieces_site_keys" label="辅助铺种配置" density="compact" variant="outlined"
+                    class="mt-2" rows="4" auto-grow hide-details autocomplete="off" spellcheck="false"
+                    placeholder="青蛙:/api/pieces-hash,你的Passkey&#10;憨憨:/nexusapi/pieces-hash,你的Passkey" />
+                  <div v-else class="dm-hint">{{ form.pieces_site_keys ? '已填写，凭据已隐藏。' : '未填写，仅使用 IYUU。' }}</div>
                 </VCol>
               </VRow>
               <VAlert type="info" variant="tonal" density="compact" class="mt-3">
                 <div>1. 先启用 IYUU 铺种、填写 IYUU Token，并在「条件筛选」选择辅种下载器。</div>
-                <div>2. 每行填写一个支持辅助铺种的站点，格式为“站点名称:Passkey”；站点须在 MoviePilot「站点管理」中启用，名称一致且唯一。</div>
-                <div>3. FluxTorrent／好学将 Passkey 替换为 fxo_ 开头的开放 API 令牌，需有 crossseed 查询和下载权限。</div>
-                <div>4. 请求间隔可省略，默认 1 秒；例如“站点名称:Passkey:3”表示间隔 3 秒。</div>
+                <div>2. 每行一站，格式：站名:/查询路径,Passkey。站点须在 MoviePilot「站点管理」中启用，名称一致且唯一。</div>
+                <div>3. 域名取自站点管理，路径由你填写，不内置、不自动探测。只填本站路径，不填完整网址，不把 Passkey 放进路径。</div>
+                <div>4. 请求间隔可省略，默认 1 秒；要间隔 3 秒，在凭据后加 ,3。使用 fxo_ 开放令牌时需有 crossseed 查询和下载权限。</div>
                 <div>5. 保存后随 IYUU 任务补查未命中的已配置站点；需要立即执行时，勾选「立即运行一次」并保存。此项留空则仅使用 IYUU。</div>
               </VAlert>
             </div>
@@ -1933,7 +1940,7 @@ onBeforeUnmount(() => permissionController?.abort())
               <VRow class="mt-2 dm-form-grid dm-form-grid--one">
                 <VCol cols="12" class="dm-form-field">
                   <VTextarea v-model="form.tag_tracker_mappings_str" label="Tracker 映射（域名 -> 映射域名）" density="compact" variant="outlined" hide-details rows="4" />
-                  <div class="dm-hint">每行一条，例如 tracker.example.com -> example</div>
+                  <div class="dm-hint">可留空。先按 MP 站点目录识别；未知域名才查自定义映射，再查内置映射。每行一条：tracker 域名 -> 站点域名。</div>
                 </VCol>
               </VRow>
               <div class="dm-section-title mt-4">官种标签设置</div>

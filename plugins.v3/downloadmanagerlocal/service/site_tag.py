@@ -5,12 +5,11 @@ import re
 from pathlib import Path
 from threading import Event
 from typing import Callable, Dict, Iterable, List, Optional
-from urllib.parse import urlsplit
 
 from app.sdk.config import settings
 from app.sdk.logging import logger
 
-from ..adapter.moviepilot import generate_random_tag, get_site_indexer, list_site_dicts
+from ..adapter.moviepilot import generate_random_tag, load_tracker_directory
 from ..model.state import RENAME_RECORDS_KEY
 from ..utils.official_tag import (
     match_official,
@@ -25,6 +24,11 @@ from ..utils.tag_cleanup import (
     normalize_tags,
 )
 from ..utils.torrent_adapter import get_hash, get_label, get_tracker_urls
+from ..utils.tracker_directory import (
+    matching_site_domain,
+    resolve_tracker,
+    tracker_host,
+)
 from .activity import observed
 from .coordination import coordinated, operation_stopped
 from .pieces import _raw_info
@@ -271,31 +275,6 @@ def _write_transmission_labels(dl, torrent_hash: str, labels: list[str]) -> bool
         return client.change_torrent(ids=torrent_hash, labels=[]) is not False
     except Exception:
         return False
-
-
-def _read_tracker_domain(value: str) -> str:
-    """从完整 tracker URL、裸域名或 host:port 中提取规范主机名。"""
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    try:
-        parsed = urlsplit(text if "://" in text else "//" + text)
-        host = parsed.hostname or ""
-        return host.rstrip(".").encode("idna").decode("ascii").lower() if host else ""
-    except (UnicodeError, ValueError):
-        return ""
-
-
-def _mapped_tracker_domain(tracker: str, mappings: dict[str, str]) -> str:
-    """先精确命中显式映射，再允许 tracker 子域命中最长映射域。"""
-    host = _read_tracker_domain(tracker)
-    candidates = []
-    for source, target in (mappings or {}).items():
-        source_host = _read_tracker_domain(source)
-        target_host = _read_tracker_domain(target)
-        if source_host and target_host and (host == source_host or host.endswith("." + source_host)):
-            candidates.append((len(source_host), target_host))
-    return max(candidates, default=(0, host))[1]
 
 
 def _group_tags(torrents: Iterable, downloader_type: str = "qbittorrent") -> tuple:
@@ -695,51 +674,34 @@ def execute_tag_cleanup(plugin, removals: Iterable[dict]) -> dict:
     }
 
 
+def _tracker_directory() -> dict:
+    """宿主目录读取失败时本轮不打标，不用别名掩盖读取失败。"""
+    try:
+        return load_tracker_directory()
+    except Exception as error:
+        logger.warning(f"无法读取 MP 站点目录，本轮不判定 Tracker 归属：{type(error).__name__}")
+        return {}
+
+
 def find_site_by_domain(domain: str) -> Optional[str]:
-    """通过精确域名或边界安全的父域匹配站点名称。"""
-    host = _read_tracker_domain(domain)
-    if not host:
-        return None
-    try:
-        sites = list_site_dicts()
-        exact = []
-        parent = []
-        for site_info in sites:
-            site_domain = site_info.get("domain") or site_info.get("url") or ""
-            site_host = _read_tracker_domain(site_domain)
-            if not site_host:
-                continue
-            if host == site_host:
-                exact.append((site_host, site_info.get("name")))
-            elif host.endswith("." + site_host):
-                parent.append((site_host, site_info.get("name")))
-        matched = exact or parent
-        if matched:
-            longest = max(len(site_host) for site_host, _ in matched)
-            names = {name for site_host, name in matched if len(site_host) == longest and name}
-            return next(iter(names)) if len(names) == 1 else None
-    except Exception:
-        pass
-
-    try:
-        site_info = get_site_indexer(host)
-        if site_info:
-            return site_info.get("name")
-    except Exception:
-        pass
-
-    return None
+    """不经插件别名，直接查询 MP 目录中唯一的已配置站点。"""
+    directory = _tracker_directory()
+    return directory.get(matching_site_domain(tracker_host(domain), directory))
 
 
 def tracker_sites(plugin, trackers, site_cache):
     """按域名缓存解析 tracker；保留未知结果，避免把多站种误判为本站。"""
-    mappings = getattr(plugin, "_tracker_mappings", {}) or {}
     for tracker in trackers or []:
-        domain = _mapped_tracker_domain(str(tracker or ""), mappings)
+        domain = tracker_host(tracker)
         if not domain:
             continue
         if domain not in site_cache:
-            site_cache[domain] = find_site_by_domain(domain)
+            if None not in site_cache:
+                site_cache[None] = _tracker_directory()
+            site_cache[domain] = resolve_tracker(
+                domain, site_cache[None], getattr(plugin, "_custom_tracker_mappings", {}) or {},
+                getattr(plugin, "_tracker_mappings", {}) or {},
+            )
         yield site_cache[domain]
 
 
@@ -750,8 +712,8 @@ def official_site(plugin, trackers, site_cache):
 
 
 def _site_tag_for_trackers(plugin, trackers: Iterable[str], site_cache: dict) -> str:
-    """普通站点标签沿用首个已知站点的语义。"""
-    site = next((site for site in tracker_sites(plugin, trackers, site_cache) if site), None)
+    """站名标签也不在多个冲突站点之间猜测。"""
+    site = official_site(plugin, trackers, site_cache)
     return f"{getattr(plugin, '_tag_siteprefix', '') or ''}{site}" if site else ""
 
 
@@ -802,7 +764,9 @@ def _expected_completion_tags(
     """返回当前任务有证据可恢复的站点、转移和 IYUU 标签。"""
     torrent_hash = str(get_hash(torrent, dl_type) or "").strip()
     expected = {"site": set(), "transfer": set(), "iyuu": set(), "official": set()}
-    trackers = tracker_urls if tracker_urls is not None else get_tracker_urls(torrent, dl_type)
+    trackers = list(tracker_urls) if tracker_urls is not None else get_tracker_urls(torrent, dl_type)
+    if not trackers and isinstance(torrent, dict) and torrent.get("tracker"):
+        trackers = [torrent["tracker"]]
     site_tag = _site_tag_for_trackers(plugin, trackers, site_cache)
     if site_tag and (getattr(plugin, "_tag_enabled", True) or not official_label(plugin)):
         expected["site"].add(site_tag)
@@ -824,8 +788,6 @@ def _expected_completion_tags(
     ):
         expected["iyuu"].update(iyuu_tags)
     if official_label(plugin):
-        if not trackers and isinstance(torrent, dict) and torrent.get("tracker"):
-            trackers = [torrent["tracker"]]
         site = official_site(plugin, trackers, site_cache)
         record = (data_snapshot.get(RENAME_RECORDS_KEY) or {}).get(torrent_hash) or {}
         original = record.get("original_name") if isinstance(record, dict) else None

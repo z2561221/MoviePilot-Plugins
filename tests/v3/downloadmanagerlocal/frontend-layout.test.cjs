@@ -158,7 +158,8 @@ test('detail overview starts with its original four statistics and runtime panel
     { key: 'auto_delete', title: '自动删除', state: 'idle', pending: 0 },
   ]
   const view = fixture('Page', {}, { modules, overview: {
-    cards: { transfer: { active: true, today_success: 2, today_fallback: 1, success_total: 10 }, iyuu: { enabled: true }, seed: { autostart: true } },
+    cards: { transfer: { active: true, today_success: 2, today_fallback: 1, success_total: 10 }, iyuu: { enabled: true },
+      pieces: { configured: true, enabled: true, today_success: 3, today_fail: 2, success_total: 11 }, seed: { autostart: true } },
     modules, archive: {}, speed_monitor: { service_status: 'idle' }, upload_limit: { service_status: 'running' },
     auto_delete: { debug_rules: 1, delete_rules: 0 },
   } })
@@ -177,7 +178,9 @@ test('detail overview starts with its original four statistics and runtime panel
     assert.deepEqual(view.all(node => hasClass(node, 'dm-overview-stat-label')).map(node => view.text(node)), ['速度监控', '上传限速', '待关注', '异常数量'])
     assert.deepEqual(view.all(node => node.props['data-runtime-section']).map(node => node.props['data-runtime-section']), ['speed-monitor', 'upload-limit'])
     const features = view.all(node => hasClass(node, 'dm-feature-head'))
-    assert.deepEqual(features.map(node => view.text(node.children[0])), ['转移做种', 'IYUU铺种', '命名补刀', '做种校验', '站点标签', '同步删除', '自动删除'])
+    assert.deepEqual(features.map(node => view.text(node.children[0])), ['转移做种', 'IYUU铺种', '辅助铺种', '命名补刀', '做种校验', '站点标签', '同步删除', '自动删除'])
+    assert.equal(view.text(features[2].children[1]), '随 IYUU')
+    assert(view.text(features[2].parent).includes('成功 3 · 失败 2 · 累计 8'))
     assert(view.text().includes('今日 2 · 兜底 1 · 累计 8'))
     assert(view.text().includes('调试 1 · 正式 0 · 待处理 0'))
     assert(!view.text().includes('运行链路'))
@@ -286,7 +289,7 @@ test('host validation details reach the shared save notice', async () => {
 })
 
 test('Pieces-hash passkey lines select generic sites without a separate site picker', async () => {
-  const view = fixture('Config', { initialConfig: { pieces_enabled: false, pieces_sites: [7] } }, { get: {
+  const view = fixture('Config', { initialConfig: { pieces_enabled: false, pieces_sites: [7], pieces_site_keys: '青蛙:/custom/path,old-test-key' } }, { get: {
     sites: () => [{ title: '青蛙', value: 7 }, { title: 'Example tracker', value: 8 }],
   } })
   try {
@@ -309,22 +312,28 @@ test('Pieces-hash passkey lines select generic sites without a separate site pic
     assert.equal(find('VBtn', '运行辅助铺种'), undefined)
     assert.equal(view.text().includes('Pieces-hash 通用配置'), false)
     assert.equal(field('辅种站点').length, 0)
-    assert.equal(field('站点Passkey').length, 1)
-    const passkeyField = field('站点Passkey')[0]
+    assert.equal(field('辅助铺种配置').length, 0)
+    assert(!view.text().includes('old-test-key'))
+    await find('VBtn', '编辑接口与凭据').props.onClick()
+    await settle()
+    const passkeyField = field('辅助铺种配置')[0]
+    assert.equal(passkeyField.props.modelValue, '青蛙:/custom/path,old-test-key')
     const pane = passkeyField.parent.parent.parent
     const help = view.all(node => node.type === 'VAlert' && view.visible(node), pane)
     assert.equal(help.length, 1)
     const paneNodes = view.all(() => true, pane)
     assert(paneNodes.indexOf(passkeyField) < paneNodes.indexOf(help[0]))
     assert(view.text(help[0]).includes('站点管理'))
-    assert(view.text(help[0]).includes('站点名称:Passkey:3'))
+    assert(view.text(help[0]).includes('站名:/查询路径,Passkey'))
+    assert(passkeyField.props.placeholder.includes('青蛙:/api/pieces-hash,你的Passkey'))
+    assert(passkeyField.props.placeholder.includes('憨憨:/nexusapi/pieces-hash,你的Passkey'))
     assert(view.text(help[0]).includes('先启用 IYUU 铺种、填写 IYUU Token'))
     assert(view.text(help[0]).includes('「条件筛选」选择辅种下载器'))
     assert(view.text(help[0]).includes('「站点管理」中启用，名称一致且唯一'))
     assert(view.text(help[0]).includes('请求间隔可省略，默认 1 秒'))
     assert(view.text(help[0]).includes('勾选「立即运行一次」并保存'))
     assert.equal(view.text(help[0]).includes('/api/'), false)
-    assert(view.text(help[0]).includes('FluxTorrent／好学'))
+    assert(view.text(help[0]).includes('路径由你填写，不内置、不自动探测'))
     assert(view.text(help[0]).includes('fxo_'))
     assert(view.text(help[0]).includes('crossseed 查询和下载权限'))
     assert.equal(view.text(help[0]).includes('定时辅种周期'), false)
@@ -339,12 +348,15 @@ test('Pieces-hash passkey lines select generic sites without a separate site pic
     assert.equal(field('选择种子').length, 0)
     assert.equal(find('VBtn', '只查青蛙匹配'), undefined)
 
-    field('站点Passkey')[0].props['onUpdate:modelValue']('Example tracker:test-passkey\n青蛙:another-key:3')
+    passkeyField.props['onUpdate:modelValue']('Example tracker:/lookup,test-passkey\n青蛙:/other/query,another-key,3')
+    await find('VBtn', '隐藏凭据').props.onClick()
+    await settle()
+    assert.equal(field('辅助铺种配置').length, 0)
     await find('VBtn', '保存配置').props.onClick()
     await settle()
 
     const saved = view.writes.find(item => item.path === 'plugin/ScopedInstance')?.body
-    assert.equal(saved.pieces_site_keys, 'Example tracker:test-passkey\n青蛙:another-key:3')
+    assert.equal(saved.pieces_site_keys, 'Example tracker:/lookup,test-passkey\n青蛙:/other/query,another-key,3')
     assert.equal('pieces_sites' in saved, false)
     assert.equal('pieces_enabled' in saved, false)
     assert.equal('pieces_site_configs' in saved, false)

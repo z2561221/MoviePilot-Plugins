@@ -77,7 +77,7 @@ def build_module_overview(plugin, diagnostics, cards, speed, upload):
            pending=archive.get("active_failed", 0))
     append("tag", "站点标签", bool(getattr(plugin, "_tag_enabled", False) or getattr(plugin, "_tag_official_enabled", False)), bool(target.get("available") or ready), bool(activity.get("tag")),
            "按 tracker 识别站名；官种按本站制作组识别，支持老种补全",
-           {"Tracker 映射": len(getattr(plugin, "_tracker_mappings", {}) or {}),
+           {"Tracker 映射": len(set(getattr(plugin, "_tracker_mappings", {}) or {}) | set(getattr(plugin, "_custom_tracker_mappings", {}) or {})),
             "标签前缀": getattr(plugin, "_tag_siteprefix", ""),
             "官种标签": official_label(plugin) or "未启用",
             "官种映射站点": len(getattr(plugin, "_official_groups", {}) or {})})

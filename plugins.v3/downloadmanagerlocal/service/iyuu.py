@@ -41,6 +41,7 @@ from .site_tag import create_temporary_tag, forget_temporary_tag, release_tempor
 from .coordination import coordinated, operation_lock, task_blocked
 from .activity import observed
 from .auto_delete_relations import target_retired
+from .pieces import count_result as count_pieces_result
 from .transfer import _transfer_stopped as _base_stopped
 
 IYUU_QUERY_CHUNK_SIZE = 100
@@ -568,11 +569,12 @@ def submit_verified_torrent(plugin, content, expected_hash, service, save_path, 
     safe_torrent_url = mask_sensitive_url(torrent_url)
     pending_key = f"{service.name}::{expected_hash}"
     submitted = False
+    explicitly_rejected = False
 
     @coordinated
     def submit(owner, send):
         """在锁内重新认出原任务与目的下载器，然后登记意图并实际提交。"""
-        nonlocal submitted
+        nonlocal submitted, explicitly_rejected
         if _transfer_stopped(owner, generation):
             return None
         target = owner.service_info(service.name)
@@ -620,7 +622,9 @@ def submit_verified_torrent(plugin, content, expected_hash, service, save_path, 
         if _transfer_stopped(owner, generation):
             return None
         submitted = True
-        return send(target.instance)
+        receipt = send(target.instance)
+        explicitly_rejected = receipt is False
+        return receipt
 
     logger.info(f"IYUU辅种：准备添加下载任务：{safe_torrent_url}")
     try:
@@ -640,12 +644,14 @@ def submit_verified_torrent(plugin, content, expected_hash, service, save_path, 
             accepted, read_error = service.instance.get_torrents(ids=[expected_hash])
             if not read_error and accepted and len(accepted) == 1:
                 download_id = expected_hash
+            elif provider == "pieces" and explicitly_rejected and not read_error and accepted == [] and not _transfer_stopped(plugin, generation):
+                count_pieces_result(plugin, success=False)
         except Exception:
             download_id = None
     if not download_id:
         if _transfer_stopped(plugin, generation):
             return False
-        if submitted:
+        if submitted and provider != "pieces":
             plugin._iyuu_fail += 1
         return False
 
@@ -713,7 +719,10 @@ def _finish_iyuu_pending(plugin, key, item, service, generation) -> bool:
         pending.pop(key, None)
         plugin.save_data(IYUU_PENDING_KEY, pending)
         append_iyuu_cache(plugin._iyuu_success_caches, item["expected_hash"])
-        plugin._iyuu_success += 1
+        if item.get("provider") == "pieces":
+            count_pieces_result(plugin, success=True)
+        else:
+            plugin._iyuu_success += 1
         return True
     except Exception as error:
         logger.error(f"IYUU辅种：目标 {download_id} 后处理未完成，保留续办记录：{error}")

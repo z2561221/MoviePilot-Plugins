@@ -3,48 +3,65 @@
 import hashlib
 import re
 import time
+from contextlib import suppress
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import PurePosixPath
-from urllib.parse import urlsplit
 
+from app.sdk.logging import logger
 from bencode import bdecode
 
-from ..adapter.moviepilot import is_flux_site, request_pieces_res
+from ..adapter.moviepilot import is_flux_site, pieces_hash_url, request_pieces_res
+from ..model.state import record_pieces_result
 
 MAX_TORRENT_BYTES = 16 * 1024 * 1024
+
+
+def count_result(plugin, *, success: bool) -> None:
+    """统计写入不是提交回执；失败时不能重放已经提交的铺种任务。"""
+    with suppress(Exception):
+        record_pieces_result(plugin, success=success)
+        return
+    logger.warning("辅助铺种统计未能写入；不重放本次铺种操作")
 
 
 def parse_site_keys(text: str, sites: list[dict]) -> list[dict]:
     """按精确站名解析参与站点，错误只显示行号并避免泄露凭据。"""
     resolved = {}
+    by_name = {}
+    for site in sites:
+        by_name.setdefault(site.get("name"), []).append(site)
     for line_number, line in enumerate(str(text or "").splitlines(), 1):
         if not line.strip():
             continue
-        fields = [field.strip() for field in line.split(":")]
-        if len(fields) not in (2, 3) or not all(fields):
-            raise ValueError(f"第 {line_number} 行格式应为站点名称:Passkey[:秒数]")
-        name, passkey = fields[:2]
+        name, separator, values = line.partition(":")
+        fields = [field.strip() for field in values.split(",")]
+        if not separator or not name.strip() or len(fields) not in (2, 3) or not all(fields):
+            raise ValueError(f"第 {line_number} 行应为 站名:/查询路径,Passkey，可在末尾加 ,秒数")
+        query_path, passkey = fields[:2]
+        if not all(char.isprintable() and not char.isspace() for char in passkey):
+            raise ValueError(f"第 {line_number} 行凭据格式无效")
         interval = fields[2] if len(fields) == 3 else "1"
-        if not interval.isascii() or not interval.isdecimal() or not 1 <= int(interval) <= 86400:
+        if not re.fullmatch(r"[0-9]{1,5}", interval) or not 1 <= int(interval) <= 86400:
             raise ValueError(f"第 {line_number} 行请求间隔应为 1 至 86400 的整数")
-        matches = [site for site in sites if site.get("name") == name]
+        matches = by_name.get(name.strip(), [])
         if len(matches) != 1 or not matches[0].get("id"):
             raise ValueError(f"第 {line_number} 行站点名称不存在或不唯一")
         site = dict(matches[0])
         base = str(site.get("url") or site.get("domain") or "").rstrip("/")
-        parsed = urlsplit(base)
-        if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username or parsed.query or parsed.fragment:
-            raise ValueError(f"第 {line_number} 行站点地址无效")
         if site.get("is_active") is False:
             raise ValueError(f"第 {line_number} 行站点已停用")
-        site.update(url=base + "/", passkey=passkey, interval=int(interval))
+        site.update(url=base + "/", query_path=query_path, passkey=passkey, interval=int(interval))
+        try:
+            pieces_hash_url(site)
+        except ValueError as error:
+            raise ValueError(f"第 {line_number} 行：{error}") from None
         identity = str(site["id"])
-        if identity in resolved and resolved[identity]["passkey"] != passkey:
-            raise ValueError(f"第 {line_number} 行重复站点的凭据不一致")
+        if identity in resolved and any(site[key] != resolved[identity][key] for key in ("query_path", "passkey", "interval")):
+            raise ValueError(f"第 {line_number} 行重复站点的配置不一致")
         resolved[identity] = site
     if not resolved:
-        raise ValueError("请填写参与辅助铺种的站点 Passkey")
+        raise ValueError("请填写辅助铺种站点的查询路径与凭据")
     return list(resolved.values())
 
 

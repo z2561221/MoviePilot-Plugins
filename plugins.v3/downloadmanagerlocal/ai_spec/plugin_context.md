@@ -3,7 +3,7 @@
 ## 插件定位
 
 `DownloadManagerLocal` 是 MoviePilot V3 专用插件，展示名为“下载中心”，当前开发版本为
-`3.3.21`（基于已发布的 V3.3.20）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
+`3.3.22`（基于已发布的 V3.3.21）。源码位于 `plugins.v3/downloadmanagerlocal/`，市场元数据位于
 `package.v3.json`；V2 `3.2.9` 实现继续留在 `plugins.v2/downloadmanagerlocal/`，两代
 源码不得交叉修改。后端能力聚合为：
 
@@ -36,7 +36,7 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 
 - 上传限速默认关闭；MP 运行态验收时不得对真实下载器执行限速写入。
 - 不执行真实种子删除、转移或标签清理；同步删除实施测试只使用隔离替身，生产接管需单独回读配置与运行日志。
-- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 为本周期开发版 `3.3.21`；V2 源码与元数据保持原样。
+- V3 `plugin_version`、`plugin.json`、`package.v3.json` 与当前 history 为本周期开发版 `3.3.22`；V2 源码与元数据保持原样。
 - 标签补全先扫描预览，执行时回读任务并复核来源；站点标签依 tracker/站点映射，转种标签依已完成转移记录，IYUU 标签依种子 hash 的母种与目标下载器历史。只追加缺失标签，不重命名、不转移/铺种、不清除现有标签；无法确认来源的任务不补转种或 IYUU 标签。
 - 转移批次在停止和重新初始化后失效；已创建目标而未收尾的任务以 `stopped_after_add` 记录，保留源任务，下次继续后处理并避免重复添加。
 - 不 push、merge 或发布。
@@ -45,8 +45,9 @@ Vue 联邦配置页源码位于 `frontend/src/components/Config.vue`，运行产
 ## 2026-11-24 辅助铺种
 
 - 用户确认 IYUU 为主、Pieces 为辅。`service/reseed.py` 负责 SDK 一次性任务、完整来源扫描、分站冷却、分批查询和分页回执；Pieces 只在 IYUU 成功查询后补查缺口，参与站点由 Passkey 行决定，旧 reseed_mode 不再生效。
-- `service/pieces.py` 解析精确站名凭据配置、原始 info 编码 hash、v1 分片与完整文件布局。通用站点需同时符合 `/api/pieces-hash` JSON 查询和 Nexus `download.php` 下载约定。
+- `service/pieces.py` 按 `站名:/查询路径,Passkey[,秒数]` 绑定启用的 MP 站点。查询只向该 HTTPS 源和自定义路径发 POST；不内置站点路径或按站名分流。普通凭据随 JSON 提交，开放令牌通过认证头，种子下载仍遵循各自协议。旧无路径行要求用户补写，错误只含行号和原因。配置编辑框默认不挂载明文输入控件。
 - `iyuu.submit_verified_torrent` 为公共添加入口，记录 provider 并沿用既有 pending/history。Pieces 目标强制校验，`recheck.py` 保存校验回执，100% 后遵守自动开始开关。
+- 总览 `cards.pieces` 仅从该实例的 `pieces_stats` 读取统计，不扫描种子历史或请求站点。提供配置/启用状态与当日成功、当日失败、全时段成功数；界面显示截至昨日累计。确认完成添加后处理才按 pending 的 provider 归属成功，包括恢复路径。明确失败与预览、跳过、未知回执分开。升级前没有来源拆分的 IYUU 汇总不迁移、不扣减。
 - 保留受管理员权限保护的 `reseed/status|results|stop`，移除独立 start 路由。模块名称为 IYUU铺种，沿用原开关、Token、下载器、周期和“立即运行一次”；设置页不挂载运行记录组件，也不轮询结果。每轮默认最多新增 20 个任务；后台服务/API仍保留任务进度和分页结果用于非页面调用。
 - 验证与部署进度保存在本批 archive 报告，当前 API 总数为 44。真实校验结果与源码测试分别记录。
 
@@ -429,7 +430,7 @@ bear 认证与响应模型；写入接口另要求管理员权限，操作接口
 - `rename_exclude_dirs`
 - `tag_enabled`
 - `tag_siteprefix`
-- `tag_tracker_mappings_str`
+- `tag_tracker_mappings_str` 只做未知域名的兜底：MP 原始域名与模板 ID 归属优先于自定义和内置映射。目录按扫描或执行批次读取，不跨批复用；青蛙 `tracker.qingwapt.org -> qingwapt.com` 内置。不能以未配置模板名或旧站名标签确认归属。
 
 IYUU：
 

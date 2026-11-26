@@ -89,6 +89,16 @@ def test_overview_uses_persisted_transfer_and_iyuu_totals(monkeypatch) -> None:
     assert result.cards["iyuu"]["today_fail"] == 1
     assert result.cards["iyuu"]["success"] == 0
     assert result.cards["iyuu"]["fail"] == 0
+    assert result.cards["pieces"] == {"configured": False, "enabled": False, "today_success": 0, "today_fail": 0, "success_total": 0}
+    plugin._pieces_site_keys = '测试站:/lookup,demo'
+    plugin._enabled, plugin._iyuu_token, plugin._iyuu_downloaders = True, 'test', ['QB']
+    state.record_pieces_result(plugin, success=True)
+    state.record_pieces_result(plugin, success=False)
+    updated = handlers.api_overview(plugin)
+    assert updated.cards["pieces"] == {"configured": True, "enabled": True, "today_success": 1, "today_fail": 1, "success_total": 1}
+    assert updated.cards["iyuu"] == result.cards["iyuu"]
+    plugin._iyuu_enabled = False
+    assert handlers.api_overview(plugin).cards["pieces"]["enabled"] is False
 
 
 def test_transfer_successes_persist_total_and_fallback_subset(monkeypatch, tmp_path: Path) -> None:

@@ -64,7 +64,7 @@ def test_sunny_alias_restores_old_tasks_without_trusting_existing_label(monkeypa
     """Sunny 的真实 tracker 不在站点同一父域，且下载器站名标签不能替代来源核验。"""
     plugin = configured()
     plugin._tracker_mappings = parse_tracker_mappings(DEFAULT_TRACKER_MAPPINGS)
-    monkeypatch.setattr(site_tag, "find_site_by_domain", {"sunnypt.top": "Sunny", "example.test": "其他站"}.get)
+    monkeypatch.setattr(site_tag, "load_tracker_directory", lambda: {"sunnypt.top": "Sunny", "example.test": "其他站"})
     row = {"hash": "old", "name": f"[ 中文名 ] - Title.WEB-DL-{group}", "tags": "🏠Sunny,⏩转种"}
     def expected(domains):
         """重放补齐扫描与写入共用的期望标签计算。"""
@@ -98,7 +98,7 @@ def test_labels_in_add_request(monkeypatch, kind, operation, site, enabled, expe
     dl.add_torrent.return_value = SimpleNamespace(hashString="h1")
     service = SimpleNamespace(type=kind, name="dest", instance=dl)
     content = bencode({"announce": "https://tracker.test/a", "info": {"name": "Target@ADWeb"}})
-    monkeypatch.setattr(site_tag, "find_site_by_domain", lambda _: site)
+    monkeypatch.setattr(site_tag, "load_tracker_directory", lambda: {"tracker.test": site})
     if operation == "transfer":
         assert transfer.download_torrent(plugin, service, content, "/data", {"name": "other-FROG"}) == "h1"
     else:
@@ -117,7 +117,7 @@ def test_old_original_and_tracker_conflict(tmp_path, monkeypatch):
     identity = hashlib.sha1(bencode(info)).hexdigest()
     path = tmp_path / f"{identity}.torrent"
     path.write_bytes(bencode({"info": info}))
-    monkeypatch.setattr(site_tag, "find_site_by_domain", lambda domain: {"a.test": "青蛙", "b.test": "观众"}.get(domain))
+    monkeypatch.setattr(site_tag, "load_tracker_directory", lambda: {"a.test": "青蛙", "b.test": "观众"})
     row = {"hash": identity, "name": "手改的名字"}
     def expected(trackers):
         """按目标下载器当前证据计算期望官种标签。"""
