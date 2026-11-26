@@ -20,6 +20,7 @@ from ..utils.name_cleaner import (
     collect_retry_rename_hashes,
     is_polluted_original_name,
 )
+from ..utils.official_tag import official_label
 from ..utils.torrent_adapter import get_hash, get_label, get_save_path, get_tracker_urls
 from .activity import observed
 from .coordination import coordinated, operation_stopped
@@ -356,7 +357,7 @@ def _is_iyuu_seed_tags(plugin, tags: list) -> bool:
         if tag.strip()
     ]
     for tag in tag_texts:
-        if tag in configured or "铺种" in tag:
+        if tag in configured or "铺种" in tag or tag == official_label(plugin):
             return True
     return False
 

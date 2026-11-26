@@ -18,10 +18,11 @@ from bencode import bdecode, bencode
 from ..adapter.moviepilot import is_downloader_type
 from ..model.state import record_transfer_success
 from ..utils.name_cleaner import is_dirty_renamed_torrent_name
+from ..utils.official_tag import apply_official, match_official, official_label, torrent_evidence, transfer_release_name
 from ..utils.torrent_adapter import get_label, get_save_path, get_tracker_urls, normalize_torrent
 from .rename import _get_torrent_content_name, resolve_retry_original_name
 from .pieces import _raw_info
-from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
+from .site_tag import create_temporary_tag, forget_temporary_tag, official_site, release_temporary_tag
 
 _AUTOMATIC_DELAY_TRIGGER_SOURCES = frozenset({"兜底扫描", "事件驱动"})
 
@@ -117,15 +118,22 @@ def download_torrent(plugin, service: ServiceInfo, content: bytes,
         return None
     downloader = service.instance
     from_service = plugin.service_info(plugin._fromdownloader)
+    new_tag = list(plugin._torrent_tags or [])
+    if plugin._remainoldtag:
+        new_tag = list(dict.fromkeys([*plugin.get_label(torrent, from_service.type), *new_tag]))
+    if official_label(plugin):
+        name, announces = torrent_evidence(content)
+        trackers = get_tracker_urls(torrent, from_service.type)
+        if not trackers and isinstance(torrent, dict) and torrent.get("tracker"):
+            trackers = [torrent["tracker"]]
+        site = official_site(plugin, [*announces, *trackers], {})
+        task_name = torrent.get("name") if isinstance(torrent, dict) else getattr(torrent, "name", "")
+        new_tag = apply_official(new_tag, match_official(plugin, site, transfer_release_name(name, task_name)))
     if is_downloader_type("qbittorrent", service=service):
         tag = create_temporary_tag(plugin)
         torrent_hash = None
         try:
-            if plugin._remainoldtag:
-                torrent_labels = plugin.get_label(torrent, from_service.type)
-                new_tag = list(set(torrent_labels + plugin._torrent_tags + [tag]))
-            else:
-                new_tag = plugin._torrent_tags + [tag]
+            new_tag.append(tag)
             if plugin._remainoldcat:
                 torrent_category = plugin.get_category(torrent, from_service.type)
             else:
@@ -151,11 +159,6 @@ def download_torrent(plugin, service: ServiceInfo, content: bytes,
             else:
                 forget_temporary_tag(plugin, tag)
     elif is_downloader_type("transmission", service=service):
-        if plugin._remainoldtag:
-            torrent_labels = plugin.get_label(torrent, from_service.type)
-            new_tag = list(set(torrent_labels + plugin._torrent_tags))
-        else:
-            new_tag = plugin._torrent_tags
         if _transfer_stopped(plugin, generation):
             return None
         torrent = downloader.add_torrent(content=content,

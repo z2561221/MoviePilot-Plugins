@@ -10,8 +10,14 @@ from app.sdk.logging import logger
 
 from ..adapter.moviepilot import get_downloader_service
 from ..model.state import SEED_RECHECK_QUEUE_KEY
+from ..utils.official_tag import official_label
 from ..utils.torrent_adapter import get_hash, get_label
 from .coordination import coordinated, operation_stopped, task_blocked
+from .tag_history import (
+    completion_data_snapshot,
+    has_iyuu_history,
+    has_transfer_history,
+)
 
 
 def _queue_lock(plugin) -> threading.RLock:
@@ -396,6 +402,7 @@ def sweep_paused_seed_tasks(plugin, check_services: list[Any], stop_generation=N
                 torrents=torrents,
                 downloader_type=service.type,
                 only_tagged_sources=True,
+                downloader_name=service.name,
             )
             if ready_hashes and getattr(plugin, "_seed_autostart", True) and not operation_stopped(plugin, generation):
                 source_text = "，".join(
@@ -500,14 +507,31 @@ def _collect_ready_seed_hashes(
     downloader_type: str,
     recheck_items: dict[str, str] | None = None,
     only_tagged_sources: bool = False,
+    downloader_name: str = "",
 ) -> tuple[list[str], dict[str, int]]:
     """从下载器任务列表中收集已可开始做种的 hash 和来源统计。"""
     ready_hashes = []
     source_counts: dict[str, int] = {}
+    label = official_label(plugin) if only_tagged_sources else ""
+    snapshot = None
+    transfer_source = None
     for torrent in torrents:
         if not can_seed_paused_torrent(torrent, downloader_type):
             continue
-        source = _resolve_seed_source(plugin, torrent, downloader_type, recheck_items, only_tagged_sources)
+        if label and label in get_label(torrent, downloader_type):
+            if snapshot is None:
+                snapshot = completion_data_snapshot(plugin)
+                source_name = getattr(plugin, "_fromdownloader", "")
+                transfer_source = plugin.service_info(source_name) if source_name else None
+            torrent_hash = get_hash(torrent, downloader_type)
+            if has_iyuu_history(downloader_name, torrent_hash, {}, snapshot):
+                source = "IYUU铺种"
+            elif has_transfer_history(downloader_name, torrent_hash, transfer_source, {}, snapshot):
+                source = "转移做种"
+            else:
+                continue
+        else:
+            source = _resolve_seed_source(plugin, torrent, downloader_type, recheck_items, only_tagged_sources)
         if only_tagged_sources and not source:
             continue
         hash_text = get_hash(torrent, downloader_type)

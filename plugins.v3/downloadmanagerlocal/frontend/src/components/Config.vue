@@ -154,6 +154,12 @@ const defaults = {
   rename_tv_format: '[ {{ title }}{% if year %} ({{ year }}){% endif %}{% if season_episode %} - {{season_episode}}{% endif %} ] - {{original_name}}',
   rename_exclude_dirs: '',
   tag_enabled: true, tag_siteprefix: '🏠', tag_tracker_mappings_str: '',
+  tag_official_enabled: false, tag_official_prefix: '🏅',
+  tag_official_mappings: [
+    '观众:Audies|ADE|ADWeb|ADAudio|ADeBook|ADMusic', '憨憨:HHWEB', '青蛙:FROG|FROGE|FROGWeb|CatEDU',
+    '我堡:OurBits|OurTV', '猫站:PTerWEB|PTer|PTerMV|PTerTV', '高清杜比:QHstudIo|Dream', '朋友:FRDS',
+    '猪猪:PigoWeb|PigoHD|PigoNF|PigoAD', 'Sunny:Sunny', '馒头:MTeam|MWEB',
+  ].join('\n'),
   iyuu_enabled: false, iyuu_cron: '', iyuu_onlyonce: false,
   iyuu_token: '', iyuu_downloaders: [], iyuu_auto_downloader: '',
   pieces_site_keys: '',
@@ -983,6 +989,7 @@ function setAllCompletionTags(selected) {
 
 function completionKindMeta(kind) {
   return {
+    official: { label: '官种', color: 'warning' },
     site: { label: '站点', color: 'primary' },
     transfer: { label: '转种', color: 'success' },
     iyuu: { label: 'IYUU铺种', color: 'info' },
@@ -1929,13 +1936,28 @@ onBeforeUnmount(() => permissionController?.abort())
                   <div class="dm-hint">每行一条，例如 tracker.example.com -> example</div>
                 </VCol>
               </VRow>
+              <div class="dm-section-title mt-4">官种标签设置</div>
+              <VRow class="dm-form-grid">
+                <VCol cols="12" md="6" class="dm-form-field">
+                  <VSwitch v-model="form.tag_official_enabled" color="success" inset hide-details label="启用官种标签" />
+                </VCol>
+                <VCol cols="12" md="6" class="dm-form-field">
+                  <VTextField v-model="form.tag_official_prefix" label="官种标签前缀" density="compact" variant="outlined" hide-details />
+                </VCol>
+              </VRow>
+              <VRow class="mt-2 dm-form-grid dm-form-grid--one">
+                <VCol cols="12" class="dm-form-field">
+                  <VTextarea v-model="form.tag_official_mappings" label="官种映射（站点:制作组|制作组）" density="compact" variant="outlined" hide-details rows="4" />
+                  <div class="dm-hint">每站一行，站名与 MoviePilot 一致。转种、铺种及老种补全只认本站的完整制作组后缀；前缀留空时打「官种」。</div>
+                </VCol>
+              </VRow>
             </div>
 
             <!-- ═══ 站点标签 · 补全标签 ═══ -->
             <div v-if="activeSub === 'tag_repair'" class="dm-pane">
               <div class="dm-section-title">补全标签</div>
               <VAlert type="info" variant="tonal" density="compact" class="mb-3">
-                站点标签按 tracker 与站点映射恢复；转种和 IYUU 铺种标签只对有对应历史记录的任务补全。仅追加缺失标签，不改名、不转移、不删除种子。
+                站点标签按 tracker 恢复；普通转种、铺种标签需要对应历史。启用官种后，本站与制作组匹配的老种无需历史，确认补全即可替换转种、铺种或辅种角色标签；其他标签保留。
               </VAlert>
               <div class="dm-cleanup-toolbar">
                 <VSelect v-model="completionDownloaders" label="下载器" density="compact" variant="outlined" hide-details
@@ -2187,7 +2209,7 @@ onBeforeUnmount(() => permissionController?.abort())
         </VCardItem>
         <VDivider />
         <VCardText class="text-body-2">
-          只追加仍能从 tracker 或下载中心历史确认的标签。已有标签会保留；不会转移、铺种、重命名或删除种子。
+          执行时会重新核验。选中的官种标签将替换该种子的转种、铺种或辅种角色标签，其余标签保留；不改名、不转移、不删除种子。
         </VCardText>
         <VList density="compact" class="dm-cleanup-preview-list">
           <VListItem v-for="item in completionRepairs" :key="`${item.downloader}-${item.kind}-${item.tag}`">

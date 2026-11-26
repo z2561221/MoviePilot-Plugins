@@ -6,6 +6,7 @@ from ..model.state import IYUU_PENDING_KEY, TRANSFER_SCHEDULE_KEY
 from ..model.sync_delete import TERMINAL_STATES
 from ..storage.sync_delete_jobs import DeleteJobStore
 from ..utils.config import is_upload_limit_active
+from ..utils.official_tag import official_label
 from .activity import activity_snapshot
 from .auto_delete import status_result as auto_delete_status
 from .recheck import load_seed_recheck_queue
@@ -74,10 +75,12 @@ def build_module_overview(plugin, diagnostics, cards, speed, upload):
            "按转种、辅种和补刀触发；仅 qBittorrent 目标支持种子重命名",
            {"待处理": archive.get("active_failed", 0), "脏名称": rename["dirty"], "已归档": rename["archived"]},
            pending=archive.get("active_failed", 0))
-    append("tag", "站点标签", bool(getattr(plugin, "_tag_enabled", False)), bool(target.get("available") or ready), bool(activity.get("tag")),
-           "按转种、辅种和补刀写入站名；支持人工临时标签清理",
+    append("tag", "站点标签", bool(getattr(plugin, "_tag_enabled", False) or getattr(plugin, "_tag_official_enabled", False)), bool(target.get("available") or ready), bool(activity.get("tag")),
+           "按 tracker 识别站名；官种按本站制作组识别，支持老种补全",
            {"Tracker 映射": len(getattr(plugin, "_tracker_mappings", {}) or {}),
-            "标签前缀": getattr(plugin, "_tag_siteprefix", "")})
+            "标签前缀": getattr(plugin, "_tag_siteprefix", ""),
+            "官种标签": official_label(plugin) or "未启用",
+            "官种映射站点": len(getattr(plugin, "_official_groups", {}) or {})})
     seed_thread = getattr(plugin, "_seed_recheck_thread", None)
     queue_running = bool(queue and seed_thread and seed_thread.is_alive())
     append("seed", "做种校验", True, not queue or queue_running, queue_running,

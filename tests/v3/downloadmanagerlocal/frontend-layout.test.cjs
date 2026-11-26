@@ -644,6 +644,48 @@ test('overview mounts only its own panel and downloader options arrive independe
   } finally { view.close() }
 })
 
+test('official and tracker mapping fields each get a full-width row', async () => {
+  const view = fixture('Config')
+  try {
+    await settle()
+    view.all(node => node.type === 'VListItem' && view.text(node) === '站点标签')[0].props.onClick()
+    await settle()
+    const rowFor = label => view.all(node => node.props.label === label && view.visible(node))[0].parent.parent
+    for (const label of ['Tracker 映射（域名 -> 映射域名）', '官种映射（站点:制作组|制作组）']) {
+      const row = rowFor(label)
+      assert.match(row.props.class, /\bdm-form-grid--one\b/, label)
+      assert.equal(row.children.filter(node => node.type === 'VCol').length, 1, label)
+    }
+    assert.equal(rowFor('启用官种标签'), rowFor('官种标签前缀'))
+  } finally { view.close() }
+})
+
+test('official tag settings show real defaults and persist explicit blanks independently', async () => {
+  const view = fixture('Config', { initialConfig: { tag_enabled: false } })
+  try {
+    await settle()
+    view.all(node => node.type === 'VListItem' && view.text(node) === '站点标签')[0].props.onClick()
+    await settle()
+    const field = label => view.all(node => node.props.label === label && view.visible(node))[0].props
+    const mappings = '官种映射（站点:制作组|制作组）'
+    assert.equal(field('启用官种标签').modelValue, false)
+    assert.equal(field('官种标签前缀').modelValue, '🏅')
+    assert.deepEqual(field(mappings).modelValue.split('\n'), [
+      '观众:Audies|ADE|ADWeb|ADAudio|ADeBook|ADMusic', '憨憨:HHWEB', '青蛙:FROG|FROGE|FROGWeb|CatEDU',
+      '我堡:OurBits|OurTV', '猫站:PTerWEB|PTer|PTerMV|PTerTV', '高清杜比:QHstudIo|Dream', '朋友:FRDS',
+      '猪猪:PigoWeb|PigoHD|PigoNF|PigoAD', 'Sunny:Sunny', '馒头:MTeam|MWEB',
+    ])
+    field('启用官种标签')['onUpdate:modelValue'](true)
+    field('官种标签前缀')['onUpdate:modelValue']('')
+    field(mappings)['onUpdate:modelValue']('')
+    await view.all(node => node.type === 'VBtn' && view.text(node) === '保存配置')[0].props.onClick()
+    assert.equal(view.writes[0].body.tag_enabled, false)
+    assert.equal(view.writes[0].body.tag_official_enabled, true)
+    assert.equal(view.writes[0].body.tag_official_prefix, '')
+    assert.equal(view.writes[0].body.tag_official_mappings, '')
+  } finally { view.close() }
+})
+
 test('saving twice uses the same instance and tab, preserves live fields and consumes one-shot actions', async () => {
   const view = fixture('Config', { initialConfig: { legacy: 'old' } }, { stored: { legacy: 'new', extra: 19 } })
   try {

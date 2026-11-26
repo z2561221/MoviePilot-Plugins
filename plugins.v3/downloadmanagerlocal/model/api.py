@@ -253,7 +253,7 @@ class TagCompletionSelection(ApiRequestModel):
     """用户确认的单类标签组标识。"""
 
     downloader: str = Field(min_length=1, max_length=128, description="扫描结果中的下载器名称")
-    kind: Literal["site", "transfer", "iyuu"] = Field(description="扫描结果中的标签类别")
+    kind: Literal["site", "transfer", "iyuu", "official"] = Field(description="扫描结果中的标签类别")
     tag: str = Field(min_length=1, max_length=256, description="扫描结果中的标签名称")
 
 
