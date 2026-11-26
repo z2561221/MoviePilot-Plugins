@@ -10,6 +10,11 @@ from app.plugins.downloadmanagerlocal.service import iyuu, rename, site_tag, tra
 from app.plugins.downloadmanagerlocal.service.config import DEFAULT_TRACKER_MAPPINGS
 from app.plugins.downloadmanagerlocal.utils.torrent_adapter import get_label
 from app.plugins.downloadmanagerlocal.utils.tracker import parse_tracker_mappings
+from app.plugins.downloadmanagerlocal.utils.tracker_directory import (
+    build_directory,
+    resolve_tracker,
+    tracker_host,
+)
 
 
 class MemoryDownloader:
@@ -59,7 +64,7 @@ class MemoryDownloader:
 @pytest.fixture
 def tag_case(monkeypatch):
     """配置可识别站点及无后台动作的插件，保留真实标签服务。"""
-    monkeypatch.setattr(site_tag, "find_site_by_domain", lambda _domain: "彩虹岛")
+    monkeypatch.setattr(site_tag, "load_tracker_directory", lambda: {"tracker.example": "彩虹岛"})
     log = Mock()
     monkeypatch.setattr(site_tag, "logger", log)
     plugin = SimpleNamespace(
@@ -194,35 +199,33 @@ def test_transmission_site_tag_merges_latest_labels(tag_case):
 ])
 def test_tracker_host_normalization(value, expected):
     """Tracker URL、裸 host:port 和尾点归一到主机名。"""
-    assert site_tag._read_tracker_domain(value) == expected
+    assert tracker_host(value) == expected
 
 
 def test_default_tracker_aliases_cover_reported_domains():
     """默认映射覆盖 issue 报告的别名 tracker。"""
     mappings = parse_tracker_mappings(DEFAULT_TRACKER_MAPPINGS)
-    assert site_tag._mapped_tracker_domain("tracker.m-team.cc:443", mappings) == "m-team.cc"
-    assert site_tag._mapped_tracker_domain("https://tracker.m-team.io/announce?passkey=redacted", mappings) == "m-team.cc"
-    assert site_tag._mapped_tracker_domain("agsvpt.cn", mappings) == "agsvpt.com"
-    assert site_tag._mapped_tracker_domain("x-anime.cc", mappings) == "u2.dmhy.org"
-    assert site_tag._mapped_tracker_domain("anime.dmhy.org:443", mappings) == "u2.dmhy.org"
-    assert site_tag._mapped_tracker_domain("daydream.dmhy.best", mappings) == "u2.dmhy.org"
+    directory = {target: target for target in mappings.values()}
+    for tracker, expected in [
+        ("tracker.m-team.cc:443", "m-team.cc"), ("https://tracker.m-team.io/announce?passkey=redacted", "m-team.cc"),
+        ("agsvpt.cn", "agsvpt.com"), ("x-anime.cc", "u2.dmhy.org"), ("anime.dmhy.org:443", "u2.dmhy.org"),
+        ("daydream.dmhy.best", "u2.dmhy.org"), ("tracker.qingwapt.org", "qingwapt.com"), ("sunnytk.top", "sunnypt.top"),
+    ]:
+        assert resolve_tracker(tracker_host(tracker), directory, {}, mappings) == expected
 
 
 def test_site_lookup_uses_longest_parent_domain_and_rejects_lookalikes(monkeypatch):
     """父域匹配取最具体站点，并以点边界拒绝相似后缀。"""
-    monkeypatch.setattr(site_tag, "list_site_dicts", lambda: [
-        {"domain": "example.com", "name": "父站"},
-        {"domain": "https://foo.example.com/", "name": "子站"},
-    ])
-    monkeypatch.setattr(site_tag, "get_site_indexer", lambda _: None)
+    monkeypatch.setattr(site_tag, "load_tracker_directory", lambda: build_directory([
+        ("父站", "example.com", None), ("子站", None, "https://foo.example.com/"),
+    ], {}))
     assert site_tag.find_site_by_domain("tracker.foo.example.com:443") == "子站"
     assert site_tag.find_site_by_domain("evil-example.com") is None
 
 
 def test_completion_restores_mteam_io_tag_only_for_selected_hash(monkeypatch):
     """实际报告的馒头 Tracker 别名可扫描修复，限定 hash 不影响其他任务。"""
-    monkeypatch.setattr(site_tag, "list_site_dicts", lambda: [{"domain": "m-team.cc", "name": "馒头"}])
-    monkeypatch.setattr(site_tag, "get_site_indexer", lambda _: None)
+    monkeypatch.setattr(site_tag, "load_tracker_directory", lambda: {"m-team.cc": "馒头"})
     downloader = MemoryDownloader("qbittorrent", ["🌱铺种"])
     selected_hash = "43991c45f704df78a232b3f946a5d213496abd40"
     rows = [{"hash": identity, "name": "凡人修仙传", "tags": "🌱铺种",

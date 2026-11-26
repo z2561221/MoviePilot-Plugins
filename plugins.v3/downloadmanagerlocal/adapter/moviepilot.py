@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
@@ -15,6 +16,8 @@ from app.sdk.media import TorrentInfo
 from app.sdk.network import RequestUtils, SitesHelper
 from app.sdk.services import DownloaderHelper
 from app.sdk.utilities import StringUtils
+
+from ..utils.tracker_directory import build_directory
 
 try:
     from app.sdk.queries import (
@@ -30,13 +33,6 @@ except (ImportError, AttributeError):
 
 
 DownloaderInstance = Qbittorrent | Transmission
-
-PIECES_HASH_PATHS = {
-    "pt.keepfrds.com": "/api/torrents/pieces-hash",
-    "hhanclub.net": "/nexusapi/pieces-hash",
-    "hhanclub.top": "/nexusapi/pieces-hash",
-}
-FLUX_SITE_NAMES = frozenset({"FluxTorrent", "好学"})
 
 
 class SiteDownloadError(ValueError):
@@ -174,6 +170,15 @@ def list_builtin_sites() -> list:
     return SiteOper().list_order_by_pri()
 
 
+def load_tracker_directory() -> dict:
+    """只取配置站点名称和域名；MP 模板 ID 用于关联站点别名，不返回凭据。"""
+    templates = SitesHelper().get_indexsites()
+    if not isinstance(templates, dict):
+        raise TypeError("MP 站点索引不可用")
+    sites = ((site.name, site.domain, site.url) for site in list_builtin_sites())
+    return build_directory(sites, templates)
+
+
 def _site_to_dict(site) -> dict:
     """把 MoviePilot 站点记录转换为插件内部使用的普通字典。"""
     if not site:
@@ -303,20 +308,27 @@ def request_post_res(url: str, params: dict | None = None, json: dict | None = N
 
 
 def is_flux_site(site: dict) -> bool:
-    """按青蛙助手的精确站名或开放 API 令牌前缀选择 Flux 协议。"""
-    return str(site.get("name") or "").strip() in FLUX_SITE_NAMES or str(site.get("passkey") or "").strip().startswith("fxo_")
+    """仅由开放 API 令牌类型决定认证及回包协议，站名不决定查询入口。"""
+    return str(site.get("passkey") or "").strip().startswith("fxo_")
 
 
 def pieces_hash_url(site: dict) -> str:
-    """按站点当前域名选择 Pieces-hash 查询路径。"""
-    base_url = str(site.get("url") or "").rstrip("/")
-    if is_flux_site(site):
-        return base_url + "/api/v1/crossseed/lookup"
-    if site.get("name") == "憨憨":
-        return base_url + "/nexusapi/pieces-hash"
-    hostname = (urlsplit(base_url).hostname or "").lower().rstrip(".")
-    path = PIECES_HASH_PATHS.get(hostname, "/api/pieces-hash")
-    return base_url + path
+    """仅拼接 MP 配置的 HTTPS 源与用户填写的站内绝对路径。"""
+    path = str(site.get("query_path") or "")
+    if (not re.fullmatch(r"(?:/[A-Za-z0-9._~-]+)+/?", path) or len(path) > 512
+            or any(part in {".", ".."} for part in path.split("/"))):
+        raise ValueError("查询路径须以 / 开头，仅填写站内路径，不含域名、参数或凭据")
+    base = str(site.get("url") or "")
+    try:
+        origin = urlsplit(base)
+        valid = (origin.scheme == "https" and origin.hostname and origin.port != 0
+                 and origin.username is None and origin.password is None and not origin.query and not origin.fragment
+                 and "\\" not in base and all(char.isprintable() and not char.isspace() for char in base))
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError("MP 站点地址须为不含凭据或参数的 HTTPS 地址")
+    return origin._replace(path=path, query="", fragment="").geturl()
 
 
 def request_pieces_res(site: dict, fingerprints: list[str]):

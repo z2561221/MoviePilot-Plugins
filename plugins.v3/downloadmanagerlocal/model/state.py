@@ -18,8 +18,9 @@ TRANSFER_SCHEDULE_SCHEMA_VERSION = 1
 
 IYUU_PENDING_KEY = "iyuu_pending_postprocess"
 IYUU_STATS_KEY = "iyuu_stats"
+PIECES_STATS_KEY = "pieces_stats"
 IYUU_STATS_SCHEMA_VERSION = 1
-_IYUU_STATS_LOCK = RLock()
+_RESEED_STATS_LOCK = RLock()
 
 SPEED_MONITOR_SCHEMA_VERSION = 1
 SPEED_MONITOR_SESSIONS_KEY = "speed_monitor_sessions"
@@ -57,6 +58,7 @@ PERSISTED_STATE_KEYS = {
     "iyuu_source": f"{IYUU_SOURCE_KEY_PREFIX}<seed_hash>",
     "iyuu_cache_config": IYUU_CACHE_CONFIG_KEYS,
     "iyuu_stats": IYUU_STATS_KEY,
+    "pieces_stats": PIECES_STATS_KEY,
     "iyuu_pending_postprocess": IYUU_PENDING_KEY,
 }
 
@@ -163,7 +165,17 @@ def record_transfer_success(plugin: Any, count: int, *, fallback: bool) -> dict[
 
 def load_iyuu_stats(plugin: Any) -> dict[str, Any]:
     """读取并规范化累计与今日 IYUU 辅种统计。"""
-    raw_value = plugin.get_data(IYUU_STATS_KEY)
+    return _load_reseed_stats(plugin, IYUU_STATS_KEY)
+
+
+def load_pieces_stats(plugin: Any) -> dict[str, Any]:
+    """仅读取当前实例的 Pieces 计数，不把 IYUU 历史当作初始值。"""
+    return _load_reseed_stats(plugin, PIECES_STATS_KEY)
+
+
+def _load_reseed_stats(plugin: Any, key: str) -> dict[str, Any]:
+    """按来源读取轻量统计，跨日只重置今日数。"""
+    raw_value = plugin.get_data(key)
     payload = raw_value if isinstance(raw_value, dict) else {}
     daily = _normalize_daily_counters(
         payload,
@@ -183,16 +195,26 @@ def load_iyuu_stats(plugin: Any) -> dict[str, Any]:
 
 def record_iyuu_results(plugin: Any, *, success: int, fail: int) -> dict[str, Any]:
     """累计一轮 IYUU 辅种的成功与失败数，并返回最新持久化统计。"""
+    return _record_reseed_results(plugin, IYUU_STATS_KEY, success, fail)
+
+
+def record_pieces_result(plugin: Any, *, success: bool) -> None:
+    """按事件发生时的日期记一次辅助铺种结果。"""
+    _record_reseed_results(plugin, PIECES_STATS_KEY, int(success), int(not success))
+
+
+def _record_reseed_results(plugin: Any, key: str, success: int, fail: int) -> dict[str, Any]:
+    """在同一把锁下更新对应来源的今日与累计值。"""
     success_increment = _non_negative_int(success)
     fail_increment = _non_negative_int(fail)
-    with _IYUU_STATS_LOCK:
-        stats = load_iyuu_stats(plugin)
+    with _RESEED_STATS_LOCK:
+        stats = _load_reseed_stats(plugin, key)
         if success_increment or fail_increment:
             stats["success_total"] += success_increment
             stats["today_success"] += success_increment
             stats["fail_total"] += fail_increment
             stats["today_fail"] += fail_increment
-            plugin.save_data(IYUU_STATS_KEY, stats)
+            plugin.save_data(key, stats)
         return stats
 
 

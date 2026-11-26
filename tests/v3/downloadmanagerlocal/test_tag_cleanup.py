@@ -30,9 +30,7 @@ def isolated_tag_service(monkeypatch):
         error=lambda *_args, **_kwargs: None,
     ))
     monkeypatch.setattr(service, "generate_random_tag", lambda length=10: "A" * length)
-    monkeypatch.setattr(service, "get_site_indexer", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(service, "list_site_dicts", lambda: [])
-    monkeypatch.setattr(service, "find_site_by_domain", service.find_site_by_domain)
+    monkeypatch.setattr(service, "load_tracker_directory", dict)
     monkeypatch.setattr(service, "get_tracker_urls", service.get_tracker_urls)
 
 
@@ -158,16 +156,16 @@ def test_confirmed_official_repair_without_history(kind, has_official, monkeypat
     plugin = EventPlugin({"Dest": SimpleNamespace(name="Dest", instance=downloader, type=kind)})
     plugin._tag_official_enabled, plugin._tag_enabled = True, False
     plugin._official_groups = {"观众": {"adweb"}}
-    monkeypatch.setattr(service, "find_site_by_domain", lambda _: "观众")
+    monkeypatch.setattr(service, "load_tracker_directory", lambda: {"a.test": "观众"})
     scan = lambda: service.scan_tag_completion(plugin, ["Dest"])["downloaders"][0]["tags"]
     groups = scan()
     assert [(group["kind"], group["tag"]) for group in groups] == [("official", "🏅官种")]
     assert set(service.get_label(row, kind)) == set(labels)
     repairs = [{**groups[0], "downloader": "Dest"}]
-    monkeypatch.setattr(service, "find_site_by_domain", lambda _: "青蛙")
+    monkeypatch.setattr(service, "load_tracker_directory", lambda: {"a.test": "青蛙"})
     assert service.execute_tag_completion(plugin, repairs)["skipped"]
     assert set(service.get_label(row, kind)) == set(labels)
-    monkeypatch.setattr(service, "find_site_by_domain", lambda _: "观众")
+    monkeypatch.setattr(service, "load_tracker_directory", lambda: {"a.test": "观众"})
     if not has_official and kind == "qbittorrent":
         with monkeypatch.context() as local:
             local.setattr(downloader, "set_torrents_tag", lambda **_: True)
@@ -494,7 +492,7 @@ def test_frontend_preselects_only_legacy_candidates_for_confirmation():
 def test_completion_scan_and_execute_restore_all_proven_tag_categories():
     """补全按 tracker、转移状态与 IYUU 历史还原缺失标签。"""
     service = _load_site_tag("MoviePilot")
-    service.find_site_by_domain = lambda _domain: "彩虹岛"
+    service.load_tracker_directory = lambda: {"tracker.example": "彩虹岛"}
     target = FakeQbittorrent([{
         "hash": "h1",
         "name": "Example.Release",
@@ -562,7 +560,7 @@ def test_completion_scan_and_execute_restore_all_proven_tag_categories():
 def test_completion_scan_reads_trackers_once_per_torrent():
     """扫描复用同一份 tracker 结果计算站点标签与未识别计数。"""
     service = _load_site_tag("MoviePilot")
-    service.find_site_by_domain = lambda _domain: "彩虹岛"
+    service.load_tracker_directory = lambda: {"tracker.example": "彩虹岛"}
     target = FakeQbittorrent([{
         "hash": "h1",
         "name": "Example.Release",
@@ -589,7 +587,7 @@ def test_completion_scan_reads_trackers_once_per_torrent():
 def test_completion_only_restores_proven_categories_and_preserves_transmission_labels():
     """无来源记录的任务不获转种/IYUU标签，TR 补站点标签保留已有 labels。"""
     service = _load_site_tag("MoviePilot")
-    service.find_site_by_domain = lambda _domain: "彩虹岛"
+    service.load_tracker_directory = lambda: {"tracker.example": "彩虹岛"}
     target = FakeTransmission([_transmission_torrent("h2", ["用户标签"])])
     target.torrents[0].trackers = [{"announce": "https://tracker.example/announce", "tier": 0}]
     target_service = SimpleNamespace(name="TR1", type="transmission", instance=target)

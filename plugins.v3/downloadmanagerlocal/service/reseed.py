@@ -231,6 +231,12 @@ class ReseedRun:
                     self.buffer = []
             self.save()
 
+    def pieces_failure(self, message, source=None, site=None):
+        """仅将正式 Pieces 查询或候选处理的明确失败计入独立统计。"""
+        if not self.task["preview"] and not self.stopped():
+            pieces.count_result(self.plugin, success=False)
+        self.record("failed", message, source, site)
+
     def wait_budget(self, key, interval):
         """在请求前保存下次允许时间，重载与手动运行共享限额。"""
         limits = _load(self.plugin, LIMITS_KEY)
@@ -572,7 +578,7 @@ def _query_pieces(execution, service, sources, source_rows, sites, matched_sites
             continue
         current = next((item for item in list_site_dicts() if str(item.get("id")) == str(site["id"])), None)
         if not current or str(current.get("url") or current.get("domain") or "").rstrip("/") != site["url"].rstrip("/") or current.get("is_active") is False:
-            execution.record("failed", "站点绑定已变化，请重新运行", site=site)
+            execution.pieces_failure("站点绑定已变化，请重新运行", site=site)
             continue
         key = f"pieces_{site['id']}_{hashlib.sha256(site['url'].encode()).hexdigest()}"
         if not execution.wait_budget(key, site["interval"]):
@@ -584,7 +590,7 @@ def _query_pieces(execution, service, sources, source_rows, sites, matched_sites
             return
         if error:
             execution.cooldown(key, cooldown)
-            execution.record("failed", error, site=site)
+            execution.pieces_failure(error, site=site)
             continue
         for fingerprint in requested:
             if fingerprint not in matches:
@@ -684,7 +690,7 @@ def _pieces_candidate(execution, service, source, metadata, site, torrent_id, bu
         if isinstance(error, SiteDownloadError):
             execution.cooldown(budget_key, error.cooldown)
         message = str(error) if isinstance(error, ValueError) else f"候选处理失败（{type(error).__name__}）"
-        execution.record("failed", message, source, site)
+        execution.pieces_failure(message, source, site)
         return False
 
 

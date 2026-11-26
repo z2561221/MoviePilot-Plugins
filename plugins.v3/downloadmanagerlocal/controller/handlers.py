@@ -41,6 +41,7 @@ from ..model.state import (
     RENAME_RECORDS_KEY,
     RENAME_RETRY_STATE_KEY,
     load_iyuu_stats,
+    load_pieces_stats,
     load_transfer_stats,
 )
 from ..service.archive import serialized_rename_state
@@ -71,7 +72,7 @@ from ..service.upload_limiter import (
     run_upload_limit_cycle,
     scan_upload_limit_site_tags,
 )
-from ..utils.config import is_speed_monitor_active
+from ..utils.config import is_iyuu_active, is_speed_monitor_active
 
 BusinessModelT = TypeVar("BusinessModelT", bound=ApiBusinessModel)
 
@@ -252,6 +253,8 @@ def api_overview(plugin):
         upload_limit = get_upload_limit_status(plugin)
         transfer_stats = load_transfer_stats(plugin)
         iyuu_stats = load_iyuu_stats(plugin)
+        pieces_stats = load_pieces_stats(plugin)
+        pieces_configured = bool((getattr(plugin, "_pieces_site_keys", "") or "").strip())
         rename_history = diagnostics.get("rename_history", {}) if isinstance(diagnostics, dict) else {}
         payload = {
             "code": 0,
@@ -287,6 +290,13 @@ def api_overview(plugin):
                     "fail_total": int(iyuu_stats["fail_total"]),
                     "today_success": int(iyuu_stats["today_success"]),
                     "today_fail": int(iyuu_stats["today_fail"]),
+                },
+                "pieces": {
+                    "configured": pieces_configured,
+                    "enabled": pieces_configured and is_iyuu_active(plugin),
+                    "today_success": pieces_stats["today_success"],
+                    "today_fail": pieces_stats["today_fail"],
+                    "success_total": pieces_stats["success_total"],
                 },
                 "rename": {
                     "enabled": bool(getattr(plugin, "_rename_enabled", False)),

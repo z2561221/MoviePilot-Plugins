@@ -2,7 +2,7 @@
 
 下载中心是 MoviePilot V3 原生插件，把转移做种、IYUU 辅种、同步删除、种子重命名、站点标签、做种校验、下载速度监控和上传限速聚合到一个插件里，并通过 Vue 联邦页面提供配置、运行总览与只读诊断。
 
-`v3.3.21`：[1]转种铺种识别本站官种;[2]支持老种补全官种标签
+`v3.3.22`：[1]主程序优先识站及青蛙映射;[2]自定义辅助铺种查询路径;[3]新增辅助铺种统计卡
 
 在「站点标签 → 基础设置」开启官种标签（默认关闭）。按站点映射和原始发布名中的 `-组名`、`@组名` 识别，默认提供包括观众、青蛙、Sunny 在内的十站映射，可逐行增删；已有自定义值或显式清空的映射不会被默认值覆盖。默认打 `🏅官种`；前缀清空就打 `官种`。转种和 IYUU/Pieces 铺种在目标添加时打标；老种通过「补全标签」扫描、预览并确认，不需要 MoviePilot 下载历史。只替换转种、辅种、铺种角色标签，不动「已整理」、站名等其他标签。不联网查官种。
 
@@ -14,11 +14,18 @@
 
 ## IYUU铺种
 
-IYUU 为主要匹配来源，Pieces 按配置的 Passkey 站点补查缺口。沿用 IYUU 开关、Token、辅种下载器和执行周期；勾选“立即运行一次”并保存即可执行。没有独立匹配方式或预览、运行入口。每行填写 `站点名称:Passkey[:请求间隔秒数]`，站点名称对应 MoviePilot 站点管理中的唯一名称；留空仅使用 IYUU。
+IYUU 为主要匹配来源，Pieces 按配置的站点补查缺口。沿用 IYUU 开关、Token、辅种下载器和执行周期；勾选“立即运行一次”并保存即可执行。没有独立匹配方式或运行入口。点击「编辑接口与凭据」，每行填写 `站名:/查询路径,Passkey`；域名取自 MoviePilot 中唯一启用的同名 HTTPS 站点，查询路径完全由你填写。留空仅使用 IYUU。旧 `站名:Passkey` 写法缺少路径，需补写，不自动猜测。
 
-同是 Pieces 接口，入口却不一定一样。跟随青蛙辅种助手的协议分流，但域名保留 MoviePilot 现配置：青蛙、AGSVPT、红豆饭、麒麟、UBits、聆音及其他通用站点使用 `/api/pieces-hash`，朋友使用 `/api/torrents/pieces-hash`，憨憨使用 `/nexusapi/pieces-hash`；这些站点的下载沿用 Nexus `download.php` 约定。`ret` 非零的业务错误不会被空字典掩成成功，HTTP 404 也不会当作正常空命中。内置路径不代表站点当前接口必然可用。
+填写示例（请用自己的凭据替换占位词，不要把真实配置发到截图或工单）：
 
-FluxTorrent／好学使用 `站点名称:fxo_开头的开放API令牌[:请求间隔秒数]`，令牌需有 `crossseed` 权限。精确站名或 `fxo_` 令牌前缀决定 Flux 协议，其他自定义站名也能使用。查询为 `/api/v1/crossseed/lookup`，只提交 `pieces_sha1`，令牌通过认证头发送；只接受查询过的分片指纹和有效种子编号，同指纹多个候选保留并去重。下载使用 `/api/v1/crossseed/dl/{id}`，只跟随同协议、同主机、同端口的临时下载跳转，最多 3 次，不把令牌转发到站外。各协议最终共用原来的暂停添加、文件核验和强制校验流程。
+```text
+青蛙:/api/pieces-hash,你的Passkey
+憨憨:/nexusapi/pieces-hash,你的Passkey
+```
+
+这两行只是写法示例，不是站点路由表。查询只向本站路径发 POST，不跟随重定向。按预期业务格式返回空结果表示查通但未命中，并非失败；GET 是否返回 405 不作为条件。
+
+普通 Passkey 随 JSON 提交；`fxo_` 开头的开放令牌使用 Token 认证头和 `pieces_sha1`，需有 `crossseed` 权限。两种协议都使用填写的查询路径。可在每行末尾追加 `,秒数`，范围 1–86400。种子下载仍按原有 Nexus 或 Flux 下载协议，不接受用户提供的站外下载地址。各协议共用原来的暂停添加、文件核验和强制校验流程。
 
 只在 IYUU 查询成功后查询缺少命中的目标站点；IYUU 失败或冷却时不触发 Pieces。请求间隔默认 1 秒，限流冷却会跨运行和重载保留，空命中缓存 15 分钟。每轮最多新增默认 20 颗，可在高级选项调整。
 
@@ -89,7 +96,7 @@ qBittorrent 通过导出接口读取源种子。Transmission 可在高级选项�
 - `deletesource`、`deleteduplicate`、`add_torrent_tags`、`remainoldcat`、`remainoldtag`：转移后的处置与标签保留策略。
 - `remainoldtag=true` 保留源标签，关闭时仅写入配置的附加标签；后续添加站名会保留目标现有标签，qBittorrent 与 Transmission 行为一致。
 - `rename_movie_format`、`rename_tv_format`、`rename_exclude_dirs`：重命名模板与排除目录。
-- `tag_siteprefix`、`tag_tracker_mappings_str`：站点标签前缀与自定义 tracker 映射。
+- `tag_siteprefix`、`tag_tracker_mappings_str`：站点标签前缀与可留空的自定义映射。原始 Tracker 优先在 MP 的已配置站点及模板别名中识别；未知域名才查自定义、其次内置映射，映射目标仍须对应唯一的已配置站点。Sunny 和青蛙 `tracker.qingwapt.org` 已内置，无须重填。多个站点冲突时不打站名或官种标签。
 - `iyuu_sites`、`iyuu_nolabels`、`iyuu_nopaths`、`iyuu_size`、`iyuu_labelsafterseed`、`iyuu_categoryafterseed`：辅种范围与辅种后的标签分类。
 - `seed_autostart`、`seed_skipverify`、`seed_check_interval`、`seed_max_wait_minutes`：做种校验行为与等待上限。
 - `speed_monitor_mode`、`speed_monitor_tolerance`、`speed_monitor_min_samples`、`speed_monitor_interval_seconds`、`speed_monitor_grace_minutes`、`speed_monitor_consecutive_abnormal_samples`：基准来源、判定容忍度、采样与宽限。
@@ -126,7 +133,7 @@ qBittorrent 通过导出接口读取源种子。Transmission 可在高级选项�
 | 转移不触发 | 源/目标下载器或种子目录未填写，或任务被标签、分类、路径规则过滤 | 查看运行诊断中的转移配置检查与筛选条件 |
 | 重命名保持原名 | 目标下载器为 Transmission，或原始发布名不可信 | 改用 qBittorrent 目标，或在重命名历史中手动补刀 |
 | 辅种无结果 | Token 无效、站点未绑定或体积/标签过滤过严 | 核对 IYUU Token 与站点绑定，放宽 `iyuu_size` 与标签过滤 |
-| 站点标签为空 | tracker 域名未命中内置映射 | 在 `tag_tracker_mappings_str` 补充自定义映射 |
+| 站点标签为空 | 域名未匹配，或无法确定唯一配置站点 | 先核对 MP 站点；仅对确认归属的未知 tracker 补充自定义映射 |
 | 速度监控无基准 | 采样不足或 `manual` 模式缺少手动基准 | 等待样本积累，或为每个选中下载器填写正数基准 |
 | 上传额度未写入 | 下载器全局上限为空或站点合计上限为 `0` | 填写正数下载器上限，并为需要限速的站点填写正数合计上限 |
 
@@ -166,5 +173,7 @@ qBittorrent 通过导出接口读取源种子。Transmission 可在高级选项�
 显示顺序为“今日 · 兜底 · 累计”：今日为当天转种成功数，兜底为当天兜底扫描成功数（属于今日的子集），累计为截至昨日的成功数。次日今日与兜底归零，昨日成功纳入累计；底层全时段总量保留，避免重复累计或丢失历史。
 
 IYUU 卡片显示“成功 · 失败 · 累计”：成功与失败仅统计当天，累计为截至昨日的成功数；次日当日成功、失败归零，只有昨日成功纳入累计，失败不计入累计。
+
+右侧的「辅助铺种」只统计 Pieces 补查，日期口径与 IYUU 相同。正式任务已添加并登记校验才算成功，不代表已经校验到 100%；查询或候选处理明确失败才记失败次数。预览、空命中、已有种子和待确认回执不计。新卡从升级后开始独立计数；旧版混合统计留在 IYUU 卡，不从旧总数猜算此次来源。
 
 管理权限：修改限速、重命名、标签清理及历史维护仅管理员可执行；普通登录用户保留查看能力。权限读取失败时管理按钮保持禁用。

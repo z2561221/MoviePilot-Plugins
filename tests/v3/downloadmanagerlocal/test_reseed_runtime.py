@@ -39,7 +39,7 @@ def environment(monkeypatch):
     plugin._iyuu_enabled = True
     plugin._iyuu_token = "test-token"
     plugin._iyuu_downloaders = ["QB"]
-    plugin._pieces_site_keys = "站点A:key-a\n站点B:key-b:3"
+    plugin._pieces_site_keys = "站点A:/test/lookup,key-a\n站点B:/other/lookup,key-b,3"
     plugin._event = threading.Event()
     plugin._transfer_stop_generation = 0
     plugin._iyuu_success_caches = []
@@ -115,6 +115,8 @@ def test_pieces_supplements_iyuu_and_forces_verification(environment):
     environment.service.instance.recheck_torrents.assert_called_once()
     history = environment.stored[f"iyuu_{environment.source_hash}"][0]
     assert next(iter(history["providers"].values()))["provider"] == "pieces"
+    assert environment.stored["pieces_stats"]["today_success"] == 1
+    assert "iyuu_stats" not in environment.stored and environment.plugin._iyuu_success == 0
     assert all(item["source"] == "pieces" for item in environment.stored["seed_recheck_queue"].values())
     assert result["total"] == 2
 
@@ -147,6 +149,7 @@ def test_preview_verifies_metadata_without_downloader_writes(environment):
     assert task["added"] == 0
     assert environment.additions == []
     assert "可添加" in result["items"][0]["message"]
+    assert "pieces_stats" not in environment.stored
     environment.service.instance.recheck_torrents.assert_not_called()
 
 
@@ -162,6 +165,54 @@ def test_submission_idempotent_and_reload_interrupts_queued_work(environment):
     reseed.run(environment.plugin, first["task_id"])
     assert reseed.status(environment.plugin)["status"] == "interrupted"
     assert environment.additions == []
+
+
+@pytest.mark.parametrize(('preview', 'error', 'failures'), [(True, '查询失败', 0), (False, '', 0), (False, '查询失败', 2)])
+def test_pieces_failure_counts_only_formal_site_errors(environment, monkeypatch, preview, error, failures):
+    """两个站点的正式查询分别记错，预览错误、成功空命中不污染任一计数。"""
+    monkeypatch.setattr(pieces, 'query_site', lambda *_: ({}, 60 if error else 0, error))
+    execute(environment, preview=preview)
+    assert environment.stored.get('pieces_stats', {}).get('today_fail', 0) == failures
+    assert 'iyuu_stats' not in environment.stored
+
+
+@pytest.mark.parametrize(('receipt', 'expected_fail'), [(False, 1), (None, 0)])
+def test_pieces_rejected_and_uncertain_submissions_are_distinct(environment, receipt, expected_fail):
+    """明确拒绝且回读未添加才记失败，未知回执既不算 IYUU 失败也不算 Pieces 成功。"""
+    environment.plugin._reseed_max_additions = 1
+    environment.service.instance.add_torrent = Mock(return_value=receipt)
+    execute(environment)
+    assert environment.stored.get('pieces_stats', {}).get('today_fail', 0) == expected_fail
+    assert 'iyuu_stats' not in environment.stored
+
+
+def test_pieces_recovery_counts_confirmed_target_once(environment):
+    """收尾失败的真实目标稍后恢复，反复恢复和再次扫描都不能把它算两次。"""
+    environment.plugin._reseed_max_additions = 1
+    environment.service.instance.recheck_torrents = Mock(return_value=False)
+    execute(environment)
+    assert 'pieces_stats' not in environment.stored
+    environment.service.instance.recheck_torrents.return_value = True
+    for _attempt in range(2):
+        iyuu._resume_iyuu_postprocess(environment.plugin, 0)
+    assert environment.stored['pieces_stats']['success_total'] == 1
+    assert not environment.plugin._iyuu_success and 'iyuu_stats' not in environment.stored
+
+
+def test_stats_storage_failure_does_not_resubmit_accepted_seed(environment):
+    """统计存储不可用时仍按已完成返回，不重播添加或破坏续办状态。"""
+    save = environment.plugin.save_data
+
+    def fail_stats(key, value):
+        """模拟只有统计键的持久化写入失败。"""
+        if key == 'pieces_stats':
+            raise OSError('unavailable')
+        return save(key=key, value=value)
+
+    environment.plugin.save_data = fail_stats
+    task, _ = execute(environment)
+    assert task['added'] == 1 and len(environment.additions) == 1
+    assert environment.stored['iyuu_pending_postprocess'] == {} and 'iyuu_stats' not in environment.stored
 
 
 def test_all_completed_sources_beyond_500_are_scanned(environment, monkeypatch):
@@ -241,7 +292,9 @@ def test_status_does_not_query_downloaders(environment):
     assert reseed.status(environment.plugin)["status"] == "completed"
 
 
-@pytest.mark.parametrize("text", ["站点A:secret:0", "站点A:secret:no", "missing:secret", "站点A:one\n站点A:two"])
+@pytest.mark.parametrize("text", ["站点A:/lookup,secret,0", "站点A:/lookup,secret,no", "missing:/lookup,secret",
+                                  "站点A:/lookup,one\n站点A:/lookup,two", "站点A:secret", "站点A:/lookup,secret,86401",
+                                  "站点A:/lookup,secret\n站点A:/other,secret", "站点A:/lookup,secret,,3"])
 def test_bad_site_configuration_is_rejected_without_credentials(environment, text):
     """错误提示不能包含输入的凭据正文。"""
     with pytest.raises(ValueError) as result:
@@ -252,9 +305,9 @@ def test_bad_site_configuration_is_rejected_without_credentials(environment, tex
 def test_duplicate_names_and_changed_domains_are_not_guessed(environment, monkeypatch):
     """站名重名和站点绑定变更都不能把凭据发给推测的目标。"""
     with pytest.raises(ValueError):
-        pieces.parse_site_keys("站点A:secret", environment.sites + [dict(environment.sites[0], id=3)])
-    resolved = pieces.parse_site_keys("站点A:secret:3", environment.sites)
-    assert resolved[0]["id"] == 1 and resolved[0]["interval"] == 3
+        pieces.parse_site_keys("站点A:/lookup,secret", environment.sites + [dict(environment.sites[0], id=3)])
+    resolved = pieces.parse_site_keys("站点A:/lookup,secret,3", environment.sites)
+    assert (resolved[0]["id"], resolved[0]["interval"], resolved[0]["query_path"]) == (1, 3, "/lookup")
 
 
 def test_info_hash_uses_original_dictionary_bytes():

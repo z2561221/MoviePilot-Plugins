@@ -21,6 +21,7 @@ from ..utils.config import (
 )
 from ..utils.official_tag import parse_official_mappings
 from ..utils.tracker import parse_tracker_mappings
+from ..utils.tracker_directory import normalized_aliases
 
 DEFAULT_TRACKER_MAPPINGS = (
     "chdbits.xyz -> ptchdbits.co\n"
@@ -32,7 +33,8 @@ DEFAULT_TRACKER_MAPPINGS = (
     "anime.dmhy.org -> u2.dmhy.org\n"
     "daydream.dmhy.best -> u2.dmhy.org\n"
     "tracker.cinefiles.info -> audiences.me\n"
-    "sunnytk.top -> sunnypt.top"
+    "sunnytk.top -> sunnypt.top\n"
+    "tracker.qingwapt.org -> qingwapt.com"
 )
 
 
@@ -114,8 +116,7 @@ def initialize_runtime_config(plugin, config: dict = None) -> dict:
     plugin._tag_official_prefix = config.get("tag_official_prefix", defaults["tag_official_prefix"])
     plugin._official_groups = parse_official_mappings(config.get("tag_official_mappings", defaults["tag_official_mappings"]))
     plugin._tag_tracker_mappings_str = config.get("tag_tracker_mappings_str", defaults["tag_tracker_mappings_str"])
-    if plugin._tag_tracker_mappings_str:
-        plugin._tracker_mappings.update(parse_tracker_mappings(plugin._tag_tracker_mappings_str))
+    plugin._custom_tracker_mappings = normalized_aliases(parse_tracker_mappings(plugin._tag_tracker_mappings_str))
 
     plugin._iyuu_enabled = config.get("iyuu_enabled", defaults["iyuu_enabled"])
     plugin._iyuu_cron = config.get("iyuu_cron", defaults["iyuu_cron"])

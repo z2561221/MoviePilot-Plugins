@@ -51,7 +51,7 @@ class DownloadManagerLocal(_PluginBase):
     # 插件颜色
     plugin_color = "#4CAF50"
     # 插件版本
-    plugin_version = "3.3.21"
+    plugin_version = "3.3.22"
     # 插件作者
     plugin_author = "Kurisu"
     # 作者主页
@@ -226,6 +226,7 @@ class DownloadManagerLocal(_PluginBase):
         self._seed_recheck_stop_event = None
         self._torrent_tags = []
         self._tracker_mappings = {}
+        self._custom_tracker_mappings = {}
         self.downloader_helper = None
         self.iyuu_helper = None
         self._auto_delete_runtime = None

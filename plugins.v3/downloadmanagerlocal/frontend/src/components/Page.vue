@@ -235,6 +235,14 @@ const overviewFeatureCards = computed(() => {
       desc: `成功 ${cards.iyuu?.today_success || 0} · 失败 ${cards.iyuu?.today_fail || 0} · 累计 ${Math.max(0, (cards.iyuu?.success_total || 0) - (cards.iyuu?.today_success || 0))}`,
     },
     {
+      title: '辅助铺种',
+      icon: 'mdi-puzzle-plus-outline',
+      color: cards.pieces?.enabled ? 'success' : 'default',
+      value: cards.pieces?.enabled ? '随 IYUU' : cards.pieces?.configured ? '等待 IYUU' : '未配置',
+      desc: `成功 ${cards.pieces?.today_success || 0} · 失败 ${cards.pieces?.today_fail || 0} · 累计 ${Math.max(0, (cards.pieces?.success_total || 0) - (cards.pieces?.today_success || 0))}`,
+      hint: '仅统计升级后的 Pieces 补查：成功、失败为今日次数，累计为截至昨日的成功数。成功指已添加并登记校验。',
+    },
+    {
       title: '命名补刀',
       icon: 'mdi-auto-fix',
       color: archive.archived ? 'warning' : 'primary',
@@ -824,7 +832,7 @@ onBeforeUnmount(() => permissionController?.abort())
               </div>
             </div>
             <div class="dm-feature-grid mt-2">
-              <div v-for="card in overviewFeatureCards" :key="card.title" class="dm-feature-card">
+              <div v-for="card in overviewFeatureCards" :key="card.title" :title="card.hint" class="dm-feature-card">
                 <VAvatar :color="card.color" variant="tonal" size="30" rounded="lg"><VIcon :icon="card.icon" size="17" /></VAvatar>
                 <div class="min-w-0">
                   <div class="dm-feature-head"><span>{{ card.title }}</span><strong>{{ card.value }}</strong></div>

@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "revision": "7b3252628cfe87393b44e67f05e4640a22b7afb508ec421c770a112694b21363",
-  "path": "dist/assets/r7b3252628cfe87393b44e67f05e4640a22b7afb508ec421c770a112694b21363",
+  "revision": "e970475edbdcecaaaa5a0a810403c35a17892e1737ad8831f4b0579918a6d7ab",
+  "path": "dist/assets/re970475edbdcecaaaa5a0a810403c35a17892e1737ad8831f4b0579918a6d7ab",
   "files": {
     "AutoDeletePane-C5W4Y-ui.js": "da0435fc6e2498f8841b64ec239eda599b34d503d3910b59c3ac0e49ffc020f2",
     "AutoDeletePane-Cug_ERFL.css": "804df40a8eeff1ace27138aee225ea0ffa484a1fdae8877d879964d2d3b35c8f",
-    "__federation_expose_Config-C8AFHcT1.js": "0c8cee8ca53a8556414af23f09310223c096f6ac44db2db6dc7f099d88cab6cf",
-    "__federation_expose_Config-DPpEuu27.css": "5138f31f785a87eea3ad7bc6be067db5cb3ea7367f80685937a54e05be5ec99b",
-    "__federation_expose_Page-5QK9AUGp.css": "247ffb43e9760a4455e035e0f33c73198b55fd082f260c3189eb19eecdc8d695",
-    "__federation_expose_Page-DS3Vvmjx.js": "5c2588ff3b0ad148e4411d1ed345a20d47245d3b6d64b9f4cc7730c6f6aa5d55",
+    "__federation_expose_Config-CPvit6UX.js": "73ac506a55630c50bda1bf69d5a2c3ae9f8398aca5969202bd54107c08c04928",
+    "__federation_expose_Config-Cp4Jvoqg.css": "6ab6bf617387792a4ac885fb8ad16a4544d2daefe44dad2fb236c44671a722c8",
+    "__federation_expose_Page-Ba0rj-M2.css": "4126b4058d0b746da5f7c80845dcb1072e0b3b9875efbaac90a56283803e50a0",
+    "__federation_expose_Page-D16gFSx4.js": "a369f5cef47434689f91edf4f1eb086b57553ede138fe8d7bfa4433ebf9ffbe7",
     "__federation_fn_import-JrT3xvdd.js": "4776b5a84c2055e4a6907ebf7377f6abd86f26b7d520d685a13b40d5aa8538aa",
-    "remoteEntry.js": "e3c8ca0bc7c55d8516dc4b82871f5ae24f7ebf7b2e049ae4e197b5e414c4cfe2"
+    "remoteEntry.js": "b7a82b8799616020cc251c8a057606bc2b2c943607abd4f785f1f408ecff7f15"
   }
 }

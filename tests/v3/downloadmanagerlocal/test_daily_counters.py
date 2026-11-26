@@ -146,6 +146,26 @@ def test_iyuu_stats_skip_write_and_sanitize_dirty_counts() -> None:
     assert plugin.saved == []
 
 
+def test_pieces_counters_roll_over_without_rewriting_iyuu_history(monkeypatch):
+    """辅助铺种独立累计，跨日回读不写盘、不挪走旧 IYUU 总数。"""
+    state = _load_state_module()
+    plugin = FakePlugin()
+    monkeypatch.setattr(state, 'today_stamp', lambda: '2026-11-26')
+    old_iyuu = state.record_iyuu_results(plugin, success=1261, fail=2)
+    assert state.load_pieces_stats(plugin)['success_total'] == 0
+    state.record_pieces_result(plugin, success=True)
+    state.record_pieces_result(plugin, success=False)
+    assert state.load_iyuu_stats(plugin) == old_iyuu
+    monkeypatch.setattr(state, 'today_stamp', lambda: '2026-11-27')
+    saved_count = len(plugin.saved)
+    stats = state.load_pieces_stats(plugin)
+    assert (stats['today_success'], stats['today_fail'], stats['success_total'], stats['fail_total']) == (0, 0, 1, 1)
+    assert len(plugin.saved) == saved_count
+    state.record_pieces_result(plugin, success=True)
+    stats = state.load_pieces_stats(plugin)
+    assert (stats['today_success'], stats['success_total']) == (1, 2)
+
+
 def test_iyuu_today_counters_reset_across_days() -> None:
     """IYUU 今日计数必须按天归零，累计保持不变。"""
     state = _load_state_module()
