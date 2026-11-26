@@ -19,6 +19,7 @@ from ..utils.config import (
     normalize_upload_limit_config,
     safe_int,
 )
+from ..utils.official_tag import parse_official_mappings
 from ..utils.tracker import parse_tracker_mappings
 
 DEFAULT_TRACKER_MAPPINGS = (
@@ -30,7 +31,8 @@ DEFAULT_TRACKER_MAPPINGS = (
     "x-anime.cc -> u2.dmhy.org\n"
     "anime.dmhy.org -> u2.dmhy.org\n"
     "daydream.dmhy.best -> u2.dmhy.org\n"
-    "tracker.cinefiles.info -> audiences.me"
+    "tracker.cinefiles.info -> audiences.me\n"
+    "sunnytk.top -> sunnypt.top"
 )
 
 
@@ -108,6 +110,9 @@ def initialize_runtime_config(plugin, config: dict = None) -> dict:
 
     plugin._tag_enabled = config.get("tag_enabled", defaults["tag_enabled"])
     plugin._tag_siteprefix = config.get("tag_siteprefix", defaults["tag_siteprefix"])
+    plugin._tag_official_enabled = config.get("tag_official_enabled", defaults["tag_official_enabled"])
+    plugin._tag_official_prefix = config.get("tag_official_prefix", defaults["tag_official_prefix"])
+    plugin._official_groups = parse_official_mappings(config.get("tag_official_mappings", defaults["tag_official_mappings"]))
     plugin._tag_tracker_mappings_str = config.get("tag_tracker_mappings_str", defaults["tag_tracker_mappings_str"])
     if plugin._tag_tracker_mappings_str:
         plugin._tracker_mappings.update(parse_tracker_mappings(plugin._tag_tracker_mappings_str))

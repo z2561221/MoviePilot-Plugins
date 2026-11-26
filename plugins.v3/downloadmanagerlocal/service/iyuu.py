@@ -35,6 +35,7 @@ from ..model.state import (
     record_iyuu_results,
 )
 from ..utils.sensitive import mask_sensitive_url
+from ..utils.official_tag import apply_official, match_official, official_label, torrent_evidence
 from ..utils.torrent_adapter import get_label, get_tracker_urls, normalize_torrent
 from .site_tag import create_temporary_tag, forget_temporary_tag, release_temporary_tag
 from .coordination import coordinated, operation_lock, task_blocked
@@ -829,6 +830,9 @@ def iyuu_download(plugin, service: ServiceInfo, content: bytes,
     def submit_to_service(send):
         return submit(send) if submit else send(service.instance)
     torrent_tags = plugin._iyuu_labelsafterseed.split(',')
+    if official_label(plugin):
+        name, _ = torrent_evidence(content)
+        torrent_tags = apply_official(torrent_tags, match_official(plugin, site_name, name))
     if hasattr(plugin, '_iyuu_addhosttotag') and plugin._iyuu_addhosttotag:
         torrent_tags.append(site_name)
 

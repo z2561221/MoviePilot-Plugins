@@ -140,6 +140,44 @@ def _transmission_torrent(hash_value: str, labels: list[str]) -> SimpleNamespace
     return SimpleNamespace(hashString=hash_value, name=hash_value, labels=list(labels))
 
 
+@pytest.mark.parametrize("kind", ["qbittorrent", "transmission"])
+@pytest.mark.parametrize("has_official", [False, True])
+def test_confirmed_official_repair_without_history(kind, has_official, monkeypatch):
+    """无历史老种可补官种，已含官种仍清角色；拒选、站点变化和重复扫描不误写。"""
+    service = _load_site_tag("MoviePilot")
+    labels = ["⏩转种", "辅种", "已整理", "用户标签"] + (["🏅官种"] if has_official else [])
+    if kind == "qbittorrent":
+        row = {"hash": "old", "name": "Series@ADWeb [副标题]", "tags": ",".join(labels),
+               "trackers": [{"tier": 0, "url": "https://a.test/announce"}]}
+        downloader = FakeQbittorrent([row])
+    else:
+        row = _transmission_torrent("old", labels.copy())
+        row.name = "Series@ADWeb [副标题]"
+        row.trackers = [{"tier": 0, "announce": "https://a.test/announce"}]
+        downloader = FakeTransmission([row])
+    plugin = EventPlugin({"Dest": SimpleNamespace(name="Dest", instance=downloader, type=kind)})
+    plugin._tag_official_enabled, plugin._tag_enabled = True, False
+    plugin._official_groups = {"观众": {"adweb"}}
+    monkeypatch.setattr(service, "find_site_by_domain", lambda _: "观众")
+    scan = lambda: service.scan_tag_completion(plugin, ["Dest"])["downloaders"][0]["tags"]
+    groups = scan()
+    assert [(group["kind"], group["tag"]) for group in groups] == [("official", "🏅官种")]
+    assert set(service.get_label(row, kind)) == set(labels)
+    repairs = [{**groups[0], "downloader": "Dest"}]
+    monkeypatch.setattr(service, "find_site_by_domain", lambda _: "青蛙")
+    assert service.execute_tag_completion(plugin, repairs)["skipped"]
+    assert set(service.get_label(row, kind)) == set(labels)
+    monkeypatch.setattr(service, "find_site_by_domain", lambda _: "观众")
+    if not has_official and kind == "qbittorrent":
+        with monkeypatch.context() as local:
+            local.setattr(downloader, "set_torrents_tag", lambda **_: True)
+            assert service.execute_tag_completion(plugin, repairs)["failed"]
+            assert not downloader.remove_calls
+    assert service.execute_tag_completion(plugin, repairs)["added"][0]["replaced"] == sorted(["⏩转种", "辅种"])
+    assert set(service.get_label(row, kind)) == {"🏅官种", "已整理", "用户标签"}
+    assert not scan()
+
+
 def test_managed_anchor_recognizes_single_task_legacy_temporary_tag():
     """当前业务锚点应识别单任务上的十位旧临时标签。"""
     cleanup = _load_tag_cleanup()

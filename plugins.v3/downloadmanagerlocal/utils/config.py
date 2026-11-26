@@ -5,6 +5,7 @@ from copy import deepcopy
 from ..model.auto_delete import Settings as AutoDeleteSettings
 from ..model.auto_delete import config_values as auto_delete_values
 from ..model.sync_delete import DEFAULTS as SYNC_DELETE_CONFIG_DEFAULTS
+from .official_tag import DEFAULT_OFFICIAL_MAPPINGS
 
 SPEED_MONITOR_CONFIG_DEFAULTS = {
     "speed_monitor_enabled": False,
@@ -58,6 +59,9 @@ PLUGIN_CONFIG_DEFAULTS = {
     "rename_exclude_dirs": "",
     "tag_enabled": True,
     "tag_siteprefix": "🏠",
+    "tag_official_enabled": False,
+    "tag_official_prefix": "🏅",
+    "tag_official_mappings": DEFAULT_OFFICIAL_MAPPINGS,
     "tag_tracker_mappings_str": "",
     "iyuu_enabled": False,
     "iyuu_cron": "",

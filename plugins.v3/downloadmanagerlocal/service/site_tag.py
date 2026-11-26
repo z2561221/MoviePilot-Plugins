@@ -1,5 +1,8 @@
 """站点标签写入、临时标签回收与人工清理服务。"""
 
+import hashlib
+import re
+from pathlib import Path
 from threading import Event
 from typing import Callable, Dict, Iterable, List, Optional
 from urllib.parse import urlsplit
@@ -8,7 +11,13 @@ from app.sdk.config import settings
 from app.sdk.logging import logger
 
 from ..adapter.moviepilot import generate_random_tag, get_site_indexer, list_site_dicts
-from ..model.state import iyuu_history_key, iyuu_source_key
+from ..model.state import RENAME_RECORDS_KEY
+from ..utils.official_tag import (
+    match_official,
+    official_label,
+    role_tags,
+    torrent_evidence,
+)
 from ..utils.tag_cleanup import (
     TEMP_TAG_PREFIX,
     classify_tag,
@@ -18,6 +27,12 @@ from ..utils.tag_cleanup import (
 from ..utils.torrent_adapter import get_hash, get_label, get_tracker_urls
 from .activity import observed
 from .coordination import coordinated, operation_stopped
+from .pieces import _raw_info
+from .tag_history import (
+    completion_data_snapshot,
+    has_iyuu_history,
+    has_transfer_history,
+)
 
 
 def _active_temporary_tags(plugin) -> set:
@@ -206,6 +221,8 @@ def cleanup_temporary_tags_for_event(plugin, event) -> dict:
 def _managed_tag_anchors(plugin) -> set:
     """返回可证明旧随机标签来自下载中心的业务锚点标签。"""
     managed = normalize_tags(getattr(plugin, "_torrent_tags", []) or [])
+    if label := official_label(plugin):
+        managed.add(label)
     iyuu_tags = str(getattr(plugin, "_iyuu_labelsafterseed", "") or "").split(",")
     managed.update(normalize_tags(iyuu_tags))
     managed.update(normalize_tags(getattr(settings, "TORRENT_TAG", "") or ""))
@@ -714,8 +731,8 @@ def find_site_by_domain(domain: str) -> Optional[str]:
     return None
 
 
-def _site_tag_for_trackers(plugin, trackers: Iterable[str], site_cache: dict) -> str:
-    """按 tracker 映射和站点目录计算可恢复的站点标签。"""
+def tracker_sites(plugin, trackers, site_cache):
+    """按域名缓存解析 tracker；保留未知结果，避免把多站种误判为本站。"""
     mappings = getattr(plugin, "_tracker_mappings", {}) or {}
     for tracker in trackers or []:
         domain = _mapped_tracker_domain(str(tracker or ""), mappings)
@@ -723,75 +740,38 @@ def _site_tag_for_trackers(plugin, trackers: Iterable[str], site_cache: dict) ->
             continue
         if domain not in site_cache:
             site_cache[domain] = find_site_by_domain(domain)
-        site_name = site_cache[domain]
-        if site_name:
-            prefix = str(getattr(plugin, "_tag_siteprefix", "") or "")
-            return f"{prefix}{site_name}"
+        yield site_cache[domain]
+
+
+def official_site(plugin, trackers, site_cache):
+    """所有有效 tracker 必须指向同一已知站点。"""
+    sites = set(tracker_sites(plugin, trackers, site_cache))
+    return next(iter(sites)) if len(sites) == 1 else None
+
+
+def _site_tag_for_trackers(plugin, trackers: Iterable[str], site_cache: dict) -> str:
+    """普通站点标签沿用首个已知站点的语义。"""
+    site = next((site for site in tracker_sites(plugin, trackers, site_cache) if site), None)
+    return f"{getattr(plugin, '_tag_siteprefix', '') or ''}{site}" if site else ""
+
+
+def _saved_torrent_title(plugin, torrent_hash):
+    """显示名不可识别时，按正规 hash 查本地原种，并核对原始 info 身份。"""
+    folder = getattr(plugin, "_fromtorrentpath", None)
+    if not folder or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", torrent_hash, re.IGNORECASE):
+        return ""
+    try:
+        with (Path(folder) / f"{torrent_hash}.torrent").open("rb") as stream:
+            content = stream.read(16 * 1024 * 1024 + 1)
+        if len(content) > 16 * 1024 * 1024:
+            return ""
+        raw = _raw_info(content)
+        sha256 = hashlib.sha256(raw).hexdigest()
+        if torrent_hash.casefold() in (hashlib.sha1(raw).hexdigest(), sha256, sha256[:40]):
+            return torrent_evidence(content)[0]
+    except (OSError, ValueError, TypeError, IndexError):
+        pass
     return ""
-
-
-def _completion_data_snapshot(plugin) -> dict:
-    """一次读取当前插件全部数据，供大批标签扫描复用。"""
-    get_data = getattr(plugin, "get_data", None)
-    if not callable(get_data):
-        return {}
-    data = get_data()
-    if isinstance(data, dict):
-        return data
-    if isinstance(data, (list, tuple)):
-        return {
-            str(row.key): row.value
-            for row in data
-            if getattr(row, "key", None) is not None
-        }
-    return {}
-
-
-def _has_transfer_history(
-    downloader_name: str,
-    torrent_hash: str,
-    source_service,
-    cache: dict,
-    data_snapshot: dict,
-) -> bool:
-    """只接受源、目标和 hash 均匹配的已完成转移记录。"""
-    if not source_service or not getattr(source_service, "name", ""):
-        return False
-    cache_key = (source_service.name, downloader_name, torrent_hash.casefold())
-    if cache_key not in cache:
-        record = data_snapshot.get(f"{source_service.name}-{torrent_hash}")
-        cache[cache_key] = bool(
-            isinstance(record, dict)
-            and record.get("transfer_state") == "completed"
-            and str(record.get("to_download") or "") == downloader_name
-            and str(record.get("to_download_id") or "").casefold() == torrent_hash.casefold()
-        )
-    return cache[cache_key]
-
-
-def _has_iyuu_history(
-    downloader_name: str,
-    torrent_hash: str,
-    cache: dict,
-    data_snapshot: dict,
-) -> bool:
-    """通过母种历史反查确认该下载器上的任务确由 IYUU 辅种。"""
-    cache_key = (downloader_name, torrent_hash.casefold())
-    if cache_key not in cache:
-        source_hash = data_snapshot.get(iyuu_source_key(torrent_hash))
-        if not source_hash:
-            cache[cache_key] = False
-        else:
-            history = data_snapshot.get(iyuu_history_key(str(source_hash))) or []
-            cache[cache_key] = any(
-                isinstance(item, dict)
-                and str(item.get("downloader") or "") == downloader_name
-                and torrent_hash.casefold() in {
-                    str(value or "").casefold() for value in item.get("torrents") or []
-                }
-                for item in history
-            )
-    return cache[cache_key]
 
 
 def _needs_completion_history(plugin, source_service) -> bool:
@@ -803,7 +783,7 @@ def _needs_completion_history(plugin, source_service) -> bool:
     has_iyuu_labels = bool(
         _label_list(getattr(plugin, "_iyuu_labelsafterseed", "") or "")
     )
-    return has_transfer_labels or has_iyuu_labels
+    return has_transfer_labels or has_iyuu_labels or bool(official_label(plugin))
 
 
 def _expected_completion_tags(
@@ -821,13 +801,13 @@ def _expected_completion_tags(
 ) -> dict[str, set[str]]:
     """返回当前任务有证据可恢复的站点、转移和 IYUU 标签。"""
     torrent_hash = str(get_hash(torrent, dl_type) or "").strip()
-    expected = {"site": set(), "transfer": set(), "iyuu": set()}
+    expected = {"site": set(), "transfer": set(), "iyuu": set(), "official": set()}
     trackers = tracker_urls if tracker_urls is not None else get_tracker_urls(torrent, dl_type)
     site_tag = _site_tag_for_trackers(plugin, trackers, site_cache)
-    if site_tag:
+    if site_tag and (getattr(plugin, "_tag_enabled", True) or not official_label(plugin)):
         expected["site"].add(site_tag)
     transfer_tags = _label_list(getattr(plugin, "_torrent_tags", []) or [])
-    if torrent_hash and transfer_tags and _has_transfer_history(
+    if torrent_hash and transfer_tags and has_transfer_history(
         downloader_name,
         torrent_hash,
         source_service,
@@ -836,13 +816,26 @@ def _expected_completion_tags(
     ):
         expected["transfer"].update(transfer_tags)
     iyuu_tags = _label_list(getattr(plugin, "_iyuu_labelsafterseed", "") or "")
-    if torrent_hash and iyuu_tags and _has_iyuu_history(
+    if torrent_hash and iyuu_tags and has_iyuu_history(
         downloader_name,
         torrent_hash,
         iyuu_cache,
         data_snapshot,
     ):
         expected["iyuu"].update(iyuu_tags)
+    if official_label(plugin):
+        if not trackers and isinstance(torrent, dict) and torrent.get("tracker"):
+            trackers = [torrent["tracker"]]
+        site = official_site(plugin, trackers, site_cache)
+        record = (data_snapshot.get(RENAME_RECORDS_KEY) or {}).get(torrent_hash) or {}
+        original = record.get("original_name") if isinstance(record, dict) else None
+        label = match_official(plugin, site, original or _torrent_name(torrent, ""))
+        if not label and not original and site and site.strip().casefold() in plugin._official_groups:
+            label = match_official(plugin, site, _saved_torrent_title(plugin, torrent_hash))
+        if label:
+            expected["official"].add(label)
+            for kind in ("transfer", "iyuu"):
+                expected[kind].difference_update(role_tags(expected[kind]))
     return expected
 
 
@@ -863,7 +856,7 @@ def scan_tag_completion(
     source_name = getattr(plugin, "_fromdownloader", "")
     source_service = plugin.service_info(source_name) if source_name else None
     needs_history = _needs_completion_history(plugin, source_service)
-    data_snapshot = _completion_data_snapshot(plugin) if needs_history else {}
+    data_snapshot = completion_data_snapshot(plugin) if needs_history else {}
     site_cache = {}
     transfer_cache = {}
     iyuu_cache = {}
@@ -911,10 +904,11 @@ def scan_tag_completion(
                 data_snapshot=data_snapshot,
                 tracker_urls=trackers,
             )
-            if trackers and not expected["site"]:
+            if trackers and (getattr(plugin, "_tag_enabled", True) or not official_label(plugin)) and not expected["site"]:
                 tracker_unmatched += 1
             for kind, tags in expected.items():
-                for tag in tags - current_tags:
+                pending = tags if kind == "official" and role_tags(current_tags) else tags - current_tags
+                for tag in pending:
                     item = grouped.setdefault((kind, tag), {"kind": kind, "tag": tag, "hashes": set(), "samples": []})
                     item["hashes"].add(torrent_hash)
                     name = _torrent_name(torrent, torrent_hash)
@@ -972,7 +966,7 @@ def execute_tag_completion(
             for value in (item.get("hashes") or [])
             if str(value or "").strip()
         ))
-        if not downloader_name or not tag or kind not in {"site", "transfer", "iyuu"}:
+        if not downloader_name or not tag or kind not in {"site", "transfer", "iyuu", "official"}:
             continue
         for torrent_hash in hashes:
             key = (downloader_name, torrent_hash)
@@ -984,7 +978,7 @@ def execute_tag_completion(
     source_name = getattr(plugin, "_fromdownloader", "")
     source_service = plugin.service_info(source_name) if source_name else None
     needs_history = _needs_completion_history(plugin, source_service)
-    data_snapshot = _completion_data_snapshot(plugin) if needs_history else {}
+    data_snapshot = completion_data_snapshot(plugin) if needs_history else {}
     site_cache = {}
     transfer_cache = {}
     iyuu_cache = {}
@@ -1042,13 +1036,17 @@ def execute_tag_completion(
         current_tags = _label_list(get_label(torrent, dl_type))
         current_set = set(current_tags)
         missing = set()
+        replaced = set()
         rejected = []
         for kind, tags in by_kind.items():
             for tag in tags:
                 if tag not in expected[kind]:
                     rejected.append(tag)
-                elif tag not in current_set:
-                    missing.add(tag)
+                else:
+                    if tag not in current_set:
+                        missing.add(tag)
+                    if kind == "official":
+                        replaced.update(role_tags(current_set) - {tag})
         if rejected:
             skipped.append({
                 "downloader": downloader_name,
@@ -1056,7 +1054,7 @@ def execute_tag_completion(
                 "tags": sorted(rejected),
                 "message": "来源记录或 tracker 与扫描时不同，已跳过",
             })
-        if not missing:
+        if not missing and not replaced:
             if not rejected:
                 skipped.append({"downloader": downloader_name, "hash": torrent_hash, "message": "标签已存在"})
             return
@@ -1065,10 +1063,17 @@ def execute_tag_completion(
             skipped.append({"downloader": downloader_name, "hash": torrent_hash, "tags": sorted(missing), "message": "任务已停止，尚未发起标签写入"})
             return
 
-        labels_to_write = _label_list([*current_tags, *sorted(missing)])
+        labels_to_write = _label_list([*(tag for tag in current_tags if tag not in replaced), *sorted(missing)])
         try:
             if dl_type == "qbittorrent":
-                result = service.instance.set_torrents_tag(ids=torrent_hash, tags=sorted(missing))
+                result = service.instance.set_torrents_tag(ids=torrent_hash, tags=sorted(missing)) if missing else True
+                if replaced and result is not False:
+                    confirmed, error = _read_download_torrents(service.instance, ids=[torrent_hash])
+                    if error or not any(get_hash(row, dl_type) == torrent_hash and expected["official"].issubset(get_label(row, dl_type)) for row in confirmed):
+                        raise ValueError("未确认官种标签，保留原角色标签")
+                    for tag in sorted(replaced):
+                        if stopped() or service.instance.remove_torrents_tag(ids=torrent_hash, tag=tag) is False:
+                            raise ValueError("原角色标签未全部替换，请重新扫描")
             else:
                 result = _write_transmission_labels(service.instance, torrent_hash, labels_to_write)
             if result is False:
@@ -1080,14 +1085,15 @@ def execute_tag_completion(
                 if str(get_hash(value, dl_type) or "").casefold() == torrent_hash.casefold()
             ), None)
             observed_tags = set(_label_list(get_label(latest, dl_type))) if latest else set()
-            if read_error or latest is None or not missing.issubset(observed_tags):
+            if read_error or latest is None or not set(labels_to_write).issubset(observed_tags) or replaced & observed_tags:
                 failed.append({"downloader": downloader_name, "hash": torrent_hash, "tags": sorted(missing), "message": "写入后回读未确认全部标签"})
                 return
             added.append({
                 "downloader": downloader_name,
                 "hash": torrent_hash,
                 "name": _torrent_name(torrent, torrent_hash),
-                "tags": sorted(missing),
+                "tags": sorted(missing | (expected["official"] if replaced else set())),
+                "replaced": sorted(replaced),
             })
         except Exception as err:
             failed.append({"downloader": downloader_name, "hash": torrent_hash, "tags": sorted(missing), "message": str(err)})
